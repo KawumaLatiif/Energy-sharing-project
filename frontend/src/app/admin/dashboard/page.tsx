@@ -19,8 +19,6 @@ import {
   TrendingUp,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { authFetch } from '@/lib/auth';
-import { getAdminStats } from './action';
 import { get } from "@/lib/fetch";
 
 interface AdminStats {
@@ -32,6 +30,11 @@ interface AdminStats {
   users_with_meters: number;
   new_users_today: number;
   new_users_week: number;
+  total_loans: number;
+  active_loans: number;
+  pending_loans: number;
+  outstanding_balance: number;
+  recent_registrations: number;
 }
 
 export default function AdminDashboard() {
@@ -45,68 +48,81 @@ export default function AdminDashboard() {
     users_with_meters: 0,
     new_users_today: 0,
     new_users_week: 0,
+    total_loans: 0,
+    active_loans: 0,
+    pending_loans: 0,
+    outstanding_balance: 0,
+    recent_registrations: 0,
   });
   const [loading, setLoading] = useState(true);
 
-  // useEffect(() => {
-  //   const fetchData = async () => {
-  //     try {
-  //       const res = await fetch(`${API_BASE}/admin/dashboard/`, {
-  //         credentials: 'include', // Sends cookies automatically
-  //       });
+  useEffect(() => {
+    async function fetchData() {
+      try {
+        console.log('Fetching admin dashboard data...');
+        const res = await get<any>("admin/dashboard/");
+        
+        console.log('Admin Dashboard Response:', res);
+        
+        if (res.status === 403 || res.status === 401) {
+          console.log('Unauthorized access to admin dashboard');
+          router.push('/dashboard');
+          return;
+        }
+        
+        if (res.error) {
+          console.error('Failed to load admin dashboard:', res.error);
+          return;
+        }
 
-  //       if (res.status === 403 || res.status === 401) {
-  //         router.push('/dashboard');
-  //         return;
-  //       }
-  //       if (!res.ok) throw new Error('Failed to load data');
-
-  //       const data = await res.json();
-  //       setStats(data); // Assuming Django returns the numbers directly
-  //     } catch (err) {
-  //       console.error(err);
-  //     } finally {
-  //       setLoading(false);
-  //     }
-  //   };
-
-  //   fetchData();
-  // }, [router]);
-
-
-useEffect(() => {
-async function fetchData() {
-  try {
-    const res = await get<any>("admin/dashboard/");
-    
-    console.log('Admin Dashboard Response Status:', res.status);
-    
-    if (res.status === 403 || res.status === 401) {
-      console.log('Unauthorized access to admin dashboard');
-      router.push('/dashboard');
-      return;
+        // Check if data is nested under 'stats' or flat
+        if (res.data && res.data.stats) {
+          console.log('Data is nested under stats:', res.data.stats);
+          // Map nested data to flat structure
+          setStats({
+            total_users: res.data.stats.total_users || 0,
+            total_admins: res.data.stats.total_admins || 0,
+            total_meters: res.data.stats.total_meters || 0,
+            active_meters: res.data.stats.active_meters || 0,
+            verified_users: res.data.stats.verified_users || 0,
+            users_with_meters: res.data.stats.users_with_meters || 0,
+            new_users_today: res.data.stats.new_users_today || 0,
+            new_users_week: res.data.stats.new_users_week || 0,
+            total_loans: res.data.total_loans || 0,
+            active_loans: res.data.active_loans || 0,
+            pending_loans: res.data.pending_loans || 0,
+            outstanding_balance: res.data.outstanding_balance || 0,
+            recent_registrations: res.data.recent_registrations || 0,
+          });
+        } else if (res.data) {
+          console.log('Data is flat:', res.data);
+          // Data is already flat
+          setStats({
+            total_users: res.data.total_users || 0,
+            total_admins: res.data.total_admins || 0,
+            total_meters: res.data.total_meters || 0,
+            active_meters: res.data.active_meters || 0,
+            verified_users: res.data.verified_users || 0,
+            users_with_meters: res.data.users_with_meters || 0,
+            new_users_today: res.data.new_users_today || 0,
+            new_users_week: res.data.new_users_week || 0,
+            total_loans: res.data.total_loans || 0,
+            active_loans: res.data.active_loans || 0,
+            pending_loans: res.data.pending_loans || 0,
+            outstanding_balance: res.data.outstanding_balance || 0,
+            recent_registrations: res.data.recent_registrations || res.data.new_users_week || 0,
+          });
+        } else {
+          console.error('No data in response');
+        }
+      } catch (err) {
+        console.error('Admin dashboard error:', err);
+      } finally {
+        setLoading(false);
+      }
     }
-    
-    if (res.error) {
-      console.error('Failed to load admin dashboard:', res.status);
-      // const errorText = await res.text();
-      // console.error('Error response:', errorText);
-      // throw new Error('Failed to load data');
-      return;
-    }
-
-    // const data = await res.json();
-    // console.log('Admin Dashboard Data:', data);
-    setStats(res.data);
-  } catch (err) {
-    console.error('Admin dashboard error:', err);
-  } finally {
-    setLoading(false);
-  }
-}
-  fetchData();
-}, []);
-
+    fetchData();
+  }, [router]);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -134,7 +150,7 @@ async function fetchData() {
             <Zap className="h-5 w-5 text-green-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.total_meters || 0}</div>
+            <div className="text-3xl font-bold">{stats.total_meters || 0}</div>
           </CardContent>
         </Card>
 
@@ -144,7 +160,7 @@ async function fetchData() {
             <DollarSign className="h-5 w-5 text-amber-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.total_admins || 0}</div>
+            <div className="text-3xl font-bold">{stats.active_loans || 0}</div>
           </CardContent>
         </Card>
 
@@ -154,7 +170,7 @@ async function fetchData() {
             <AlertCircle className="h-5 w-5 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.active_meters || 0}</div>
+            <div className="text-3xl font-bold">{stats.total_admins || 0}</div>
           </CardContent>
         </Card>
       </div>
@@ -166,7 +182,7 @@ async function fetchData() {
             <FileText className="h-5 w-5 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.verified_users || 0}</div>
+            <div className="text-2xl font-bold">{stats.total_loans || 0}</div>
           </CardContent>
         </Card>
 
@@ -177,23 +193,23 @@ async function fetchData() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              USh {(stats?.outstanding_balance || 0).toLocaleString()}
+              USh {(stats.outstanding_balance || 0).toLocaleString()}
             </div>
           </CardContent>
         </Card> */}
 
-        {/* <Card>
+        <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Recent Registrations</CardTitle>
             <Users className="h-5 w-5 text-indigo-600" />
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {stats?.recent_registrations || '—'}
+              {stats.recent_registrations || 0}
             </div>
             <p className="text-xs text-muted-foreground">Last 7 days</p>
           </CardContent>
-        </Card> */}
+        </Card>
       </div>
 
       <div className="mb-8">

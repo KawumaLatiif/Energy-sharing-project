@@ -1,4 +1,3 @@
-// app/page.tsx
 "use client";
 import Features from "@/components/common/features";
 import PublicFooter from "@/components/common/public-footer";
@@ -61,28 +60,6 @@ export default function Home() {
                   </motion.button>
                 </Link>
               </div>
-
-              {/* Stats */}
-              {/* <div className="grid grid-cols-3 gap-4 pt-8">
-                <div className="text-center">
-                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-                    10K+
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Active Users</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-                    50MW
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Energy Shared</div>
-                </div>
-                <div className="text-center">
-                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
-                    100%
-                  </div>
-                  <div className="text-sm text-gray-600 dark:text-gray-400">Renewable</div>
-                </div>
-              </div> */}
             </motion.div>
 
             <motion.div
@@ -99,21 +76,6 @@ export default function Home() {
                 className="object-cover rounded-2xl shadow-2xl"
                 priority
               />
-              {/* Floating Elements */}
-              {/* <motion.div
-                animate={{ y: [0, -20, 0] }}
-                transition={{ duration: 3, repeat: Infinity }}
-                className="absolute -top-4 -left-4 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-lg"
-              >
-                <Battery className="h-6 w-6 text-emerald-500" />
-              </motion.div> */}
-              {/* <motion.div
-                animate={{ y: [0, 20, 0] }}
-                transition={{ duration: 3, repeat: Infinity, delay: 1 }}
-                className="absolute -bottom-4 -right-4 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-lg"
-              >
-                {/* <Users className="h-6 w-6 text-blue-500" /> 
-              </motion.div> */}
             </motion.div>
           </div>
         </div>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -44,12 +44,17 @@ import {
   UserX,
   Filter,
   Download,
-  Plus
+  Plus,
+  AlertCircle,
+  RefreshCw
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
+import { clientAuthFetch, refreshAuthToken } from '@/lib/auth_client';
+import { get, post } from '@/lib/fetch';
+import { adminGet, adminPost } from '@/lib/admin_fetch';
+import { authFetch } from '@/lib/auth';
 
 interface User {
   id: number;
@@ -84,6 +89,7 @@ export default function UsersManagementPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalUsers, setTotalUsers] = useState(0);
+  const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const limit = 20;
 
   const API_BASE = 'http://localhost:8000/api/v1';
@@ -95,27 +101,27 @@ export default function UsersManagementPage() {
         page: currentPage.toString(),
         limit: limit.toString(),
         ...(search && { search }),
-        ...(statusFilter !== 'all' && { status: statusFilter })
+        ...(statusFilter !== 'all' && { status: statusFilter }),
       });
 
-      const res = await authFetch(`${API_BASE}/admin/users/?${params}`);
+      const res = await get<any>(`admin/users/?${params}`);
 
       if (res.status === 403 || res.status === 401) {
         router.push('/dashboard');
         return;
       }
 
-      if (!res.ok) throw new Error('Failed to fetch users');
+      if (res.error) throw new Error('Failed to fetch users');
 
-      const data = await res.json();
-      setUsers(data.users);
-      setTotalPages(data.pagination.pages);
-      setTotalUsers(data.pagination.total);
+      if(res.data && res.data.users){
+      setUsers(res.data.users);
+      setTotalPages(res.data.pagination.pages);
+      setTotalUsers(res.data.pagination.total);}
     } catch (error) {
-      console.error('Error fetching users:', error);
+      console.error('❌ Error fetching users:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load users',
+        description: error instanceof Error ? error.message : 'Failed to load users',
         variant: 'destructive',
       });
     } finally {
@@ -125,7 +131,9 @@ export default function UsersManagementPage() {
 
   const toggleUserStatus = async (userId: number, currentStatus: boolean) => {
     try {
-      const res = await authFetch(`${API_BASE}/admin/toggle-user-status/`, {
+      console.log('🔄 Toggling user status for ID:', userId);
+
+      const raw = await post(`${API_BASE}/admin/toggle-user-status/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -133,7 +141,7 @@ export default function UsersManagementPage() {
         body: JSON.stringify({ user_id: userId }),
       });
 
-      if (res.ok) {
+      if (res.error) {
         const data = await res.json();
         setUsers(users.map(user => 
           user.id === userId 
@@ -145,11 +153,12 @@ export default function UsersManagementPage() {
           title: 'Success',
           description: `User ${data.user.account_active ? 'activated' : 'deactivated'} successfully`,
         });
-      } else {
-        throw new Error('Failed to update user status');
+
+        console.log('✅ User status toggled successfully');
+        return;
       }
     } catch (error) {
-      console.error('Error toggling user status:', error);
+      console.error('❌ Error toggling user status:', error);
       toast({
         title: 'Error',
         description: 'Failed to update user status',
@@ -159,7 +168,15 @@ export default function UsersManagementPage() {
   };
 
   const exportUsers = () => {
-    // In a real app, you would generate a CSV/Excel file
+    if (users.length === 0) {
+      toast({
+        title: 'No Data',
+        description: 'No users to export',
+        variant: 'destructive',
+      });
+      return;
+    }
+
     const csvContent = [
       ['ID', 'Name', 'Email', 'Phone', 'Status', 'Verified', 'Meter', 'Joined Date'],
       ...users.map(user => [
@@ -180,11 +197,45 @@ export default function UsersManagementPage() {
     a.href = url;
     a.download = `users_export_${new Date().toISOString().split('T')[0]}.csv`;
     a.click();
+    
+    toast({
+      title: 'Export Successful',
+      description: `Exported ${users.length} users to CSV`,
+    });
+  };
+
+  const handleSearchChange = (value: string) => {
+    setSearch(value);
+    
+    // Debounce search
+    if (searchTimeout) {
+      clearTimeout(searchTimeout);
+    }
+    
+    const timeout = setTimeout(() => {
+      setCurrentPage(1); // Reset to first page on new search
+    }, 500);
+    
+    setSearchTimeout(timeout);
+  };
+
+  const handleStatusFilterChange = (value: string) => {
+    setStatusFilter(value);
+    setCurrentPage(1); // Reset to first page on filter change
   };
 
   useEffect(() => {
     fetchUsers();
   }, [currentPage, search, statusFilter]);
+
+  // Cleanup timeout on unmount
+  // useEffect(() => {
+  //   return () => {
+  //     if (searchTimeout) {
+  //       clearTimeout(searchTimeout);
+  //     }
+  //   };
+  // }, [searchTimeout]);
 
   if (loading && users.length === 0) {
     return <UsersManagementSkeleton />;
@@ -200,7 +251,15 @@ export default function UsersManagementPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportUsers}>
+          <Button 
+            variant="outline" 
+            onClick={() => fetchUsers()}
+            disabled={loading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+          <Button variant="outline" onClick={exportUsers} disabled={users.length === 0}>
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -215,11 +274,12 @@ export default function UsersManagementPage() {
               <Input
                 placeholder="Search users by name, email, or phone..."
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => handleSearchChange(e.target.value)}
                 className="pl-9"
+                disabled={loading}
               />
             </div>
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select value={statusFilter} onValueChange={handleStatusFilterChange} disabled={loading}>
               <SelectTrigger className="w-[180px]">
                 <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Filter by status" />
@@ -248,125 +308,160 @@ export default function UsersManagementPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {users.map((user) => (
-                  <TableRow key={user.id}>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span className="font-medium">
-                          {user.first_name} {user.last_name}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          {user.email}
-                        </span>
-                        <span className="text-sm text-muted-foreground">
-                          {user.phone_number}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.account_active ? "default" : "secondary"}>
-                        {user.account_active ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.email_verified ? "success" : "outline"}>
-                        {user.email_verified ? 'Verified' : 'Pending'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={user.has_meter ? "default" : "secondary"}>
-                        {user.has_meter ? 'Assigned' : 'No Meter'}
-                      </Badge>
-                      {user.has_meter && user.meter_info && (
-                        <div className="text-xs text-muted-foreground mt-1">
-                          {user.meter_info.meter_no}
+                {loading && users.length === 0 ? (
+                  // Loading skeleton for table rows
+                  Array.from({ length: 5 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell><Skeleton className="h-6 w-32" /></TableCell>
+                      <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-6 w-20" /></TableCell>
+                      <TableCell><Skeleton className="h-6 w-24" /></TableCell>
+                      <TableCell><Skeleton className="h-6 w-10 ml-auto" /></TableCell>
+                    </TableRow>
+                  ))
+                ) : users.length > 0 ? (
+                  users.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span className="font-medium">
+                            {user.first_name} {user.last_name}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            {user.email}
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            {user.phone_number}
+                          </span>
                         </div>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span>{new Date(user.created_at).toLocaleDateString()}</span>
-                        <span className="text-xs text-muted-foreground">
-                          {user.last_login 
-                            ? `Last login: ${new Date(user.last_login).toLocaleDateString()}`
-                            : 'Never logged in'
-                          }
-                        </span>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={user.account_active ? "default" : "secondary"}>
+                          {user.account_active ? 'Active' : 'Inactive'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={user.email_verified ? "success" : "outline"}>
+                          {user.email_verified ? 'Verified' : 'Pending'}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={user.has_meter ? "default" : "secondary"}>
+                          {user.has_meter ? 'Assigned' : 'No Meter'}
+                        </Badge>
+                        {user.has_meter && user.meter_info && (
+                          <div className="text-xs text-muted-foreground mt-1">
+                            {user.meter_info.meter_no}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex flex-col">
+                          <span>{new Date(user.created_at).toLocaleDateString()}</span>
+                          <span className="text-xs text-muted-foreground">
+                            {user.last_login 
+                              ? `Last login: ${new Date(user.last_login).toLocaleDateString()}`
+                              : 'Never logged in'
+                            }
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button variant="ghost" size="icon" disabled={loading}>
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end">
+                            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+                            <DropdownMenuItem 
+                              onClick={() => router.push(`/admin/users/${user.id}`)}
+                            >
+                              <Eye className="mr-2 h-4 w-4" />
+                              View Details
+                            </DropdownMenuItem>
+                            <DropdownMenuItem>
+                              <Edit className="mr-2 h-4 w-4" />
+                              Edit User
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => toggleUserStatus(user.id, user.account_active)}
+                            >
+                              {user.account_active ? (
+                                <>
+                                  <UserX className="mr-2 h-4 w-4" />
+                                  Deactivate
+                                </>
+                              ) : (
+                                <>
+                                  <UserCheck className="mr-2 h-4 w-4" />
+                                  Activate
+                                </>
+                              )}
+                            </DropdownMenuItem>
+                            <DropdownMenuItem className="text-destructive">
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete User
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-8">
+                      <div className="flex flex-col items-center justify-center">
+                        <AlertCircle className="h-12 w-12 text-muted-foreground mb-4" />
+                        <p className="text-muted-foreground">No users found</p>
+                        {search && (
+                          <p className="text-sm text-muted-foreground mt-2">
+                            Try a different search term or clear the search
+                          </p>
+                        )}
+                        <Button 
+                          variant="outline" 
+                          className="mt-4"
+                          onClick={() => {
+                            setSearch('');
+                            setStatusFilter('all');
+                          }}
+                        >
+                          Clear Filters
+                        </Button>
                       </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button variant="ghost" size="icon">
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>Actions</DropdownMenuLabel>
-                          <DropdownMenuItem 
-                            onClick={() => router.push(`/admin/users/${user.id}`)}
-                          >
-                            <Eye className="mr-2 h-4 w-4" />
-                            View Details
-                          </DropdownMenuItem>
-                          <DropdownMenuItem>
-                            <Edit className="mr-2 h-4 w-4" />
-                            Edit User
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem
-                            onClick={() => toggleUserStatus(user.id, user.account_active)}
-                          >
-                            {user.account_active ? (
-                              <>
-                                <UserX className="mr-2 h-4 w-4" />
-                                Deactivate
-                              </>
-                            ) : (
-                              <>
-                                <UserCheck className="mr-2 h-4 w-4" />
-                                Activate
-                              </>
-                            )}
-                          </DropdownMenuItem>
-                          <DropdownMenuItem className="text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete User
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </div>
 
-          {users.length === 0 && !loading && (
-            <div className="text-center py-8">
-              <p className="text-muted-foreground">No users found</p>
-            </div>
-          )}
-
           {totalPages > 1 && (
             <div className="flex items-center justify-between mt-4">
               <div className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages}
+                Showing {((currentPage - 1) * limit) + 1} to {Math.min(currentPage * limit, totalUsers)} of {totalUsers} users
               </div>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
+                  disabled={currentPage === 1 || loading}
                 >
                   Previous
                 </Button>
+                <div className="flex items-center">
+                  <span className="text-sm mx-2">Page {currentPage} of {totalPages}</span>
+                </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
+                  disabled={currentPage === totalPages || loading}
                 >
                   Next
                 </Button>
@@ -387,7 +482,10 @@ function UsersManagementSkeleton() {
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <Skeleton className="h-10 w-32" />
+        <div className="flex gap-2">
+          <Skeleton className="h-10 w-32" />
+          <Skeleton className="h-10 w-32" />
+        </div>
       </div>
       
       <Card>

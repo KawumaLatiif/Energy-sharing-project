@@ -14,7 +14,6 @@ import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
-import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import {
   ArrowLeft,
@@ -29,7 +28,10 @@ import {
   AlertCircle,
   CheckCircle,
   XCircle,
+  RefreshCw,
 } from 'lucide-react';
+import { clientAuthFetch, refreshAuthToken } from '@/lib/auth_client';
+import { adminGet, adminPost } from '@/lib/admin_fetch';
 
 interface UserDetail {
   id: number;
@@ -82,22 +84,67 @@ export default function UserDetailPage() {
   const fetchUserDetails = async () => {
     try {
       setLoading(true);
-      const res = await authFetch(`${API_BASE}/admin/users/${params.id}/`);
+      console.log('🔄 Fetching user details for ID:', params.id);
+      
+      const res = await adminGet(`${API_BASE}/admin/users/${params.id}/`);
 
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
+      console.log('📊 Response status:', res.status);
+      
+      if (res.status === 401) {
+        const newToken = await refreshAuthToken();
+        if (newToken) {
+          const retryRes = await adminGet(`${API_BASE}/admin/users/${params.id}/`);
+          if (retryRes.ok) {
+            const data = await retryRes.json();
+            setUser(data.user);
+          } else {
+            handleAuthError();
+          }
+        } else {
+          handleAuthError();
+        }
         return;
       }
 
-      if (!res.ok) throw new Error('Failed to fetch user details');
+      if (res.status === 403) {
+        toast({
+          title: 'Access Denied',
+          description: 'You do not have permission to view this user',
+          variant: 'destructive',
+        });
+        router.push('/admin/users');
+        return;
+      }
+
+      if (res.status === 404) {
+        toast({
+          title: 'User Not Found',
+          description: 'The requested user does not exist',
+          variant: 'destructive',
+        });
+        router.push('/admin/users');
+        return;
+      }
+
+      if (!res.ok) {
+        const errorText = await res.text();
+        console.error('❌ API Error:', errorText);
+        throw new Error(`Failed to fetch user details: ${res.status}`);
+      }
 
       const data = await res.json();
+      console.log('✅ Received user data:', data);
+      
+      if (!data.user) {
+        throw new Error('Invalid response format: missing user field');
+      }
+      
       setUser(data.user);
     } catch (error) {
-      console.error('Error fetching user details:', error);
+      console.error('❌ Error fetching user details:', error);
       toast({
         title: 'Error',
-        description: 'Failed to load user details',
+        description: error instanceof Error ? error.message : 'Failed to load user details',
         variant: 'destructive',
       });
     } finally {
@@ -109,7 +156,9 @@ export default function UserDetailPage() {
     if (!user) return;
 
     try {
-      const res = await authFetch(`${API_BASE}/admin/toggle-user-status/`, {
+      console.log('🔄 Toggling user status for ID:', user.id);
+      
+      const res = await adminPost(`${API_BASE}/admin/toggle-user-status/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -129,13 +178,22 @@ export default function UserDetailPage() {
         throw new Error('Failed to update user status');
       }
     } catch (error) {
-      console.error('Error toggling user status:', error);
+      console.error('❌ Error toggling user status:', error);
       toast({
         title: 'Error',
         description: 'Failed to update user status',
         variant: 'destructive',
       });
     }
+  };
+
+  const handleAuthError = () => {
+    toast({
+      title: 'Session Expired',
+      description: 'Please log in again',
+      variant: 'destructive',
+    });
+    router.push('/login');
   };
 
   useEffect(() => {
@@ -185,6 +243,14 @@ export default function UserDetailPage() {
           </div>
         </div>
         <div className="flex gap-2">
+          <Button
+            variant="outline"
+            onClick={fetchUserDetails}
+            disabled={loading}
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
           <Button
             variant={user.account_active ? "destructive" : "default"}
             onClick={toggleUserStatus}

@@ -6,9 +6,8 @@ from rest_framework import status
 from django.contrib.auth import get_user_model
 from meter.models import Meter
 from accounts.models import Profile, UserAccountDetails
-from rest_framework.decorators import permission_classes
 from datetime import datetime, timedelta
-from django.db.models import Count, Q
+from django.db.models import Q
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -73,6 +72,13 @@ class AdminDashboardView(APIView, AdminPermissionMixin):
                 devices__isnull=False
             ).distinct().count()
             
+            # TODO: Implement loan statistics when loan models are available
+            # For now, return placeholder values
+            total_loans = 0
+            active_loans = 0
+            pending_loans = 0
+            outstanding_balance = 0
+            
             # Recent users (last 10)
             recent_users = User.objects.filter(
                 user_role=User.CLIENT
@@ -93,17 +99,21 @@ class AdminDashboardView(APIView, AdminPermissionMixin):
             
             return Response({
                 "success": True,
-                "stats": {
-                    "total_users": total_users,
-                    "total_admins": total_admins,
-                    "total_meters": total_meters,
-                    "active_meters": active_meters,
-                    "verified_users": verified_users,
-                    "users_with_meters": users_with_meters,
-                    "new_users_today": new_users_today,
-                    "new_users_week": new_users_week,
-                    "verification_rate": round((verified_users / total_users * 100) if total_users > 0 else 0, 1)
-                },
+                # Flat structure for easier frontend consumption
+                "total_users": total_users,
+                "total_admins": total_admins,
+                "total_meters": total_meters,
+                "active_meters": active_meters,
+                "verified_users": verified_users,
+                "users_with_meters": users_with_meters,
+                "new_users_today": new_users_today,
+                "new_users_week": new_users_week,
+                "total_loans": total_loans,
+                "active_loans": active_loans,
+                "pending_loans": pending_loans,
+                "outstanding_balance": outstanding_balance,
+                "recent_registrations": new_users_week,
+                "verification_rate": round((verified_users / total_users * 100) if total_users > 0 else 0, 1),
                 "recent_users": recent_users_list,
                 "timestamp": datetime.now().isoformat()
             })
@@ -461,7 +471,6 @@ class AdminStatsView(APIView, AdminPermissionMixin):
                 })
             
             daily_registrations.reverse()
-            total_users
             
             # Meter registration stats
             meter_daily = []

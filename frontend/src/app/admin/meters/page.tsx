@@ -36,6 +36,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
+import { get } from '@/lib/fetch';
 
 interface Meter {
   meter_id: number;
@@ -75,19 +76,30 @@ export default function MetersManagementPage() {
         ...(search && { search })
       });
 
-      const res = await authFetch(`${API_BASE}/admin/meters/?${params}`);
+      const res = await get<any>(`admin/meters/?${params}`);
+      
 
       if (res.status === 403 || res.status === 401) {
         router.push('/dashboard');
         return;
       }
 
-      if (!res.ok) throw new Error('Failed to fetch meters');
-
-      const data = await res.json();
-      setMeters(data.meters);
-      setTotalPages(data.pagination.pages);
-      setTotalMeters(data.pagination.total);
+      if (res.error) throw new Error('Failed to fetch meters');
+      if(res.data && res.data.meters){
+        console.log('Data is ested as', res.data.meters);
+      // const data = await res.json();
+      setMeters(res.data.meters);
+      setTotalPages(res.data.pagination.pages);
+      setTotalMeters(res.data.pagination.total);
+      }
+      else if (res.data){
+        console.log('data is flat', res.data);
+        setMeters(res.data.meters);
+      setTotalPages(res.data.pagination.pages);
+      setTotalMeters(res.data.pagination.total);
+      } else {
+          console.error('No data in response');
+        }
     } catch (error) {
       console.error('Error fetching meters:', error);
       toast({
@@ -169,7 +181,7 @@ export default function MetersManagementPage() {
         </div>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-3">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Total Meters</CardTitle>
@@ -188,16 +200,16 @@ export default function MetersManagementPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        {/* <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Unassigned Meters</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {0} {/* You would need to add this field */}
+              {0} 
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium">Avg Units/Meter</CardTitle>
