@@ -66,7 +66,7 @@ export default function AdminDashboard() {
         
         if (res.status === 403 || res.status === 401) {
           console.log('Unauthorized access to admin dashboard');
-          router.push('/dashboard');
+          router.push('auth/login');
           return;
         }
         

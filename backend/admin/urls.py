@@ -5,7 +5,9 @@ from .views import (
     MeterManagementView,
     ToggleUserStatusView,
     UserDetailView,
-    AdminStatsView
+    AdminStatsView,
+    LoanManagementView,
+    AdminAccountView
 )
 
 urlpatterns = [
@@ -15,4 +17,6 @@ urlpatterns = [
     path('meters/', MeterManagementView.as_view(), name='admin-meters'),
     path('stats/', AdminStatsView.as_view(), name='admin-stats'),
     path('toggle-user-status/', ToggleUserStatusView.as_view(), name='toggle-user-status'),
+    path('loans/', LoanManagementView.as_view(), name='admin-loans'),
+    path('account/', AdminAccountView.as_view(), name = 'admin-account'),
 ]

@@ -114,7 +114,6 @@ export default function MetersManagementPage() {
 
   const refreshMeterData = async (meterId: number) => {
     try {
-      // In a real app, you would call an API to refresh meter data
       toast({
         title: 'Success',
         description: 'Meter data refresh initiated',

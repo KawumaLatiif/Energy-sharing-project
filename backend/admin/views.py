@@ -8,6 +8,7 @@ from meter.models import Meter
 from accounts.models import Profile, UserAccountDetails
 from datetime import datetime, timedelta
 from django.db.models import Q
+from loan.models import LoanApplication
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -395,6 +396,75 @@ class MeterManagementView(APIView, AdminPermissionMixin):
             )
 
 
+class LoanManagementView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Check admin permission
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            search = request.GET.get('search', '')
+            page = int(request.GET.get('page', 1))
+            limit = int(request.GET.get('limit', 20))
+            offset = (page - 1) * limit
+
+            loans_query = LoanApplication.objects.all()
+            
+            # Apply search filter
+            if search:
+                loans_query = loans_query.filter(
+                    Q(loan_id__icontains=search) |
+                    Q(user__icontains=search) |
+                    Q(interest_rate__icontains=search) |
+                    Q(status__icontains=search) |
+                    Q(credit_score__icontains=search)
+                )
+            
+            # Get total count
+            total_count = loans_query.count()
+            
+            loans = loans_query.select_related('user').order_by('-created_at')[offset:offset + limit]
+           
+
+            loan_list = []
+            for loan in loans:
+                loan_list.append({
+                    "loan_id": loan.id,
+                    "status": loan.status,
+                    "amount_requested": loan.amount_requested,
+                    "amount_approved": loan.amount_approved,
+                    "user": {
+                        "id": loan.user.id,
+                        "email": loan.user.email,
+                        "name": f"{loan.user.first_name} {loan.user.last_name}",
+                        "phone": str(loan.user.phone_number),
+                        "account_active": loan.user.account_is_active
+                    },
+                    "loan_tier": loan.loan_tier,
+                    "last_updated": loan.created_at.isoformat()
+                })
+            return Response({
+                "success": True,
+                "loans": loan_list,
+                "pagination": {
+                    "page": page,
+                    "limit": limit,
+                    "total": total_count,
+                    "pages": (total_count + limit - 1) // limit
+                }                
+            })
+
+        except Exception as e:
+            logger.error(f"Loan management error: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch loans"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class ToggleUserStatusView(APIView, AdminPermissionMixin):
     permission_classes = [IsAuthenticated]
     
@@ -531,3 +601,114 @@ class AdminStatsView(APIView, AdminPermissionMixin):
                 {"error": "Failed to fetch statistics"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+class AdminAccountView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        # Check admin permission
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+        
+        try:
+            # Get query parameters
+            # search = request.GET.get('search', '')
+            # status_filter = request.GET.get('status', 'all')
+            # page = int(request.GET.get('page', 1))
+            # limit = int(request.GET.get('limit', 20))
+            # offset = (page - 1) * limit
+            
+            # Build query
+            users_query = User.objects.filter(user_role=User.ADMIN)
+            
+            # Apply search filter
+            # if search:
+            #     users_query = users_query.filter(
+            #         Q(email__icontains=search) |
+            #         Q(first_name__icontains=search) |
+            #         Q(last_name__icontains=search) |
+            #         Q(phone_number__icontains=search)
+            #     )
+            
+            # Apply status filter
+            # if status_filter == 'active':
+            #     users_query = users_query.filter(account_is_active=True)
+            # elif status_filter == 'inactive':
+            #     users_query = users_query.filter(account_is_active=False)
+            # elif status_filter == 'verified':
+            #     users_query = users_query.filter(profile__email_verified=True)
+            # elif status_filter == 'unverified':
+            #     users_query = users_query.filter(profile__email_verified=False)
+            
+            # Get total count for pagination
+            # total_count = users_query.count()
+            
+            # Apply pagination
+            users = users_query.select_related('profile').order_by('-create_date')[offset:offset + limit]
+            
+            user_list = []
+            for user in users:
+                # try:
+                #     meter = Meter.objects.get(user=user)
+                #     has_meter = True
+                #     meter_info = {
+                #         "meter_no": meter.meter_no,
+                #         "static_ip": meter.static_ip,
+                #         "units": meter.units
+                #     }
+                # except Meter.DoesNotExist:
+                #     has_meter = False
+                #     meter_info = None
+                
+                # Get account details if exists
+                # try:
+                #     account_details = UserAccountDetails.objects.get(user=user)
+                #     account_info = {
+                #         "account_number": account_details.account_number,
+                #         "address": account_details.address,
+                #         "energy_preference": account_details.energy_preference,
+                #         "payment_method": account_details.payment_method
+                #     }
+                # except UserAccountDetails.DoesNotExist:
+                #     account_info = None
+                
+                user_list.append({
+                    "id": user.id,
+                    "email": user.email,
+                    "first_name": user.first_name,
+                    "last_name": user.last_name,
+                    "phone_number": str(user.phone_number),
+                    # "email_verified": user.profile.email_verified,
+                    # "account_active": user.account_is_active,
+                    # "has_meter": has_meter,
+                    # "meter_info": meter_info,
+                    "account_info": account_info,
+                    "created_at": user.create_date.isoformat(),
+                    "last_login": user.last_login.isoformat() if user.last_login else None,
+                    # "profile_complete": user.has_complete_profile
+                })
+            
+            return Response({
+                "success": True,
+                "users": user_list,
+                # "pagination": {
+                #     "page": page,
+                #     "limit": limit,
+                #     "total": total_count,
+                #     "pages": (total_count + limit - 1) // limit
+                # },
+                # "filters": {
+                #     "search": search,
+                #     "status": status_filter
+                # }
+            })
+            
+        except Exception as e:
+            logger.error(f"Admin management error: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch users"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+

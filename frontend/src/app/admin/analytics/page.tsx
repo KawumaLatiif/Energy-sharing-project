@@ -46,6 +46,7 @@ import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
+import {get} from '@/lib/fetch';
 
 interface StatsData {
   user_registrations: {
@@ -82,17 +83,19 @@ export default function AnalyticsPage() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const res = await authFetch(`${API_BASE}/admin/stats/`);
+      const res = await get<any>(`admin/stats/`);
 
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
-        return;
-      }
+      // if (res.status === 403 || res.status === 401) {
+      //   router.push('/dashboard');
+      //   return;
+      // }
 
-      if (!res.ok) throw new Error('Failed to fetch statistics');
+      if (res.error) throw new Error('Failed to fetch statistics');
 
-      const data = await res.json();
-      setStats(data.stats);
+      // const data = await res.json();
+      if(res.data && res.data.stats){
+      setStats(res.data.stats);
+    }
     } catch (error) {
       console.error('Error fetching stats:', error);
       toast({

@@ -51,10 +51,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { clientAuthFetch, refreshAuthToken } from '@/lib/auth_client';
 import { get, post } from '@/lib/fetch';
-import { adminGet, adminPost } from '@/lib/admin_fetch';
-import { authFetch } from '@/lib/auth';
 
 interface User {
   id: number;
@@ -92,7 +89,6 @@ export default function UsersManagementPage() {
   const [searchTimeout, setSearchTimeout] = useState<NodeJS.Timeout | null>(null);
   const limit = 20;
 
-  const API_BASE = 'http://localhost:8000/api/v1';
 
   const fetchUsers = async () => {
     try {
@@ -118,7 +114,7 @@ export default function UsersManagementPage() {
       setTotalPages(res.data.pagination.pages);
       setTotalUsers(res.data.pagination.total);}
     } catch (error) {
-      console.error('❌ Error fetching users:', error);
+      console.error('Error fetching users:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to load users',
@@ -131,9 +127,9 @@ export default function UsersManagementPage() {
 
   const toggleUserStatus = async (userId: number, currentStatus: boolean) => {
     try {
-      console.log('🔄 Toggling user status for ID:', userId);
+      console.log('Toggling user status for ID:', userId);
 
-      const raw = await post(`${API_BASE}/admin/toggle-user-status/`, {
+      const res = await post(`admin/toggle-user-status/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -142,19 +138,20 @@ export default function UsersManagementPage() {
       });
 
       if (res.error) {
-        const data = await res.json();
+        // const data = await res.json();
+        if(res.data && res.data.users){
         setUsers(users.map(user => 
           user.id === userId 
-            ? { ...user, account_active: data.user.account_active }
+            ? { ...user, account_active: res.data.user.account_active }
             : user
-        ));
+        ));}
         
         toast({
           title: 'Success',
-          description: `User ${data.user.account_active ? 'activated' : 'deactivated'} successfully`,
+          description: `User ${res.data.user.account_active ? 'activated' : 'deactivated'} successfully`,
         });
 
-        console.log('✅ User status toggled successfully');
+        console.log('User status toggled successfully');
         return;
       }
     } catch (error) {

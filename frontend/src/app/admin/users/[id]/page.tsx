@@ -30,8 +30,7 @@ import {
   XCircle,
   RefreshCw,
 } from 'lucide-react';
-import { clientAuthFetch, refreshAuthToken } from '@/lib/auth_client';
-import { adminGet, adminPost } from '@/lib/admin_fetch';
+import {get, post} from '@/lib/fetch';
 
 interface UserDetail {
   id: number;
@@ -79,69 +78,72 @@ export default function UserDetailPage() {
   const [user, setUser] = useState<UserDetail | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const API_BASE = 'http://localhost:8000/api/v1';
 
   const fetchUserDetails = async () => {
     try {
       setLoading(true);
-      console.log('🔄 Fetching user details for ID:', params.id);
+      console.log('Fetching user details for ID:', params.id);
       
-      const res = await adminGet(`${API_BASE}/admin/users/${params.id}/`);
+      const res = await get<any>(`admin/users/${params.id}/`);
 
-      console.log('📊 Response status:', res.status);
+      console.log('Response status:', res.status);
       
-      if (res.status === 401) {
-        const newToken = await refreshAuthToken();
-        if (newToken) {
-          const retryRes = await adminGet(`${API_BASE}/admin/users/${params.id}/`);
-          if (retryRes.ok) {
-            const data = await retryRes.json();
-            setUser(data.user);
-          } else {
-            handleAuthError();
-          }
-        } else {
-          handleAuthError();
-        }
-        return;
-      }
+      // if (res.status === 401) {
+      //   const newToken = await refreshAuthToken();
+      //   if (newToken) {
+      //     const retryRes = await get<any>(`admin/users/${params.id}/`);
+      //     if (retryRes.error) {
+      //       // const data = await retryRes.json();
+      //       setUser(retryRes.data.user);
+      //     } else {
+      //       handleAuthError();
+      //     }
+      //   } else {
+      //     handleAuthError();
+      //   }
+      //   return;
+      // }
 
-      if (res.status === 403) {
-        toast({
-          title: 'Access Denied',
-          description: 'You do not have permission to view this user',
-          variant: 'destructive',
-        });
-        router.push('/admin/users');
-        return;
-      }
+      // if (res.status === 403) {
+      //   toast({
+      //     title: 'Access Denied',
+      //     description: 'You do not have permission to view this user',
+      //     variant: 'destructive',
+      //   });
+      //   router.push('admin/users');
+      //   return;
+      // }
 
-      if (res.status === 404) {
-        toast({
-          title: 'User Not Found',
-          description: 'The requested user does not exist',
-          variant: 'destructive',
-        });
-        router.push('/admin/users');
-        return;
-      }
+      // if (res.status === 404) {
+      //   toast({
+      //     title: 'User Not Found',
+      //     description: 'The requested user does not exist',
+      //     variant: 'destructive',
+      //   });
+      //   router.push('admin/users');
+      //   return;
+      // }
 
-      if (!res.ok) {
-        const errorText = await res.text();
-        console.error('❌ API Error:', errorText);
+      if (res.error) {
+        // const errorText = await res.text();
+        // console.error('API Error:', errorText);
         throw new Error(`Failed to fetch user details: ${res.status}`);
       }
 
-      const data = await res.json();
-      console.log('✅ Received user data:', data);
       
-      if (!data.user) {
-        throw new Error('Invalid response format: missing user field');
-      }
+
+      // const data = await res.json();
+      // console.log('Received user data:', data);
       
-      setUser(data.user);
+      // if (!res.data.user) {
+      //   throw new Error('Invalid response format: missing user field');
+      // }
+      if(res.data && res.data.user){
+      setUser(res.data.user);
+    }
+      
     } catch (error) {
-      console.error('❌ Error fetching user details:', error);
+      console.error('Error fetching user details:', error);
       toast({
         title: 'Error',
         description: error instanceof Error ? error.message : 'Failed to load user details',
@@ -156,9 +158,9 @@ export default function UserDetailPage() {
     if (!user) return;
 
     try {
-      console.log('🔄 Toggling user status for ID:', user.id);
+      console.log('Toggling user status for ID:', user.id);
       
-      const res = await adminPost(`${API_BASE}/admin/toggle-user-status/`, {
+      const res = await post(`admin/toggle-user-status/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -166,19 +168,20 @@ export default function UserDetailPage() {
         body: JSON.stringify({ user_id: user.id }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setUser({ ...user, account_active: data.user.account_active });
+      if (res.error) throw new Error('Failed to update user status');
+      if(res.data.user)  {
+        // const data = await res.json();
+        setUser({ ...user, account_active: res.data.user.account_active });
         
         toast({
           title: 'Success',
-          description: `User ${data.user.account_active ? 'activated' : 'deactivated'} successfully`,
+          description: `User ${res.data.user.account_active ? 'activated' : 'deactivated'} successfully`,
         });
       } else {
         throw new Error('Failed to update user status');
       }
     } catch (error) {
-      console.error('❌ Error toggling user status:', error);
+      console.error('Error toggling user status:', error);
       toast({
         title: 'Error',
         description: 'Failed to update user status',
