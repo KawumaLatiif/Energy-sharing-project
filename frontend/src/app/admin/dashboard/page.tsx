@@ -1,4 +1,3 @@
-// app/admin/dashboard/page.tsx
 'use client';
 
 import { useEffect, useState } from 'react';
@@ -22,22 +21,31 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { authFetch } from '@/lib/auth';
 import { getAdminStats } from './action';
-
-const API_BASE = 'http://localhost:8000/api/v1'; // Your Django backend
+import { get } from "@/lib/fetch";
 
 interface AdminStats {
   total_users: number;
+  total_admins: number;
   total_meters: number;
-  active_loans: number;
-  pending_loans: number;
-  total_loans: number;
-  outstanding_balance: number;
-  recent_registrations?: number;
+  active_meters: number;
+  verified_users: number;
+  users_with_meters: number;
+  new_users_today: number;
+  new_users_week: number;
 }
 
 export default function AdminDashboard() {
   const router = useRouter();
-  const [stats, setStats] = useState<AdminStats | null>(null);
+  const [stats, setStats] = useState<AdminStats>({
+    total_users: 0,
+    total_admins: 0,
+    total_meters: 0,
+    active_meters: 0,
+    verified_users: 0,
+    users_with_meters: 0,
+    new_users_today: 0,
+    new_users_week: 0,
+  });
   const [loading, setLoading] = useState(true);
 
   // useEffect(() => {
@@ -65,33 +73,11 @@ export default function AdminDashboard() {
   //   fetchData();
   // }, [router]);
 
-  const API_BASE = 'http://localhost:8000/api/v1';
 
 useEffect(() => {
-  // const fetchData = async () => {
-  //   try {
-  //     const res = await authFetch(`${API_BASE}/admin/dashboard/`);
-
-  //     if (res.status === 403 || res.status === 401) {
-  //       router.push('/dashboard');
-  //       return;
-  //     }
-  //     if (!res.ok) throw new Error('Failed to load data');
-
-  //     const data = await res.json();
-  //     setStats(data);
-  //   } catch (err) {
-  //     console.error(err);
-  //   } finally {
-  //     setLoading(false);
-  //   }
-  // };
-
-
-  // Update the fetchData function to debug:
-const fetchData = async () => {
+async function fetchData() {
   try {
-    const res = await authFetch(`${API_BASE}/admin/dashboard/`);
+    const res = await get<any>("admin/dashboard/");
     
     console.log('Admin Dashboard Response Status:', res.status);
     
@@ -101,41 +87,26 @@ const fetchData = async () => {
       return;
     }
     
-    if (!res.ok) {
-      console.error('Failed to load admin dashboard:', res.status, res.statusText);
-      const errorText = await res.text();
-      console.error('Error response:', errorText);
-      throw new Error('Failed to load data');
+    if (res.error) {
+      console.error('Failed to load admin dashboard:', res.status);
+      // const errorText = await res.text();
+      // console.error('Error response:', errorText);
+      // throw new Error('Failed to load data');
+      return;
     }
 
-    const data = await res.json();
-    console.log('Admin Dashboard Data:', data);
-    setStats(data);
+    // const data = await res.json();
+    // console.log('Admin Dashboard Data:', data);
+    setStats(res.data);
   } catch (err) {
     console.error('Admin dashboard error:', err);
   } finally {
     setLoading(false);
   }
-};
+}
   fetchData();
-}, [router]);
+}, []);
 
-// useEffect(() => {
-//   const load = async () => {
-//     const result = await getAdminStats();
-//     if (result.error === 'unauthorized') {
-//       router.push('/dashboard');
-//       return;
-//     }
-//     if (result.error) {
-//       console.error('Failed to load stats');
-//       return;
-//     }
-//     setStats(result);
-//     setLoading(false);
-//   };
-//   load();
-// }, []);
 
   if (loading) return <DashboardSkeleton />;
 
@@ -152,7 +123,7 @@ const fetchData = async () => {
             <Users className="h-5 w-5 text-blue-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.total_users || 0}</div>
+            <div className="text-3xl font-bold">{stats.total_users || 0}</div>
             <p className="text-xs text-muted-foreground">All registered users</p>
           </CardContent>
         </Card>
@@ -173,7 +144,7 @@ const fetchData = async () => {
             <DollarSign className="h-5 w-5 text-amber-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.active_loans || 0}</div>
+            <div className="text-3xl font-bold">{stats?.total_admins || 0}</div>
           </CardContent>
         </Card>
 
@@ -183,7 +154,7 @@ const fetchData = async () => {
             <AlertCircle className="h-5 w-5 text-orange-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-3xl font-bold">{stats?.pending_loans || 0}</div>
+            <div className="text-3xl font-bold">{stats?.active_meters || 0}</div>
           </CardContent>
         </Card>
       </div>
@@ -195,11 +166,11 @@ const fetchData = async () => {
             <FileText className="h-5 w-5 text-purple-600" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{stats?.total_loans || 0}</div>
+            <div className="text-2xl font-bold">{stats?.verified_users || 0}</div>
           </CardContent>
         </Card>
 
-        <Card>
+        {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Outstanding Balance</CardTitle>
             <TrendingUp className="h-5 w-5 text-red-600" />
@@ -209,9 +180,9 @@ const fetchData = async () => {
               USh {(stats?.outstanding_balance || 0).toLocaleString()}
             </div>
           </CardContent>
-        </Card>
+        </Card> */}
 
-        <Card>
+        {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Recent Registrations</CardTitle>
             <Users className="h-5 w-5 text-indigo-600" />
@@ -222,7 +193,7 @@ const fetchData = async () => {
             </div>
             <p className="text-xs text-muted-foreground">Last 7 days</p>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
       <div className="mb-8">

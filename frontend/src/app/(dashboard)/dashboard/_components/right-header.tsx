@@ -1,5 +1,6 @@
 "use client";
 import {
+  ArrowRight,
   ArrowUpRight,
   CircleUser,
   FileTextIcon,
@@ -65,7 +66,7 @@ export default function RightHeader() {
                 className="w-18 auto"
                 alt="Reload Mobile"
               />
-              <span className="">Power Cred</span>
+              <span className="">Energy Share</span>
             </Link>
             <Link
               href="/dashboard"
@@ -86,6 +87,26 @@ export default function RightHeader() {
             >
               <PlusCircleIcon className="h-4 w-4" />
               Buy Units
+            </Link>
+            <Link
+              href="/dashboard/share"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/share" }
+              )}
+            >
+              <Forward className="h-4 w-4" />
+              Share Units
+            </Link>            
+            <Link
+              href="/dashboard/transfering"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/transfering" }
+              )}
+            >
+              <ArrowRight className="h-4 w-4" />
+              Transfer Units
             </Link>
             <Link
               href="/dashboard/tokens"
@@ -137,13 +158,13 @@ export default function RightHeader() {
             My team
           </Link>}
           </>} */}
-            {/* <Link
-              href={`/dashboard/transfer`}
-              className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", { "bg-muted text-primary": pathname === "/dashboard/network" })}
+            <Link
+              href={`/dashboard/transactions`}
+              className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", { "bg-muted text-primary": pathname === "/dashboard/transactions" })}
             >
               <Forward className="h-4 w-4" />
-              Units Transactions
-            </Link> */}
+              Transaction
+            </Link>
             <Link
               href={`/dashboard/myaccount`}
               className={cn(

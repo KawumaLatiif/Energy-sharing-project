@@ -461,6 +461,7 @@ class AdminStatsView(APIView, AdminPermissionMixin):
                 })
             
             daily_registrations.reverse()
+            total_users
             
             # Meter registration stats
             meter_daily = []
