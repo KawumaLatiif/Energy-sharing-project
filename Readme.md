@@ -1,11 +1,23 @@
-"""""" FOR FRONTEND INSTALLATIONS """"""""
-========== dependencies ================
-install with frontend "npm install @headlessui/react @heroicons/react @hookform/resolvers @next/swc-win32-x64-msvc @radix-ui/react-accordion @radix-ui/react-alert-dialog @radix-ui/react-avatar @radix-ui/react-dialog @radix-ui/react-dropdown-menu @radix-ui/react-icons @radix-ui/react-label @radix-ui/react-progress @radix-ui/react-radio-group @radix-ui/react-select @radix-ui/react-slot @radix-ui/react-switch @react-three/drei @react-three/fiber @reduxjs/toolkit @tabler/icons-react @types/three axios class-variance-authority clsx cmdk dayjs embla-carousel-autoplay embla-carousel-react framer-motion jwt-decode lodash lucide-react mini-svg-data-uri next next-themes react react-dom react-hook-form react-hot-toast react-icons react-phone-number-input react-redux react-select swr tailwind-merge tailwindcss-animate three three-globe validator zod"
+Step,Backend (Django),Frontend (Next.js),Notes
 
-"""" FOR BACKEND INSTALLATIONS """"""
-install the venv and activate it, then install "pip install django djangorestframework"
+1. Clone Repo,"git clone url,
+   cd backend",cd frontend (from repo root),Clone once; use git pull for updates.
 
-====== starting folders in the django project with "python manage.py startapp <name>"
+2. Environment Setup,"- Activate/create venv: python -m venv venv
 
-"pip install requests python-dateutil django-cities-light
+- venv\Scripts\activate (Windows) or source venv/bin/activate (macOS/Linux).
+- Install deps: pip install -r requirements.txt",- Install deps: npm install (or yarn install if using Yarn).,"Copy .env.example to .env in both dirs—fill secrets (e.g., DATABASE_URL, MTN_MOMO_API_KEY). Never commit .env (add to .gitignore)."
 
+3. Database Setup,"- Install/run Postgres.
+
+- Run migrations: python manage.py migrate.
+- Create superuser: python manage.py createsuperuser.
+
+4. Secrets/Config,"- Edit .env: Add MTN MoMo keys, Celery broker (Redis: docker run -p 6379:6379 redis).
+
+- Start Redis (for Celery): Separate terminal, redis-server.","- Edit .env.local: Add any API keys (e.g., for backend CORS).",Test: Backend should connect to DB without errors.
+
+5. Start Servers,"- Terminal 1: python manage.py runserver (runs on localhost:8000).
+
+- Terminal 2 (Celery): celery -A backend worker -l info (for tasks like emails).",- Terminal 3: npm run dev (runs on localhost:3000).,"Backend: Visit http://localhost:8000/admin/.
+  Frontend: Visit http://localhost:3000/—should proxy API calls to backend."
