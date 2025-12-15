@@ -7,6 +7,7 @@ import type { Metadata } from "next";
 import { Inter as FontSans } from "next/font/google";
 import { headers } from "next/headers";
 import { Toaster } from "react-hot-toast";
+
 export const metadata: Metadata = {
   title: "Power Loans",
   description: "Share with the world",
@@ -27,10 +28,10 @@ export default async function RootLayout({
   // const pathname = headersList.get("x-current-path") || "";
 
   return (
-    <html lang="en">
+    <html lang="en" suppressHydrationWarning>
       <body
         className={cn(
-          "min-h-screen relative  font-sans antialiased bg-white dark:bg-gray-900 max-w-full",
+          "min-h-screen relative font-sans antialiased bg-background text-foreground", // Uses CSS vars—auto light/dark
           fontSans.variable
         )}
       >
@@ -41,7 +42,7 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <Providers>
-            <div className="min-h-[100dvh] grid grid-rows-[auto_1fr_auto]">
+            <div className="min-h-dvh grid grid-rows-[auto_1fr_auto]">
               {children}
             </div>
             <Toaster position="bottom-center" />

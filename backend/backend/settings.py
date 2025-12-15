@@ -9,18 +9,46 @@ https://docs.djangoproject.com/en/6.0/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/6.0/ref/settings/
 """
-
+import os
 from pathlib import Path
+from dotenv import load_dotenv
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 
+# =============================
+# Helper function for env variables
+# =============================
+def get_env_variable(var_name, default=None, cast=str):
+    """
+    Get an environment variable or return default.
+    Supports casting (str, int, bool, etc.)
+    """
+    value = os.getenv(var_name, default)
+    if value is None:
+        raise Exception(f"Missing required environment variable: {var_name}")
+    try:
+        return cast(value)
+    except Exception as e:
+        raise ValueError(f"Error casting environment variable {var_name}: {e}")
+
+
+
+REDIS_HOST = get_env_variable("REDIS_HOST", "127.0.0.1")
+REDIS_PORT = get_env_variable("REDIS_PORT", 6379, cast=int)
+REDIS_URL = get_env_variable("REDIS_URL", f"redis://{REDIS_HOST}:{REDIS_PORT}/0")
+BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
+
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-
+load_dotenv(BASE_DIR.parent / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7'
+DEBUG = get_env_variable("DEBUG", "True") == "True"
+ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1', '10.101.2.133', '192.168.185.151']
+ROOT_URLCONF = 'backend.urls'
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
@@ -37,6 +65,14 @@ CORS_ALLOWED_ORIGINS = [
 CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = DEBUG 
 
+# =============================
+MTN_MOMO_CONFIG = {
+    'BASE_URL': 'https://sandbox.momodeveloper.mtn.com',
+    'PRIMARY_KEY': 'efc825a16cd54e91b257495f3798fc73',
+    'SECONDARY_KEY': '82ab603816854e039508b274aec3dca4',
+    'CALLBACK_HOST': 'http://localhost:3030',
+    'ENVIRONMENT': 'sandbox',  
+}
 
 # Application definition
 
@@ -50,13 +86,18 @@ INSTALLED_APPS = [
     'accounts',
     'loan',
     'transactions',
-    'meter'
+    'meter',
+    'rest_framework',
+    'cities_light',
+    'drf_yasg',
+    'corsheaders',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -81,6 +122,14 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'backend.wsgi.application'
+
+# =============================
+# Base URL
+# =============================
+# Used by get_base_url() to construct links in emails
+DEFAULT_HTTP_PROTOCOL = get_env_variable("DEFAULT_HTTP_PROTOCOL", "http")
+DOMAIN_NAME = get_env_variable("DOMAIN_NAME", "localhost:3000")
+BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 
 
 # Database
@@ -137,3 +186,61 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/6.0/howto/static-files/
 
 STATIC_URL = 'static/'
+MEDIA_URL = "/media/"
+STATIC_ROOT = BASE_DIR / "staticfiles"
+MEDIA_ROOT = BASE_DIR / "mediafiles"
+
+# =============================
+# Email
+# =============================
+EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.gmail.com")
+EMAIL_PORT = get_env_variable("EMAIL_PORT", 587, cast=int)
+EMAIL_USE_TLS = get_env_variable("EMAIL_USE_TLS", "True") == "True"
+EMAIL_USE_SSL = get_env_variable("EMAIL_USE_SSL", "False") == "True"
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "kawumalatiif5@gmail.com")
+EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "onlvknccibgjoaly")
+DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", EMAIL_HOST_USER)
+DEFAULT_EMAIL_SENDER = DEFAULT_FROM_EMAIL
+
+# =============================
+# Celery & Redis
+# =============================
+CELERY_BROKER_URL = 'redis://127.0.0.1:6379/0'
+CELERY_RESULT_BACKEND = 'redis://127.0.0.1:6379/0'
+
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = 'Africa/Nairobi'
+
+CELERY_BROKER_URL = get_env_variable("CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
+CELERY_RESULT_BACKEND = get_env_variable("CELERY_RESULT_BACKEND", "redis://127.0.0.1:6379/0")
+CELERY_TIMEZONE = get_env_variable("CELERY_TIMEZONE", "Africa/Nairobi")
+# Run tasks eagerly in local dev to avoid needing Redis/Celery worker
+CELERY_TASK_ALWAYS_EAGER = get_env_variable("CELERY_TASK_ALWAYS_EAGER", "True") == "True"
+
+# JWT settings
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+}
+from datetime import timedelta
+SIMPLE_JWT = {
+    'AUTH_HEADER_TYPES': ('Bearer',),
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+    'AUTH_COOKIE': 'AUTHENTICATION_COOKIE', 
+    'AUTH_COOKIE_HTTP_ONLY': True,
+    'AUTH_COOKIE_SECURE': False, 
+    'AUTH_COOKIE_SAMESITE': 'Lax',
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ROTATE_REFRESH_TOKENS': True,
+    'BLACKLIST_AFTER_ROTATION': True,
+}

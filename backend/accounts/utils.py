@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Tuple, Union
 from django.conf import settings
 from django.utils import timezone
-from psycopg import Binary
+from psycopg2 import Binary
 from six import text_type
 from accounts.models import (
     User,
