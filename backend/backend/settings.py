@@ -25,7 +25,17 @@ SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+AUTH_USER_MODEL = 'accounts.User'   
+CSRF_TRUSTED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:3030'
+]
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:3000',
+    'http://localhost:3030'
+]
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG 
 
 
 # Application definition
@@ -37,6 +47,10 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'accounts',
+    'loan',
+    'transactions',
+    'meter'
 ]
 
 MIDDLEWARE = [
@@ -75,7 +89,7 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'project_db',
+        'NAME': 'project',
         'USER': 'postgres',
         'PASSWORD': 'postgres',
         'HOST': 'localhost',

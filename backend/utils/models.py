@@ -1,3 +1,15 @@
-from django.db import models
+from pydantic import BaseModel, Field
 
-# Create your models here.
+
+
+
+
+class UnitReceiverResponse(BaseModel):
+    receiver_meter_no: int = Field(...)
+    sender_meter_no: int = Field(...)
+    units: int = Field(...)
+    
+
+class TokenValidator(BaseModel):
+    meterNo: int = Field(...)
+    token: int = Field(...)

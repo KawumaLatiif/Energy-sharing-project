@@ -10,12 +10,13 @@ from django.core.validators import RegexValidator
 from django.db import models
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+# from django.utils.translation import ugettext_lazy as _
 from phonenumber_field.modelfields import PhoneNumberField
 from rest_framework_simplejwt.tokens import RefreshToken
+from accounts.managers import CustomUserManager
 from django.db.models import Sum
 from django.conf import settings
 import random
-from backend.accounts.manager import CustomUserManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,14 @@ def generate_secure_random_int(upper=10):
     """
     return random.SystemRandom().randrange(upper)
 
+
+# def generate_verification_code():
+#     return "".join(
+#         [
+#             "{}".format(generate_secure_random_int(10))
+#             for num in range(PhoneVerificationCode.CODE_LENGTH)
+#         ]
+#     )
 
 
 def generate_random_string(length):
@@ -55,6 +64,7 @@ class User(TimestampMixin, AbstractUser):
     Model class that extends the default User model
     """
 
+
     # Roles
     ADMIN = "ADMIN"
     CLIENT = "CLIENT"
@@ -62,7 +72,8 @@ class User(TimestampMixin, AbstractUser):
 
     USER_ROLES = [
         (ADMIN, _("admin")),
-        (CLIENT, _("client"))        
+        (CLIENT, _("client"))
+        
     ]
 
     MALE = "MALE"
@@ -71,21 +82,25 @@ class User(TimestampMixin, AbstractUser):
     USER_GENDER = [
         (MALE, _("male")),
         (FEMALE, _("female"))
-    ]    
+    ]
+
+    
 
     username = None
     email = models.EmailField(_("email_address"), unique=True)
     phone_number = PhoneNumberField(_("phone_number"), unique=True)
+    # country = models.ForeignKey(
+    #     Country, on_delete=models.CASCADE, null=True, blank=True
+    # )
     account_is_active = models.BooleanField(default=False)
     user_role = models.CharField(default=CLIENT, choices=USER_ROLES, max_length=8)
     gender = models.CharField(max_length=6, choices=USER_GENDER, default=MALE)
-    monthly_unit_balance = models.FloatField(default=0)
+    monthly_unit_balance = models.FloatField(default=0)  # Units bought in the current month
     last_purchase_date = models.DateField(null=True, blank=True)
     USERNAME_FIELD = "email"
     REQUIRED_FIELDS = []
-    objects = CustomUserManager() 
-       
-    # Loan assessment fields 
+    objects = CustomUserManager()    
+    # Loan assessment fields (from profile popup)
     monthly_expenditure = models.CharField(
         max_length=50, 
         choices=[

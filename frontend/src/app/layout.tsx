@@ -1,33 +1,52 @@
+import { ThemeProvider } from "@/components/theme-provider";
+import authenticated from "@/lib/authenticated";
+import { cn } from "@/lib/utils";
+import Providers from "@/providers";
+import "@/styles/globals.css";
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
-import "./globals.css";
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
+import { Inter as FontSans } from "next/font/google";
+import { headers } from "next/headers";
+import { Toaster } from "react-hot-toast";
 export const metadata: Metadata = {
-  title: "Energy Sharing",
-  description: "Enery sharing platform",
+  title: "Power Loans",
+  description: "Share with the world",
 };
 
-export default function RootLayout({
+const fontSans = FontSans({
+  subsets: ["latin"],
+  variable: "--font-sans",
+});
+
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const isAuth = await authenticated();
+  const headersList = await headers();
+  // const pathname = headersList.get("x-current-path") || "";
+
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
+        className={cn(
+          "min-h-screen relative  font-sans antialiased bg-white dark:bg-gray-900 max-w-full",
+          fontSans.variable
+        )}
       >
-        {children}
+        <ThemeProvider
+          attribute="class"
+          defaultTheme="system"
+          enableSystem
+          disableTransitionOnChange
+        >
+          <Providers>
+            <div className="min-h-[100dvh] grid grid-rows-[auto_1fr_auto]">
+              {children}
+            </div>
+            <Toaster position="bottom-center" />
+          </Providers>
+        </ThemeProvider>
       </body>
     </html>
   );

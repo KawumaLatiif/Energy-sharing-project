@@ -1,3 +1,6 @@
 from django.contrib import admin
+from .models import Meter, MeterToken
 
-# Register your models here.
+
+admin.site.register(Meter)
+admin.site.register(MeterToken)

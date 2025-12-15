@@ -6,3 +6,6 @@ install with frontend "npm install @headlessui/react @heroicons/react @hookform/
 install the venv and activate it, then install "pip install django djangorestframework"
 
 ====== starting folders in the django project with "python manage.py startapp <name>"
+
+"pip install requests python-dateutil django-cities-light
+
