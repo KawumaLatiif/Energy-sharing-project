@@ -28,7 +28,7 @@
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.4.2",
     "@reduxjs/toolkit": "^2.11.1",
-    "@tabler/icons-react": "^3.35.0",
+    "@tabler/icons-react": "^3.36.0",
     "@types/three": "^0.182.0",
     "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",

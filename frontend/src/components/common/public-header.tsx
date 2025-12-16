@@ -105,19 +105,19 @@ export default function PublicHeader() {
           <Disclosure.Panel className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
             <div className="px-2 pt-2 pb-3 space-y-1">
               <Link
-                href="/about"
+                href="#"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
               >
                 About
               </Link>
               <Link
-                href="/contact"
+                href="#"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
               >
                 Contact
               </Link>
               <Link
-                href="/privacy"
+                href="#"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
               >
                 Privacy

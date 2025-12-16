@@ -1,3 +1,4 @@
+// app/page.tsx
 "use client";
 import Features from "@/components/common/features";
 import PublicFooter from "@/components/common/public-footer";
@@ -7,71 +8,119 @@ import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import image from "@/assets/images/image.png";
+import { Zap, Battery, Shield, Users, ArrowRight } from "lucide-react";
 
 export default function Home() {
   return (
     <>
       <PublicHeader />
-      {/* RESPONSIVE HERO: Mobile stack, desktop side-by-side with enhanced gradients */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-green-50 to-emerald-50 dark:from-gray-900 via-teal-900 to-gray-800 py-8 sm:py-12 md:py-16 lg:py-20">
-        <div className="container mx-auto px-2 sm:px-4 md:px-6 lg:px-8 relative z-10">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8 lg:gap-12 items-center">
+      
+      {/* Hero Section */}
+      <section className="relative overflow-hidden bg-gradient-to-br from-blue-50 via-emerald-50 to-blue-100 dark:from-blue-950 dark:via-emerald-900/20 dark:to-blue-900 py-12 sm:py-16 md:py-20 lg:py-24">
+        <div className="container mx-auto px-4 sm:px-6 lg:px-8 relative z-10">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-12 items-center">
             <motion.div
               initial={{ opacity: 0, y: 30 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.8, ease: "easeOut" }}
-              className="space-y-6 order-2 lg:order-1"
+              className="space-y-6 lg:space-y-8"
             >
-              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 via-teal-500 to-green-600 dark:from-blue-400 via-teal-400 to-green-400 text-center lg:text-left leading-tight">
-                Empower Energy Sharing
+              <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold">
+                <span className="block text-gray-900 dark:text-gray-100">Empower</span>
+                <span className="block bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-600 bg-clip-text text-transparent">
+                  Energy Sharing
+                </span>
               </h1>
-              <p className="text-lg sm:text-xl md:text-2xl text-gray-600 dark:text-gray-300 max-w-lg mx-auto lg:mx-0 text-center lg:text-left leading-relaxed">
+
+              <p className="text-lg sm:text-xl text-gray-600 dark:text-gray-300 max-w-lg leading-relaxed">
                 Seamlessly transfer renewable energy across local grids.
-                Sustainable, secure, and community-driven.
+                Join our sustainable, secure, and community-driven platform.
               </p>
-              <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
+
+              <div className="flex flex-col sm:flex-row gap-4">
                 <Link href="/auth/register">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg"
+                    className="group relative overflow-hidden px-8 py-4 bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg shadow-blue-500/20"
                   >
-                    Get started
+                    <span className="relative z-10 flex items-center gap-2">
+                      Get Started
+                      <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                    </span>
+                    <div className="absolute inset-0 bg-gradient-to-r from-blue-700 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </motion.button>
                 </Link>
                 <Link href="#features">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-full sm:w-auto px-8 py-4 border-2 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-teal-400 dark:text-teal-400 dark:hover:bg-teal-900/20 rounded-xl font-semibold text-base transition-all"
+                    className="px-8 py-4 border-2 border-blue-600 text-blue-600 hover:bg-blue-50 dark:border-blue-400 dark:text-blue-400 dark:hover:bg-blue-900/20 rounded-xl font-semibold text-base transition-all"
                   >
                     Learn More
                   </motion.button>
                 </Link>
               </div>
+
+              {/* Stats */}
+              {/* <div className="grid grid-cols-3 gap-4 pt-8">
+                <div className="text-center">
+                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
+                    10K+
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Active Users</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
+                    50MW
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Energy Shared</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold bg-gradient-to-r from-blue-600 to-emerald-600 bg-clip-text text-transparent">
+                    100%
+                  </div>
+                  <div className="text-sm text-gray-600 dark:text-gray-400">Renewable</div>
+                </div>
+              </div> */}
             </motion.div>
+
             <motion.div
               initial={{ opacity: 0, scale: 0.95 }}
               animate={{ opacity: 1, scale: 1 }}
               transition={{ duration: 0.8, delay: 0.3 }}
-              className="relative h-64 sm:h-80 md:h-96 lg:h-[28rem] order-1 lg:order-2 mx-auto lg:mx-0"
+              className="relative h-64 sm:h-80 md:h-96 lg:h-[28rem]"
             >
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-500/10 to-emerald-500/10 rounded-3xl blur-xl" />
               <Image
                 src={image}
                 alt="Community energy grid sharing"
                 fill
-                className="object-cover rounded-2xl shadow-xl"
+                className="object-cover rounded-2xl shadow-2xl"
+                priority
               />
+              {/* Floating Elements */}
+              {/* <motion.div
+                animate={{ y: [0, -20, 0] }}
+                transition={{ duration: 3, repeat: Infinity }}
+                className="absolute -top-4 -left-4 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-lg"
+              >
+                <Battery className="h-6 w-6 text-emerald-500" />
+              </motion.div> */}
+              {/* <motion.div
+                animate={{ y: [0, 20, 0] }}
+                transition={{ duration: 3, repeat: Infinity, delay: 1 }}
+                className="absolute -bottom-4 -right-4 p-3 bg-white dark:bg-gray-800 rounded-xl shadow-lg"
+              >
+                {/* <Users className="h-6 w-6 text-blue-500" /> 
+              </motion.div> */}
             </motion.div>
           </div>
         </div>
-        {/* Subtle overlay for depth */}
-        <div className="absolute inset-0 bg-gradient-to-t from-green-500/5 to-transparent"></div>
       </section>
 
       <Features />
-
-      {/* <Partners /> */}
+      
 
       <PublicFooter />
     </>
