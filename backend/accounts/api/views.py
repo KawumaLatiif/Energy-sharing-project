@@ -212,6 +212,7 @@ class UserConfigAPIView(GenericAPIView):
 
 
 class ForgotPasswordAPIView(GenericAPIView):
+    permission_classes = [AllowAny]
     serializer_class = ForgotPasswordSerializer
 
     def post(self, request):
@@ -235,7 +236,7 @@ class ForgotPasswordAPIView(GenericAPIView):
 
         token = reset_password_token_generator.make_token(user)
         user_hash = b64encode_user(force_text(user.pk))
-        url = f"{get_base_url()}/reset-password/?uid={user_hash}&token={token}"
+        url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
         message = (
             f"You requested for a password reset for your account. "
             f"Please click the link below to continue"

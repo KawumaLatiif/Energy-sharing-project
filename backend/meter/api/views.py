@@ -103,7 +103,7 @@ class SendUnitsView(GenericAPIView):
             sender_meter = Meter.objects.get(user=user)
             receiver_meter = Meter.objects.get(meter_no=receiver_meter_no)
             if receiver_meter and sender_meter:
-                units_to_send = request.data.get('no_units')  # Units to add
+                units_to_send = request.data.get('no_units') 
                 user_message = request.data.get('message')
                 receiver_meter_no = request.data.get("receiver_meter_no")
                 if not units_to_send:

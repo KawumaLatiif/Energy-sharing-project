@@ -47,7 +47,7 @@ load_dotenv(BASE_DIR.parent / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7'
 DEBUG = get_env_variable("DEBUG", "True") == "True"
-ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1', '10.101.2.133', '192.168.185.151']
+ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1']
 ROOT_URLCONF = 'backend.urls'
 
 # SECURITY WARNING: don't run with debug turned on in production!
