@@ -13,11 +13,4 @@ Step,Backend (Django),Frontend (Next.js),Notes
 - Run migrations: python manage.py migrate.
 - Create superuser: python manage.py createsuperuser.
 
-4. Secrets/Config,"- Edit .env: Add MTN MoMo keys, Celery broker (Redis: docker run -p 6379:6379 redis).
-
-- Start Redis (for Celery): Separate terminal, redis-server.","- Edit .env.local: Add any API keys (e.g., for backend CORS).",Test: Backend should connect to DB without errors.
-
-5. Start Servers,"- Terminal 1: python manage.py runserver (runs on localhost:8000).
-
-- Terminal 2 (Celery): celery -A backend worker -l info (for tasks like emails).",- Terminal 3: npm run dev (runs on localhost:3000).,"Backend: Visit http://localhost:8000/admin/.
-  Frontend: Visit http://localhost:3000/—should proxy API calls to backend."
+4. Start Servers,"- Terminal 1: python manage.py runserver (runs on localhost:8000).

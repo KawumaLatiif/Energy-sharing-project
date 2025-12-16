@@ -1,106 +1,67 @@
-// import AirtelLogo from "@/components/icons/airtel";
-import verizonLogo from "@/assets/images/verizon.png"
-import tMobile from "@/assets/images/tmobile.png"
-import vodafone from "@/assets/images/vodafone.png"
-import threeUk from "@/assets/images/three.png"
-import emirates from "@/assets/images/emirates.png"
-import singapore from "@/assets/images/singaporeairlines.png"
-import klm from "@/assets/images/klm.png"
-import airfrance from "@/assets/images/airfrance.png"
+import verizonLogo from "@/assets/images/verizon.png";
+import tMobile from "@/assets/images/tmobile.png";
+import vodafone from "@/assets/images/vodafone.png";
+import threeUk from "@/assets/images/three.png";
+import emirates from "@/assets/images/emirates.png";
+import singapore from "@/assets/images/singaporeairlines.png";
+import klm from "@/assets/images/klm.png";
+import airfrance from "@/assets/images/airfrance.png";
 import Image from "next/image";
-import {motion} from "framer-motion"
+import { motion } from "framer-motion";
 
+const logos = [
+  threeUk,
+  verizonLogo,
+  tMobile,
+  vodafone,
+  emirates,
+  singapore,
+  airfrance,
+  klm,
+];
 
-
-
-export default function Partners(){
-    return <div className="py-14 bg-white">
-    <div className="max-w-screen-xl mx-auto px-4 md:px-8">
-        <div className="max-w-xl mx-auto text-center">
-            <h3 className="text-gray-800 text-3xl font-semibold sm:text-4xl">
-                Our global partners
-            </h3>
-            <p className="text-gray-600 mt-3">
-                Our global parterships enable us to reach a wider global customer base, delivering high quality digital products and experiences
-            </p>
+export default function Partners() {
+  return (
+    <section className="py-16 md:py-20 bg-white/50 dark:bg-gray-900/50">
+      <div className="max-w-7xl mx-auto px-4 md:px-8">
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="max-w-2xl mx-auto text-center mb-16"
+        >
+          <h3 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white mb-4">
+            Trusted by Leading Energy Innovators
+          </h3>
+          <p className="text-gray-600 dark:text-gray-300 text-lg">
+            Partnering with global utilities and renewable leaders to power
+            sustainable communities worldwide.
+          </p>
+        </motion.div>
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8 lg:gap-12 justify-items-center">
+          {logos.map((logo, idx) => (
+            <motion.div
+              key={idx}
+              initial={{ opacity: 0, scale: 0.9 }}
+              whileInView={{ opacity: 1, scale: 1 }}
+              transition={{ duration: 0.4, delay: idx * 0.1 }}
+              whileHover={{
+                scale: 1.05,
+                filter: "grayscale(0%) brightness(110%)",
+              }}
+              className="flex items-center justify-center p-4 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer grayscale hover:grayscale-0"
+            >
+              <Image
+                alt={`Partner ${idx + 1}`}
+                src={logo}
+                height={120}
+                width={120}
+                className="h-16 w-auto max-w-none transition-transform"
+              />
+            </motion.div>
+          ))}
         </div>
-        <div className="mt-12 flex justify-center">
-            <ul className="inline-grid grid-cols-2 gap-x-10 gap-y-6 md:gap-x-16 md:grid-cols-3 lg:grid-cols-4">
-
-                {/* LOGO 1 */}
-              <motion.li
-              initial={{ opacity: 0, translateX:  50, translateY: -50 }}
-              animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-              transition={{ duration: 0.3, delay: 1 * 0.3 }}
-              >
-                <Image alt="Three Uk" src={threeUk} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 2 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  -50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 2 * 0.3 }}
-              >
-                <Image alt="Verizon Wireless" src={verizonLogo} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 3 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 3 * 0.3 }}
-              >
-              <Image alt="T-Mobile USA" src={tMobile} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 4 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  -50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 4 * 0.3 }}
-              >
-              <Image alt="Vodafone" src={vodafone} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 5 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 5 * 0.3 }}
-              >
-              <Image alt="Fly Emirates" src={emirates} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 6 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  -50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 6 * 0.3 }}
-              >
-              <Image alt="Singapore airlines" src={singapore} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 7 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 7 * 0.3 }}
-              >
-              <Image alt="Air France" src={airfrance} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-                {/* LOGO 8 */}
-              <motion.li
-                initial={{ opacity: 0, translateX:  -50, translateY: -50 }}
-                animate={{ opacity: 1, translateX: 0, translateY: 0 }}
-                transition={{ duration: 0.3, delay: 8 * 0.3 }}
-              >
-              <Image alt="KLM Airlines" src={klm} height={200} width={200} className="h-12 sm:h-24 w-auto" />
-              </motion.li>
-
-            </ul>
-        </div>
-    </div>
-</div>
+      </div>
+    </section>
+  );
 }

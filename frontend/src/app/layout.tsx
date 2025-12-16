@@ -9,8 +9,8 @@ import { headers } from "next/headers";
 import { Toaster } from "react-hot-toast";
 
 export const metadata: Metadata = {
-  title: "Power Loans",
-  description: "Share with the world",
+  title: "EnergyShare",
+  description: "Empowering Sustainable Energy Sharing Across Communities",
 };
 
 const fontSans = FontSans({
@@ -25,13 +25,12 @@ export default async function RootLayout({
 }>) {
   const isAuth = await authenticated();
   const headersList = await headers();
-  // const pathname = headersList.get("x-current-path") || "";
 
   return (
     <html lang="en" suppressHydrationWarning>
       <body
         className={cn(
-          "min-h-screen relative font-sans antialiased bg-background text-foreground", // Uses CSS vars—auto light/dark
+          "min-h-screen relative font-sans antialiased bg-background text-foreground",
           fontSans.variable
         )}
       >
@@ -42,10 +41,21 @@ export default async function RootLayout({
           disableTransitionOnChange
         >
           <Providers>
-            <div className="min-h-dvh grid grid-rows-[auto_1fr_auto]">
+            <div className="min-h-dvh grid grid-rows-[auto_1fr_auto] w-full relative">
+              {/* Subtle energy wave background for theme */}
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-50/50 to-green-50/50 dark:from-gray-900/50 dark:to-teal-900/50 pointer-events-none"></div>
               {children}
             </div>
-            <Toaster position="bottom-center" />
+            <Toaster
+              position="bottom-center"
+              containerClassName="w-full px-4 sm:px-6"
+              toastOptions={{
+                style: {
+                  background: "hsl(var(--background))",
+                  color: "hsl(var(--foreground))",
+                },
+              }}
+            />
           </Providers>
         </ThemeProvider>
       </body>

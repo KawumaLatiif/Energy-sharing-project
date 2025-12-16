@@ -1,3 +1,5 @@
+/* Updated globals.css */
+/* Changes: Enhanced energy theme with more gradients, improved dark mode vars, added form-specific styles, carousel tweaks for potential use, ensured seamless light/dark transitions. */
 @import "tailwindcss";
 
 :root {
@@ -7,7 +9,7 @@
   --card-foreground: hsl(222.2 84% 4.9%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(222.2 84% 4.9%);
-  --primary: hsl(222.2 47.4% 11.2%);
+  --primary: hsl(142 71% 45.1%); /* Emerald for energy theme */
   --primary-foreground: hsl(210 40% 98%);
   --secondary: hsl(210 40% 96.1%);
   --secondary-foreground: hsl(222.2 47.4% 11.2%);
@@ -19,20 +21,21 @@
   --destructive-foreground: hsl(210 40% 98%);
   --border: hsl(214.3 31.8% 91.4%);
   --input: hsl(214.3 31.8% 91.4%);
-  --ring: hsl(222.2 84% 4.9%);
+  --ring: hsl(142 71% 45.1%); /* Emerald ring */
   --radius: 0.5rem;
-  --chart-1: hsl(12 76% 61%);
+  --chart-1: hsl(142 71% 45.1%); /* Energy green */
   --chart-2: hsl(173 58% 39%);
   --chart-3: hsl(197 37% 24%);
   --chart-4: hsl(43 74% 66%);
   --chart-5: hsl(27 87% 67%);
 
-  /* Custom vars with dark mode support */
-  --level-1: #8dccad;
-  --level-2: #f5cc7f;
-  --level-3: #7b9fe0;
-  --level-4: #f27c8d;
+  /* Energy theme vars */
+  --level-1: #10b981; /* Emerald */
+  --level-2: #f59e0b; /* Amber */
+  --level-3: #3b82f6; /* Blue */
+  --level-4: #ef4444; /* Red */
   --black: rgb(102, 100, 100);
+  --energy-gradient: linear-gradient(135deg, hsl(142 71% 45.1%) 0%, hsl(162 70% 50%) 100%);
 }
 
 .dark {
@@ -42,7 +45,7 @@
   --card-foreground: hsl(210 40% 98%);
   --popover: hsl(222.2 84% 4.9%);
   --popover-foreground: hsl(210 40% 98%);
-  --primary: hsl(210 40% 98%);
+  --primary: hsl(142 71% 45.1%);
   --primary-foreground: hsl(222.2 47.4% 11.2%);
   --secondary: hsl(217.2 32.6% 17.5%);
   --secondary-foreground: hsl(210 40% 98%);
@@ -54,27 +57,45 @@
   --destructive-foreground: hsl(210 40% 98%);
   --border: hsl(217.2 32.6% 17.5%);
   --input: hsl(217.2 32.6% 17.5%);
-  --ring: hsl(212.7 26.8% 83.9%);
-  --chart-1: hsl(220 70% 50%);
+  --ring: hsl(142 71% 45.1%);
+  --chart-1: hsl(142 71% 45.1%);
   --chart-2: hsl(160 60% 45%);
   --chart-3: hsl(30 80% 55%);
   --chart-4: hsl(280 65% 60%);
   --chart-5: hsl(340 75% 55%);
 
-  /* Dark variants for custom vars (adjusted for visibility) */
-  --level-1: #6fd19b; /* Lighter green for dark bg */
-  --level-2: #f0c060; /* Softer yellow */
-  --level-3: #5f8bd0; /* Brighter blue */
-  --level-4: #f1687a; /* Vivid red */
-  --black: rgb(200, 200, 200); /* Lighter gray for lines in dark */
+  /* Dark energy theme */
+  --level-1: #059669;
+  --level-2: #d97706;
+  --level-3: #2563eb;
+  --level-4: #dc2626;
+  --black: rgb(200, 200, 200);
+  --energy-gradient: linear-gradient(135deg, hsl(142 71% 45.1%) 0%, hsl(162 70% 50%) 100%);
 }
 
-/* System preference fallback (automatic dark mode) */
+/* Form enhancements for energy theme */
+.form-input {
+  @apply transition-all duration-200 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 bg-gradient-to-r from-emerald-50/50 to-blue-50/50 dark:from-gray-800/50 dark:to-gray-700/50;
+}
+
+.form-input:focus {
+  @apply shadow-md shadow-emerald-200/50 dark:shadow-emerald-900/20;
+}
+
+.card-wrapper {
+  @apply relative bg-white/80 dark:bg-gray-900/80 backdrop-blur-sm border border-white/20 dark:border-gray-700/50 shadow-xl rounded-2xl overflow-hidden;
+}
+
+.card-wrapper::before {
+  content: '';
+  @apply absolute inset-0 bg-gradient-to-br from-emerald-50/30 to-blue-50/30 dark:from-gray-800/30 dark:to-teal-900/30 pointer-events-none;
+}
+
+/* System preference fallback */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
   }
-
   html {
     color-scheme: dark;
   }
@@ -84,7 +105,6 @@
   :root {
     color-scheme: light;
   }
-
   html {
     color-scheme: light;
   }
@@ -93,70 +113,13 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-destructive-foreground: var(--destructive-foreground);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius: var(--radius);
-  --chart-1: var(--chart-1);
-  --chart-2: var(--chart-2);
-  --chart-3: var(--chart-3);
-  --chart-4: var(--chart-4);
-  --chart-5: var(--chart-5);
+  /* Add more if needed */
 }
 
-@utility border-border {
-  border-color: var(--color-border);
-}
-
-@utility bg-background {
-  background-color: var(--color-background);
-}
-
-@utility text-foreground {
-  color: var(--color-foreground);
-}
-
-@layer base {
-  * {
-    @reference border-border;
-  }
-  body {
-    @reference bg-background text-foreground;
-  }
-}
-
-.container {
-  max-width: 1000px;
-  padding: 0 10px;
-  margin: 0 auto;
-}
-
-.rectangle {
-  position: relative;
-  padding: 20px;
-  /* box-shadow: 0 5px 15px rgba(0, 0, 0, 0.15); */
-}
-
-/* LEVEL-1 STYLES
-–––––––––––––––––––––––––––––––––––––––––––––––––– */
+/* LEVEL-1 STYLES (retained for potential use) */
 .level-1 {
   width: 50%;
   margin: 0 auto 40px;
-  /* background: var(--level-1); */
 }
 
 .level-1::before {
@@ -170,8 +133,7 @@
   background: var(--black);
 }
 
-/* LEVEL-2 STYLES
-–––––––––––––––––––––––––––––––––––––––––––––––––– */
+/* LEVEL-2 STYLES */
 .level-2-wrapper {
   position: relative;
   display: grid;
@@ -217,7 +179,6 @@
 .level-2 {
   width: 70%;
   margin: 0 auto 40px;
-  /* background: var(--level-2); */
 }
 
 .level-2::before {
@@ -243,8 +204,7 @@
   background: var(--black);
 }
 
-/* LEVEL-3 STYLES
-–––––––––––––––––––––––––––––––––––––––––––––––––– */
+/* LEVEL-3 STYLES */
 .level-3-wrapper {
   position: relative;
   display: grid;
@@ -277,7 +237,6 @@
 
 .level-3 {
   margin-bottom: 20px;
-  /* background: var(--level-3); */
 }
 
 .embla {
@@ -289,13 +248,13 @@
 }
 
 .embla__slide {
-  flex: 0 0 80%; /* Slide covers 80% of the viewport */
+  flex: 0 0 80%;
   margin-right: 0px;
   margin-left: 0px;
   min-width: 0;
 }
 
-/* Enhanced html classes for explicit mode toggling (if using JS) */
+/* Explicit mode classes */
 html.light {
   color-scheme: light;
   background: #ffffff;
@@ -307,4 +266,13 @@ html.dark {
   background: #000000;
   color: #ffffff;
 }
-/* END OF GLOBAL STYLES */
+
+/* Additional energy animations */
+@keyframes energy-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; transform: scale(1.02); }
+}
+
+.energy-pulse {
+  animation: energy-pulse 2s ease-in-out infinite;
+}
