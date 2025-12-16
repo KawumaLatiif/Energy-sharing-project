@@ -6,7 +6,7 @@ Step,Backend (Django),Frontend (Next.js),Notes
 2. Environment Setup,"- Activate/create venv: python -m venv venv
 
 - venv\Scripts\activate (Windows) or source venv/bin/activate (macOS/Linux).
-- Install deps: pip install -r requirements.txt",- Install deps: npm install (or yarn install if using Yarn).,"Copy .env.example to .env in both dirs—fill secrets (e.g., DATABASE_URL, MTN_MOMO_API_KEY). Never commit .env (add to .gitignore)."
+- Install deps: pip install -r requirements.txt",- Install deps: npm install."
 
 3. Database Setup,"- Install/run Postgres.
 

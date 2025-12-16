@@ -36,7 +36,7 @@ export default function Home() {
                     whileTap={{ scale: 0.95 }}
                     className="w-full sm:w-auto px-8 py-4 bg-gradient-to-r from-blue-600 to-teal-600 hover:from-blue-700 hover:to-teal-700 text-white rounded-xl font-semibold text-base transition-all shadow-lg"
                   >
-                    Start Sharing
+                    Get started
                   </motion.button>
                 </Link>
                 <Link href="#features">
