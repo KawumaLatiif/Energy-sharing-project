@@ -24,15 +24,27 @@ logger = logging.getLogger(__name__)
 
 class CreateUserSerializer(serializers.ModelSerializer):
 
-    first_name = serializers.CharField(required=True)
-    last_name = serializers.CharField(required=True)
+    first_name = serializers.CharField(required=True,
+        error_messages={
+            'required': 'First name is required',
+            'blank': 'First name cannot be blank'
+        })
+    last_name = serializers.CharField(required=True,
+        error_messages={
+            'required': 'Last name is required',
+            'blank': 'Last name cannot be blank'
+        })
     email = serializers.EmailField(
         required=True,
         validators=[
             UniqueValidator(
-                queryset=User.objects.all(), message="Email already in use!"
+                queryset=User.objects.all(), message="This email is already registered. Please use a different email or try logging in."
             )
         ],
+        error_messages={
+            'required': 'Email address is required',
+            'invalid': 'Please enter a valid email address'
+        }
     )
     phone_number = serializers.CharField(
         required=True,
@@ -41,6 +53,10 @@ class CreateUserSerializer(serializers.ModelSerializer):
                 queryset=User.objects.all(), message="Phone number already in use!"
             )
         ],
+        error_messages={
+            'required': 'Phone number is required',
+            'blank': 'Phone number cannot be blank'
+        }
     )
    
     gender = serializers.CharField(required=True)
@@ -62,12 +78,21 @@ class CreateUserSerializer(serializers.ModelSerializer):
             
         ]
 
+    def validate_phone_number(self, value):
+        """Validate phone number format"""
+        phone_pattern = r'^\+?1?\d{9,14}$'
+        if not re.match(phone_pattern, value):
+            raise serializers.ValidationError(
+                "Please enter a valid phone number (9-15 digits, optional + prefix)"
+            )
+        return value
+
     def create(self, validated_data):
         """
         Create and return a new User instance
         """
        
-
+        validated_data.pop("confirm_password", None)
 
         user = User.objects.create_user(**validated_data)
         Profile.objects.create(
@@ -83,12 +108,18 @@ class CreateUserSerializer(serializers.ModelSerializer):
         """
         Method to validate request data
         """
+        password = data.get("password") 
         confirm_password = data.pop("confirm_password")
         if data.get("password") != confirm_password:
             raise serializers.ValidationError({"password": "Passwords mismatch"})
 
-        elif len(data.get("password")) < 8:
+        if len(data.get("password")) < 8:
             raise serializers.ValidationError({"password": "Password should be atleast 8 characters long"})
+        elif not any(char.isdigit() for char in password):
+            errors["password"] = "Password must contain at least one number."
+        elif not any(char.isalpha() for char in password):
+            errors["password"] = "Password must contain at least one letter."
+        
         if data.get("country"):
             country = Country.objects.filter(code=data.get("country")).first()
             if not country:
@@ -201,31 +232,46 @@ class EmailTokenObtainSerializer(TokenObtainPairSerializer):
 
 class LoginSerializer(EmailTokenObtainSerializer):
     tokens = serializers.CharField(read_only=True)
-    email = serializers.EmailField(required=True)
-    password = serializers.CharField(required=True)
+    email = serializers.EmailField(required=True,
+        error_messages={
+            'required': 'Email address is required',
+            'invalid': 'Please enter a valid email address'
+        })
+    password = serializers.CharField(
+        required=True,
+        write_only=True,
+        error_messages={
+            'required': 'Password is required',
+            'blank': 'Password cannot be blank'
+        }
+    )
+    
+    default_error_messages = {
+        'no_active_account': 'The account is inactive or the credentials are invalid.',
+        'invalid_credentials': 'Invalid email or password. Please try again.',
+    }
 
     @classmethod
     def get_token(cls, user):
         return RefreshToken.for_user(user)
 
     def validate(self, attrs):
-        # this method authenticates and add user to self if valid
-        tokens = super().validate(attrs)
-        user = self.user
-        # try:
-        #     email_verified = user.profile.email_verified
-        # except Profile.DoesNotExist:
-        #     error_msg = "No profile found with user account"
-        #     logger.exception(
-        #         f"[LOGIN] User {self.user.id} is missing a profile"
-        #     )
-        #     raise serializers.ValidationError(error_msg)
-        if not user.profile.email_verified:
-            error_msg = "Please verify your email address"
-            raise serializers.ValidationError({"email": error_msg})
+        try:
+            data = super().validate(attrs)
+            tokens = super().validate(attrs)
+            user = self.user
+            if not user.profile.email_verified:
+                error_msg = "Please verify your email address"
+                raise serializers.ValidationError({"email": error_msg})
 
-        return tokens
-
+            return tokens
+            
+        except Exception as e:
+            logger.error(f"Login error: {str(e)}")
+            # Generic error for security (don't reveal specifics)
+            raise serializers.ValidationError({
+                'non_field_errors': ['Invalid credentials or server error. Please try again.']
+            })
 
 class LoginResponseSerializer(serializers.Serializer):
     access_token = serializers.CharField(read_only=True)
@@ -274,7 +320,19 @@ class UserConfigSerializer(serializers.ModelSerializer):
 
 
 class ForgotPasswordSerializer(serializers.Serializer):
-    email = serializers.EmailField(required=True)
+    email = serializers.EmailField(
+        required=True,
+        error_messages={
+            'required': 'Email address is required',
+            'invalid': 'Please enter a valid email address'
+        }
+    )
+    
+    def validate_email(self, value):
+        """Check if email exists in the system"""
+        if not User.objects.filter(email=value).exists():
+            pass
+        return value
 
 
 class ResetPasswordConfirmSerializer(serializers.Serializer):
