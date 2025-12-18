@@ -20,10 +20,9 @@ export default async function AdminLayout({
   }
 
   if (userData.user_role !== "ADMIN" && !userData.is_admin) {
-    redirect("/dashboard"); // regular user dashboard
+    redirect("/dashboard"); 
   }
 
-  // If we reach here, user is admin → render layout
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
       <AdminDesktopSidebar />

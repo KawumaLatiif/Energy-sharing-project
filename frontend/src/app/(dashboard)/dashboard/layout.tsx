@@ -9,7 +9,7 @@ const fontSans = FontSans({
 })
 
 export const metadata: Metadata = {
-  title: "Power Cred | Dashboard",
+  title: "Energy Share | Dashboard",
   description: "",
 };
 

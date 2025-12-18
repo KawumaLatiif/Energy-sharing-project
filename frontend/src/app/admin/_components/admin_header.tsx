@@ -54,9 +54,9 @@ export default function AdminRightHeader() {
                 width={40}
                 height={400}
                 className="w-18 auto"
-                alt="Power Cred"
+                alt="Energy Share Logo"
               />
-              <span className="">Power Cred Admin</span>
+              <span className="">Energy Share Admininistrator</span>
             </Link>
             <Link
               href="/admin/dashboard"

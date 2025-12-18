@@ -38,20 +38,17 @@ export default function DashboardClient({
     setIsMeterPopupOpen(false);
     setCurrentStep('profile');
     setIsProfilePopupOpen(true);
-    // Refresh server data
     router.refresh();
   };
 
   const handleProfileSuccess = () => {
     setIsProfilePopupOpen(false);
     setCurrentStep('complete');
-    // Refresh server data to get updated state
     router.refresh();
   };
 
   const handleMeterClose = () => {
     if (currentStep === 'meter') {
-      // For required steps, don't allow closing - keep it open
       return;
     }
     setIsMeterPopupOpen(false);
@@ -59,7 +56,6 @@ export default function DashboardClient({
 
   const handleProfileClose = () => {
     if (currentStep === 'profile') {
-      // For required steps, don't allow closing - keep it open
       return;
     }
     setIsProfilePopupOpen(false);

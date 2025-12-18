@@ -1,7 +1,7 @@
 import { Suspense } from 'react';
 import DesktopSidebar from "../_components/desktop-sidebar";
 import RightHeader from "../_components/right-header";
-import TransList from './_components/transferlist';
+import TransList from './_components/transactionlist';
 
 
 const TransactionPage = async () => {
