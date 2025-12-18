@@ -7,6 +7,8 @@ export type Country = {
 
 
 export type User = {
+    is_admin: boolean
+    user_role: string
     id: number,
     first_name: string,
     last_name: string,

@@ -16,6 +16,7 @@ from accounts.models import (
    
 )
 from django.db.models import Q
+import re
 
 from utils.validations import validate_password
 
@@ -94,10 +95,15 @@ class CreateUserSerializer(serializers.ModelSerializer):
        
         validated_data.pop("confirm_password", None)
 
+        validated_data.pop('profile', None)
+
         user = User.objects.create_user(**validated_data)
-        Profile.objects.create(
-            user=user
-        )
+        # Profile.objects.create(
+        #     user=user
+        # )
+        if not hasattr(user, 'profile'):
+            Profile.objects.create(user=user)
+
         logger.info(
             f"[ACCOUNTS] Successfully created user account for user {user.id}"
         )
@@ -258,13 +264,23 @@ class LoginSerializer(EmailTokenObtainSerializer):
     def validate(self, attrs):
         try:
             data = super().validate(attrs)
-            tokens = super().validate(attrs)
+            # tokens = super().validate(attrs)
             user = self.user
             if not user.profile.email_verified:
                 error_msg = "Please verify your email address"
                 raise serializers.ValidationError({"email": error_msg})
 
-            return tokens
+            # Add user info to response
+            data['user'] = {
+                'id': user.id,
+                'email': user.email,
+                'first_name': user.first_name,
+                'last_name': user.last_name,
+                'user_role': user.user_role,
+                'is_admin': user.user_role == User.ADMIN,
+                'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+            }
+            return data
             
         except Exception as e:
             logger.error(f"Login error: {str(e)}")
@@ -278,11 +294,6 @@ class LoginResponseSerializer(serializers.Serializer):
     refresh_token = serializers.EmailField(read_only=True)
 
 
-# class CountrySerializer(serializers.ModelSerializer):
-#     class Meta:
-#         model = Country
-#         fields = ["code", "name"]
-
 
 class ProfileSerializer(serializers.ModelSerializer):
     class Meta:
@@ -295,29 +306,69 @@ class UserAccountDetailsSerializer(serializers.ModelSerializer):
         model = UserAccountDetails
         fields = ['account_number', 'address', 'energy_preference', 'payment_method']
 
+
+# class UserConfigSerializer(serializers.ModelSerializer):
+#     profile = ProfileSerializer(read_only=True)
+#     account_details = UserAccountDetailsSerializer(read_only=True)
+    
+#     is_admin = serializers.SerializerMethodField()
+#     is_staff = serializers.SerializerMethodField()
+#     is_superuser = serializers.SerializerMethodField()
+
+#     def get_is_admin(self, obj):
+#         return obj.user_role == User.ADMIN
+    
+#     def get_is_staff(self, obj):
+#         return hasattr(obj, 'is_staff') and obj.is_staff
+    
+#     def get_is_superuser(self, obj):
+#         return hasattr(obj, 'is_superuser') and obj.is_superuser
+
+#     class Meta:
+#         model = User
+#         fields = [
+#             'id', 'email', 'first_name', 'last_name', 
+#             'phone_number', 'profile', 'account_is_active',
+#             'account_details', 'is_admin', 'is_staff', 'is_superuser',
+#             'user_role'  
+#         ]
+
+
+# class UserConfigSerializer(serializers.ModelSerializer):
+#     profile = ProfileSerializer(read_only=True)
+#     # country = CountrySerializer(read_only=True)
+#     account_details = UserAccountDetailsSerializer(read_only=True)
+    
+
+#     class Meta:
+#         model = User
+#         fields = ['id', 'email', 'first_name', 'last_name', 'phone_number', 'profile', 'account_is_active','account_details']
+
 class UserConfigSerializer(serializers.ModelSerializer):
     profile = ProfileSerializer(read_only=True)
     account_details = UserAccountDetailsSerializer(read_only=True)
     
+    is_admin = serializers.SerializerMethodField()
+    is_staff = serializers.SerializerMethodField()
+    is_superuser = serializers.SerializerMethodField()
+
+    def get_is_admin(self, obj):
+        return obj.user_role == User.ADMIN
+    
+    def get_is_staff(self, obj):
+        return hasattr(obj, 'is_staff') and obj.is_staff
+    
+    def get_is_superuser(self, obj):
+        return hasattr(obj, 'is_superuser') and obj.is_superuser
+
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 
             'phone_number', 'profile', 'account_is_active',
-            'account_details'
+            'account_details', 'is_admin', 'is_staff', 'is_superuser',
+            'user_role'  
         ]
-
-
-class UserConfigSerializer(serializers.ModelSerializer):
-    profile = ProfileSerializer(read_only=True)
-    # country = CountrySerializer(read_only=True)
-    account_details = UserAccountDetailsSerializer(read_only=True)
-    
-
-    class Meta:
-        model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'phone_number', 'profile', 'account_is_active','account_details']
-
 
 class ForgotPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField(

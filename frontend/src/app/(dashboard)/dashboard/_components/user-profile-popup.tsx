@@ -104,27 +104,58 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
 
     const [isAuthValid, setIsAuthValid] = useState(true); // New state
 
+    // useEffect(() => {
+    //     if (isOpen) {
+    //         const checkAuth = async () => {
+    //             try {
+    //                 const response = await fetch('/api/v1/auth/get-user-config/');
+    //                 if (response.status === 401) {
+    //                     setIsAuthValid(false);
+    //                     // Clear and redirect
+    //                     document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    //                     document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+    //                     window.location.href = '/auth/login';
+    //                     return;
+    //                 }
+    //                 setIsAuthValid(true);
+    //             } catch (error) {
+    //                 console.error('Auth check failed:', error);
+    //             }
+    //         };
+    //         checkAuth();
+    //     }
+    // }, [isOpen]);
+
+
     useEffect(() => {
-        if (isOpen) {
-            const checkAuth = async () => {
-                try {
-                    const response = await fetch('/api/v1/auth/get-user-config/');
-                    if (response.status === 401) {
-                        setIsAuthValid(false);
-                        // Clear and redirect
-                        document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                        document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                        window.location.href = '/auth/login';
-                        return;
-                    }
-                    setIsAuthValid(true);
-                } catch (error) {
-                    console.error('Auth check failed:', error);
-                }
-            };
-            checkAuth();
+  if (isOpen) {
+    const checkAuthAndRole = async () => {
+      try {
+        const response = await fetch('/api/v1/auth/get-user-config/');
+        if (response.status === 401) {
+          setIsAuthValid(false);
+          // Clear and redirect
+          document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+          document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+          window.location.href = '/auth/login';
+          return;
         }
-    }, [isOpen]);
+
+        const userData = await response.json();
+        setIsAuthValid(true);
+
+        // ADD THIS: Check if admin and skip popup
+        if (userData.is_admin || userData.user_role === 'ADMIN') {
+          onSuccess();  // Skip profile for admins
+        }
+      } catch (error) {
+        console.error('Auth check failed:', error);
+      }
+    };
+    checkAuthAndRole();
+  }
+}, [isOpen, onSuccess]);  // Add onSuccess to dependencies
+
 
     const onSubmit = async (values: UserProfileFormValues) => {
         setIsLoading(true);

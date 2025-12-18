@@ -42,9 +42,31 @@ export default function MeterRegistrationPopup({
 
   const [isAuthValid, setIsAuthValid] = useState(true);
 
+// useEffect(() => {
+//   if (isOpen) {
+//     const checkAuth = async () => {
+//       try {
+//         const response = await fetch('/api/v1/auth/get-user-config/');
+//         if (response.status === 401) {
+//           setIsAuthValid(false);
+//           // Clear and redirect
+//           document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+//           document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+//           window.location.href = '/auth/login';
+//           return;
+//         }
+//         setIsAuthValid(true);
+//       } catch (error) {
+//         console.error('Auth check failed:', error);
+//       }
+//     };
+//     checkAuth();
+//   }
+// }, [isOpen]);
+
 useEffect(() => {
   if (isOpen) {
-    const checkAuth = async () => {
+    const checkAuthAndRole = async () => {
       try {
         const response = await fetch('/api/v1/auth/get-user-config/');
         if (response.status === 401) {
@@ -55,14 +77,21 @@ useEffect(() => {
           window.location.href = '/auth/login';
           return;
         }
+
+        const userData = await response.json();
         setIsAuthValid(true);
+
+        // ADD THIS: Check if admin and skip popup
+        if (userData.is_admin || userData.user_role === 'ADMIN') {
+          onSuccess();  // Skip registration for admins
+        }
       } catch (error) {
         console.error('Auth check failed:', error);
       }
     };
-    checkAuth();
+    checkAuthAndRole();
   }
-}, [isOpen]);
+}, [isOpen, onSuccess]);  // Add onSuccess to dependencies
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

@@ -7,17 +7,20 @@ import authenticated from "./authenticated";
 
 const getHeaders = async () => {
     const cookieStore = await cookies();
-    const isAuthenticated = await authenticated();
+    const authCookie = cookieStore.get(AUTHENTICATION_COOKIE);
+    
+    console.log('Auth cookie value:', authCookie?.value);
+    console.log('All cookies:', cookieStore.getAll().map(c => c.name));
 
-    console.log('Auth cookie:', cookieStore.get(AUTHENTICATION_COOKIE)?.value);
-    console.log('Is authenticated:', isAuthenticated);
-
-    return {
-        ...(isAuthenticated && {
-            Authorization: `Bearer ${cookieStore.get(AUTHENTICATION_COOKIE)?.value}`,
-        }),
-        Cookie: cookieStore.toString(),
+    const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
     };
+
+    if (authCookie?.value) {
+        headers['Authorization'] = `Bearer ${authCookie.value}`;
+    }
+
+    return headers;
 };
 
 export const post = async <T>(path: string, data: any) => {
@@ -48,7 +51,9 @@ export const get = async <T>(path: string) => {
         console.log('Request URL:', `${API_URL}/${path}`);
 
         const res = await fetch(`${API_URL}/${path}`, {
-            headers: headers
+            headers: headers,
+            credentials: 'include',
+            cache: 'no-store'
         });
 
         console.log('Response status:', res.status);

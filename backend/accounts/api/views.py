@@ -98,17 +98,69 @@ def user_profile_view(request):
             "completed": user.has_complete_profile
         })
 
+# class LoginAPIView(TokenObtainPairView):
+#     """
+#     Login API. Expects an email and password
+#     :returns: access and refresh token
+#     """
+
+#     serializer_class = LoginSerializer
+
+#     @swagger_auto_schema(responses={200: LoginResponseSerializer()})
+#     def post(self, request, *args, **kwargs):
+#         return super().post(request, *args, **kwargs)
+#         if response.status_code == 200:
+#             # Get the user from serializer context
+#             serializer = self.get_serializer(data=request.data)
+#             if serializer.is_valid():
+#                 user = serializer.user
+#                 # Add user info to response
+#                 response.data.update({
+#                     'user_role': user.user_role,
+#                     'is_admin': user.user_role == User.ADMIN,
+#                     'email': user.email,
+#                     'first_name': user.first_name,
+#                     'last_name': user.last_name,
+#                     'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+#                 })
+        
+#         return response
+
+
 class LoginAPIView(TokenObtainPairView):
     """
     Login API. Expects an email and password
-    :returns: access and refresh token
+    :returns: access and refresh token + user info
     """
 
     serializer_class = LoginSerializer
 
     @swagger_auto_schema(responses={200: LoginResponseSerializer()})
     def post(self, request, *args, **kwargs):
-        return super().post(request, *args, **kwargs)
+        # Call the parent to get the normal token response
+        response = super().post(request, *args, **kwargs)
+
+        # Only modify if login was successful
+        if response.status_code == 200:
+            # Get the authenticated user
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)  # This will raise if invalid
+            user = serializer.user
+
+            # Add custom user data to the response
+            response.data.update({
+                'user': {
+                    'id': user.id,
+                    'email': user.email,
+                    'first_name': user.first_name,
+                    'last_name': user.last_name,
+                    'user_role': user.user_role,
+                    'is_admin': user.user_role == User.ADMIN,
+                    'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+                }
+            })
+
+        return response
 
 
 class CreateUserAPIView(CreateAPIView):

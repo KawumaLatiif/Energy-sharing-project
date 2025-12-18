@@ -38,7 +38,7 @@ export default function LoginForm() {
 
     const result = await login(values);
     if (result.success) {
-      window.location.href = result.redirectTo;
+      window.location.href = result.redirectTo || '/dashboard';
     } else if (result.error === 'EMAIL_NOT_VERIFIED') {
       setError(result.message || 'Please verify your email first');
       setShowResend(true);
@@ -47,63 +47,7 @@ export default function LoginForm() {
       setError('wrong credentials. try again');
     }
   };
-    // startTransition(() => {
-    //   login(values).then((data) => {
-    //     if (data.error) {
-    //       if (typeof data.error === 'object') {
-    //         if (data.error.email) {
-    //           form.setError('email', { type: 'custom', message: data.error.email[0] });
-    //           if (data.error.email[0] === 'Please verify your email address') {
-    //             setShowResend(true);
-    //           }
-    //         }
-    //         if (data.error.password) {
-    //           form.setError('password', { type: 'custom', message: data.error.password[0] });
-    //         }
-    //       } else {
-    //         setError(data.error);
-    //       }
-    //     } else {
-    //       setSuccess("Login successful. Redirecting...");
-    //       const target = (data as any).redirectTo || callbackUrl || '/dashboard';
-    //       // small delay to show success then navigate
-    //       setTimeout(() => router.push(target), 500);
-    //     }
-    //   }).catch(() => setError('Server error occurred'));
-    // });
-  // }
-  // const handleResend = async () => {
-  //   if (resendLoading || cooldown > 0) return;
-  //   const email = form.getValues('email');
-  //   if (!email) {
-  //     form.setError('email', { type: 'custom', message: 'Enter your email to resend' });
-  //     return;
-  //   }
-  //   setError('');
-  //   setSuccess('');
-  //   setResendLoading(true);
-  //   startTransition(async () => {
-  //     const result = await resendVerificationEmail(email);
-  //     setResendLoading(false);
-  //     if ((result as any).error) {
-  //       setError((result as any).error);
-  //     } else {
-  //       setSuccess((result as any).success || 'Verification email sent');
-  //       // Start a short cooldown to prevent spam clicking
-  //       setCooldown(30);
-  //       const interval = setInterval(() => {
-  //         setCooldown((s) => {
-  //           if (s <= 1) {
-  //             clearInterval(interval);
-  //             return 0;
-  //           }
-  //           return s - 1;
-  //         });
-  //       }, 1000);
-  //     }
-  //   });
-  // };
-  
+
     const handleResendVerification = async () => {
     if (!emailForResend) return;
 
@@ -198,9 +142,9 @@ export default function LoginForm() {
         <div className="error-message">
           {/* {error} */}
           {showResend && (
-            <button onClick={handleResendVerification} className="ml-2 text-blue-600">
+            <Button onClick={handleResendVerification} className="ml-2 text-blue-600">
               Resend verification email
-            </button>
+            </Button>
           )}
         </div>
       )}

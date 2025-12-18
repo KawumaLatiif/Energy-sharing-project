@@ -235,6 +235,14 @@ class User(TimestampMixin, AbstractUser):
     def is_verified(self):
         return self.profile.email_verified
 
+    @property
+    def is_admin(self):
+        return self.user_role == self.ADMIN
+
+    @property
+    def is_client(self):
+        return self.user_role == self.CLIENT
+
 
 class UserAccountDetails(TimestampMixin, models.Model):
     user = models.OneToOneField(
