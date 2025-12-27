@@ -272,7 +272,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         <div className="space-y-4">
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
-            <AlertDescription>
+            <AlertDescription className="text-red-400">
               For security, please verify this transaction. A verification code
               has been sent to your registered email.
             </AlertDescription>
