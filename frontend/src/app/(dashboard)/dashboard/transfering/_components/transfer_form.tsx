@@ -5,31 +5,42 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Loader2, Shield, AlertTriangle, CheckCircle } from "lucide-react";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import CardWrapper from "@/components/common/card-wrapper";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import { post, get } from "@/lib/fetch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
-const TransferSchema = z.object({
-  meter_no_old: z.string()
-    .min(10, "Meter number must be 10 digits")
-    .max(10, "Meter number must be 10 digits")
-    .regex(/^\d+$/, "Meter number must contain only digits"),
-  meter_no_new: z.string()
-    .min(10, "Meter number must be 10 digits")
-    .max(10, "Meter number must be 10 digits")
-    .regex(/^\d+$/, "Meter number must contain only digits"),
-}).refine((data) => data.meter_no_old !== data.meter_no_new, {
-  message: "Old and new meter numbers must be different",
-  path: ["meter_no_new"],
-});
+const TransferSchema = z
+  .object({
+    meter_no_old: z
+      .string()
+      .min(10, "Meter number must be 10 digits")
+      .max(10, "Meter number must be 10 digits")
+      .regex(/^\d+$/, "Meter number must contain only digits"),
+    meter_no_new: z
+      .string()
+      .min(10, "Meter number must be 10 digits")
+      .max(10, "Meter number must be 10 digits")
+      .regex(/^\d+$/, "Meter number must contain only digits"),
+  })
+  .refine((data) => data.meter_no_old !== data.meter_no_new, {
+    message: "Old and new meter numbers must be different",
+    path: ["meter_no_new"],
+  });
 
 type TransferFormValues = z.infer<typeof TransferSchema>;
 
@@ -38,7 +49,10 @@ interface TransferFormProps {
   onCancel?: () => void;
 }
 
-export default function TransferForm({ onSuccess, onCancel }: TransferFormProps) {
+export default function TransferForm({
+  onSuccess,
+  onCancel,
+}: TransferFormProps) {
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, setIsPending] = useState(false);
@@ -46,26 +60,51 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
+  const [userMeters, setUserMeters] = useState<any[]>([]);
 
   const router = useRouter();
 
-  useEffect(() => {
-    // Fetch user balance on component mount
-    const fetchBalance = async () => {
-      try {
-        const response = await get<any>('wallet/balance');
-        if (response.success) {
-          setUserBalance(response.balance);
-        }
-      } catch (error) {
-        console.error("Failed to fetch balance:", error);
-      } finally {
-        setIsLoadingBalance(false);
-      }
-    };
-    
-    fetchBalance();
-  }, []);
+   useEffect(() => {
+     const fetchBalance = async () => {
+       try {
+         const response = await get<any>("wallet/balance");
+  
+         if (response.error === null && response.data?.success) {
+           const apiData = response.data;
+           const walletBal = parseFloat(
+             apiData.wallet?.balance || apiData.total_balance || "0"
+           );
+           const meters = apiData.meters || [];
+           setUserMeters(meters);
+  
+           // Prioritize active meter balance (permanent: always uses real meter units)
+           let finalBalance = walletBal;
+           if (meters.length > 0) {
+             const activeMeterBal = parseFloat(meters[0].balance || "0");
+             finalBalance = activeMeterBal > 0 ? activeMeterBal : walletBal; 
+           }
+  
+           setUserBalance(finalBalance);
+           console.log("Set userBalance:", finalBalance);
+         } else {
+           console.error(
+             "Balance fetch failed:",
+             response.error || "Unknown error"
+           );
+           setError(
+             response.error?.message || "Failed to load balance. Please refresh."
+           );
+         }
+       } catch (error) {
+         console.error("Failed to fetch balance:", error);
+         setError("Network error. Please check your connection and try again.");
+       } finally {
+         setIsLoadingBalance(false);
+       }
+     };
+  
+     fetchBalance();
+   }, []);
 
   const form = useForm<TransferFormValues>({
     resolver: zodResolver(TransferSchema),
@@ -92,13 +131,13 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
         setError("Invalid verification code");
         return;
       }
-      
+
       setIsPending(true);
       setError("");
       setSuccess("");
 
       try {
-        const response = await post('/transfer-units/', {
+        const response = await post("/transfer-units/", {
           meter_no_old: data.meter_no_old,
           meter_no_new: data.meter_no_new,
           verification_code: verificationCode,
@@ -107,7 +146,7 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
         if (response.success) {
           setSuccess("Units transferred successfully!");
           setVerificationStep(2);
-          
+
           // Reset form after success
           setTimeout(() => {
             form.reset();
@@ -135,7 +174,7 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
   };
 
   return (
-    <CardWrapper 
+    <CardWrapper
       title="Transfer Units to New Account"
       // description="Transfer all units when moving to a new location"
     >
@@ -153,7 +192,8 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
         <Alert variant="destructive" className="bg-red-50 border-red-200">
           <AlertTriangle className="h-4 w-4" />
           <AlertDescription className="text-sm">
-            This will transfer ALL units from your old meter and deactivate it. This action cannot be undone.
+            This will transfer ALL units from your old meter and deactivate it.
+            This action cannot be undone.
           </AlertDescription>
         </Alert>
         <Separator />
@@ -203,7 +243,13 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
 
             <div className="flex gap-2">
               {onCancel && (
-                <Button type="button" variant="outline" onClick={onCancel} className="flex-1" disabled={isPending}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onCancel}
+                  className="flex-1"
+                  disabled={isPending}
+                >
                   Cancel
                 </Button>
               )}
@@ -227,7 +273,8 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              For security, please verify this transfer. A verification code has been sent to your registered email.
+              For security, please verify this transfer. A verification code has
+              been sent to your registered email.
             </AlertDescription>
           </Alert>
 
@@ -237,7 +284,11 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
               type="text"
               placeholder="Enter 6-digit code"
               value={verificationCode}
-              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) =>
+                setVerificationCode(
+                  e.target.value.replace(/\D/g, "").slice(0, 6)
+                )
+              }
               maxLength={6}
             />
           </div>
@@ -251,8 +302,10 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
               <span>{form.getValues().meter_no_new}</span>
               <span className="text-muted-foreground">Units to Transfer:</span>
               <span>{userBalance?.toFixed(2)} units (ALL)</span>
-              <span className="text-muted-foreground text-red-500">Note:</span>
-              <span className="text-red-500 text-sm">Old meter will be deactivated</span>
+              <span className="text-muted-foreground">Note:</span>
+              <span className="text-red-500 text-sm">
+                Old meter will be deactivated
+              </span>
             </div>
           </div>
 
@@ -292,7 +345,8 @@ export default function TransferForm({ onSuccess, onCancel }: TransferFormProps)
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
           <h3 className="text-lg font-semibold">Transfer Complete!</h3>
           <p className="text-muted-foreground">
-            All {userBalance?.toFixed(2)} units have been transferred from {form.getValues().meter_no_old} to {form.getValues().meter_no_new}
+            All {userBalance?.toFixed(2)} units have been transferred from{" "}
+            {form.getValues().meter_no_old} to {form.getValues().meter_no_new}
           </p>
           <p className="text-sm text-amber-600 bg-amber-50 p-2 rounded">
             Your old meter {form.getValues().meter_no_old} has been deactivated.

@@ -5,24 +5,33 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Loader2, Shield, CheckCircle } from "lucide-react";
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import CardWrapper from "@/components/common/card-wrapper";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
-import { useRouter } from 'next/navigation';
+import { useRouter } from "next/navigation";
 import { get, post } from "@/lib/fetch";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
 const ShareSchema = z.object({
-  meter_no: z.string()
+  meter_no: z
+    .string()
     .min(10, "Meter number must be 10 digits")
     .max(10, "Meter number must be 10 digits")
     .regex(/^\d+$/, "Meter number must contain only digits"),
-  Units_to_share: z.number()
+  Units_to_share: z
+    .number()
     .min(2, "Minimum units should be greater than 2 units")
     .max(1000, "Cannot share more than 1000 units at once"),
 });
@@ -42,101 +51,125 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
+  const [userMeters, setUserMeters] = useState<any[]>([]);
 
   const router = useRouter();
 
-  useEffect(() => {
-    // Fetch user balance on component mount
-    const fetchBalance = async () => {
-      try {
-        const response = await get<any>('wallet/balance');
-        if (response.error === null && response.data) {
-          setUserBalance(response.data.balance);
-        }
-      } catch (error) {
-        console.error("Failed to fetch balance:", error);
-      } finally {
-        setIsLoadingBalance(false);
-      }
-    };
-    
-    fetchBalance();
-  }, []);
+ useEffect(() => {
+   const fetchBalance = async () => {
+     try {
+       const response = await get<any>("wallet/balance");
 
-  const form = useForm<ShareFormValues>({
-    resolver: zodResolver(ShareSchema),
-    defaultValues: {
-      meter_no: "",
-      Units_to_share: 2,
-    },
-  });
+       if (response.error === null && response.data?.success) {
+         const apiData = response.data;
+         const walletBal = parseFloat(
+           apiData.wallet?.balance || apiData.total_balance || "0"
+         );
+         const meters = apiData.meters || [];
+         setUserMeters(meters);
 
-  const onSubmit = async (data: ShareFormValues) => {
-    if (verificationStep === 0) {
-      // First step: Show verification
-      if (userBalance !== null && data.Units_to_share > userBalance) {
-        setError("Insufficient units in your wallet");
-        return;
-      }
-      setVerificationStep(1);
-      return;
-    }
+         // Prioritize active meter balance (permanent: always uses real meter units)
+         let finalBalance = walletBal;
+         if (meters.length > 0) {
+           const activeMeterBal = parseFloat(meters[0].balance || "0");
+           finalBalance = activeMeterBal > 0 ? activeMeterBal : walletBal; 
+         }
 
-    if (verificationStep === 1) {
-      // Second step: Verify and submit
-      if (verificationCode !== "123456") { // In real app, this would come from backend
-        setError("Invalid verification code");
-        return;
-      }
-      
-      setIsPending(true);
-      setError("");
-      setSuccess("");
+         setUserBalance(finalBalance);
+         console.log("Set userBalance:", finalBalance);
+       } else {
+         console.error(
+           "Balance fetch failed:",
+           response.error || "Unknown error"
+         );
+         setError(
+           response.error?.message || "Failed to load balance. Please refresh."
+         );
+       }
+     } catch (error) {
+       console.error("Failed to fetch balance:", error);
+       setError("Network error. Please check your connection and try again.");
+     } finally {
+       setIsLoadingBalance(false);
+     }
+   };
 
-      try {
-        const response = await post('/share-units/', {
-          meter_number: data.meter_no,
-          units: data.Units_to_share.toString(),
-          verification_code: verificationCode,
-        });
+   fetchBalance();
+ }, []);
 
-        if (response.error === null && response.data) {
-          setSuccess("Units shared successfully!");
-          setVerificationStep(2);
-          
-          // Update local balance
-          if (userBalance !== null) {
-            setUserBalance(userBalance - data.Units_to_share);
-          }
-          
-          // Reset form after success
-          setTimeout(() => {
-            form.reset();
-            setVerificationStep(0);
-            setVerificationCode("");
-            if (onSuccess) onSuccess();
-          }, 3000);
-        } else {
-          setError(response.error?.message || "Failed to share units");
-          setVerificationStep(0);
-        }
-      } catch (error: any) {
-        setError(error.message || "An error occurred");
-        setVerificationStep(0);
-      } finally {
-        setIsPending(false);
-      }
-    }
-  };
+ const form = useForm<ShareFormValues>({
+   resolver: zodResolver(ShareSchema),
+   defaultValues: {
+     meter_no: "",
+     Units_to_share: 2,
+   },
+ });
 
-  const handleCancelVerification = () => {
-    setVerificationStep(0);
-    setVerificationCode("");
-    setError("");
-  };
+ const onSubmit = async (data: ShareFormValues) => {
+   if (verificationStep === 0) {
+     // First step: Show verification
+     if (userBalance !== null && data.Units_to_share > userBalance) {
+       setError("Insufficient units in your wallet");
+       return;
+     }
+     setVerificationStep(1);
+     return;
+   }
+
+   if (verificationStep === 1) {
+     setIsPending(true);
+     setError("");
+     setSuccess("");
+
+     try {
+       const response = await post("/share/share-units/", {
+         meter_number: data.meter_no,
+         units: data.Units_to_share,
+         verification_code: verificationCode,
+       });
+       if (response.error === null && response.data?.success) {
+         setSuccess("Units shared successfully!");
+         setVerificationStep(2);
+
+         // Update local balance (optimistic)
+         if (userBalance !== null) {
+           setUserBalance(userBalance - data.Units_to_share);
+         }
+
+         // Reset after success
+         setTimeout(() => {
+           form.reset();
+           setVerificationStep(0);
+           setVerificationCode("");
+           if (onSuccess) onSuccess();
+           fetchBalance(); 
+         }, 3000);
+       } else {
+         setError(
+           response.data?.error ||
+             response.error?.message ||
+             "Failed to share units"
+         );
+         setVerificationStep(0);
+       }
+     } catch (error: any) {
+       console.error("Share error:", error);
+       setError(error.message || "An error occurred");
+       setVerificationStep(0);
+     } finally {
+       setIsPending(false);
+     }
+   }
+ };
+
+ const handleCancelVerification = () => {
+   setVerificationStep(0);
+   setVerificationCode("");
+   setError("");
+ };
 
   return (
-    <CardWrapper 
+    <CardWrapper
       title="Share Units to your friend"
       // description="Securely share energy units with other users"
     >
@@ -190,7 +223,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                         step="0.01"
                         placeholder="Enter Units"
                         {...field}
-                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
+                        onChange={(e) =>
+                          field.onChange(parseFloat(e.target.value) || 0)
+                        }
                       />
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-3 w-3" />
@@ -208,7 +243,13 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
             <div className="flex gap-2">
               {onCancel && (
-                <Button type="button" variant="outline" onClick={onCancel} className="flex-1" disabled={isPending}>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={onCancel}
+                  className="flex-1"
+                  disabled={isPending}
+                >
                   Cancel
                 </Button>
               )}
@@ -232,7 +273,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              For security, please verify this transaction. A verification code has been sent to your registered email.
+              For security, please verify this transaction. A verification code
+              has been sent to your registered email.
             </AlertDescription>
           </Alert>
 
@@ -242,7 +284,11 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               type="text"
               placeholder="Enter 6-digit code"
               value={verificationCode}
-              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              onChange={(e) =>
+                setVerificationCode(
+                  e.target.value.replace(/\D/g, "").slice(0, 6)
+                )
+              }
               maxLength={6}
             />
           </div>
@@ -256,10 +302,11 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               <span>{form.getValues().Units_to_share} units</span>
               <span className="text-muted-foreground">Your New Balance:</span>
               <span>
-                {userBalance !== null 
-                  ? `${(userBalance - form.getValues().Units_to_share).toFixed(2)} units`
-                  : "N/A"
-                }
+                {userBalance !== null
+                  ? `${(userBalance - form.getValues().Units_to_share).toFixed(
+                      2
+                    )} units`
+                  : "N/A"}
               </span>
             </div>
           </div>
@@ -300,7 +347,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
           <h3 className="text-lg font-semibold">Success!</h3>
           <p className="text-muted-foreground">
-            {form.getValues().Units_to_share} units have been successfully shared to meter {form.getValues().meter_no}
+            {form.getValues().Units_to_share} units have been successfully
+            shared to meter {form.getValues().meter_no}
           </p>
           <Button
             type="button"

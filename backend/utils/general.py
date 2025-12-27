@@ -3,6 +3,11 @@ from base64 import b64encode
 from typing import Callable
 from django.conf import settings
 from django.utils import timezone
+from decimal import Decimal
+
+def format_currency(value: Decimal, currency_symbol="") -> str:
+    """Format decimal value as currency string (e.g., '100.00 units')."""
+    return f"{currency_symbol}{float(value):.2f}".replace("-", "-")
 
 
 def get_base_url():

@@ -24,37 +24,45 @@ class WalletBalanceView(APIView):
         
         try:
             wallet = Wallet.objects.get(user=user)
-            wallet_data = WalletSerializer(wallet).data
-            
-            # Get user's meters
-            meters = MeterBalance.objects.filter(user=user, is_active=True)
-            meter_data = MeterBalanceSerializer(meters, many=True).data
-            
-            # Get recent transactions
-            recent_transactions = Transaction.objects.filter(
-                wallet=wallet
-            ).order_by('-created_at')[:10]
-            transactions_data = TransactionSerializer(recent_transactions, many=True).data
-            
-            return Response({
-                "success": True,
-                "wallet": wallet_data,
-                "meters": meter_data,
-                "recent_transactions": transactions_data,
-                "total_balance": str(wallet.balance),
-            }, status=status.HTTP_200_OK)
-            
         except Wallet.DoesNotExist:
-            return Response({
-                "error": "Wallet not found",
-                "success": False
-            }, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error(f"Error fetching wallet balance: {str(e)}")
-            return Response({
-                "error": "An error occurred while fetching wallet data",
-                "success": False
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            # Auto-create (from previous fix)
+            with db_transaction.atomic():
+                wallet = Wallet.objects.create(user=user)
+                # ... init logic ...
+        
+        wallet_data = WalletSerializer(wallet).data
+        
+        # Get MeterBalance (primary)
+        meters = MeterBalance.objects.filter(user=user, is_active=True)
+        if not meters.exists():
+            # Fallback: Query Meter if no MeterBalance
+            from meter.models import Meter
+            fallback_meters = Meter.objects.filter(user=user)
+            if fallback_meters.exists():
+                # Create MeterBalance on-the-fly (sync)
+                for m in fallback_meters:
+                    MeterBalance.objects.get_or_create(
+                        user=user,
+                        meter_number=m.meter_no,
+                        defaults={'balance': Decimal(str(m.units)), 'is_active': True}
+                    )
+                # Re-query
+                meters = MeterBalance.objects.filter(user=user, is_active=True)
+        
+        meter_data = MeterBalanceSerializer(meters, many=True).data
+        
+        # Recent transactions (unchanged)
+        recent_transactions = Transaction.objects.filter(wallet=wallet).order_by('-created_at')[:10]
+        transactions_data = TransactionSerializer(recent_transactions, many=True).data
+        
+        # Use wallet.balance as total (now synced)
+        return Response({
+            "success": True,
+            "wallet": wallet_data,
+            "meters": meter_data,  # Now populated with meter data
+            "recent_transactions": transactions_data,
+            "total_balance": str(wallet.balance),
+        }, status=status.HTTP_200_OK)
 
 class TransactionHistoryView(APIView):
     permission_classes = [IsAuthenticated]

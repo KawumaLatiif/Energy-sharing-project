@@ -1,3 +1,4 @@
+from decimal import Decimal
 import logging
 from rest_framework import serializers
 from .models import Share
@@ -67,3 +68,20 @@ class TransferUnitsSerializer(serializers.ModelSerializer):
                 )
         
         return data
+    
+    
+class VerifyOTPSerializer(serializers.Serializer):
+    otp = serializers.CharField(
+        required=True,
+        min_length=6,
+        max_length=6,
+        help_text="6-digit OTP code"
+    )
+    
+    def validate_verification_code(self, value):
+        if not value.isdigit():
+            raise serializers.ValidationError("Verification code must contain only digits")
+        return value
+    
+    
+    
