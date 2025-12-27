@@ -12,6 +12,9 @@ from backend import celery_app as app
 from utils.auth import token_generator
 from utils.email import send_email
 from utils.general import get_base_url
+import random
+import string
+
 
 
 logger = get_task_logger(__name__)
@@ -132,3 +135,165 @@ def retry(self):
     except Exception as exc:
         logger.exception(f"error: {str(exc)}")
         raise self.retry(exc=exc, countdown=5, max_retries=3)
+
+
+@app.task()
+def handle_send_share_verification(user_id, code, transaction_details):
+    """
+    Task that sends a share verification email with OTP
+    """
+    logger.info(f"[SHARE VERIFICATION] Sending share verification for user {user_id}")
+    
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user:
+            logger.error(f"[SHARE VERIFICATION] User with ID {user_id} not found")
+            return False
+            
+        logger.info(f"[SHARE VERIFICATION] Found user: {user.email}")
+        
+        subject = "Verify Your Energy Units Sharing"
+        
+        message = f"""
+        Hi {user.username},
+        
+        You are about to share energy units. Please use the verification code below:
+        
+        Verification Code: {code}
+        
+        Transaction Details:
+        {transaction_details}
+        
+        This code will expire in 10 minutes.
+        
+        If you didn't initiate this transaction, please contact support immediately.
+        
+        Best regards,
+        Energy Sharing Team
+        """
+        
+        logger.info(f"[SHARE VERIFICATION] About to send email to {user.email}")
+        
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        
+        if sent:
+            logger.info(f"[SHARE VERIFICATION] Email sent successfully to {user.email}")
+            return True
+        else:
+            logger.error(f"[SHARE VERIFICATION] Failed to send email to {user.email}: {email_message}")
+            return False
+            
+    except Exception as e:
+        logger.exception(f"[SHARE VERIFICATION] Error in handle_send_share_verification: {str(e)}")
+        return False
+
+@app.task()
+def handle_send_transfer_verification(user_id, code, transaction_details):
+    """
+    Task that sends a transfer verification email with OTP
+    """
+    logger.info(f"[TRANSFER VERIFICATION] Sending transfer verification for user {user_id}")
+    
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user:
+            logger.error(f"[TRANSFER VERIFICATION] User with ID {user_id} not found")
+            return False
+            
+        logger.info(f"[TRANSFER VERIFICATION] Found user: {user.email}")
+        
+        subject = "Verify Your Meter Transfer"
+        
+        message = f"""
+        Hi {user.username},
+        
+        You are about to transfer all units to a new meter. Please use the verification code below:
+        
+        Verification Code: {code}
+        
+        Transaction Details:
+        {transaction_details}
+        
+        WARNING: This will deactivate your old meter!
+        
+        This code will expire in 10 minutes.
+        
+        If you didn't initiate this transfer, please contact support immediately.
+        
+        Best regards,
+        Energy Sharing Team
+        """
+        
+        logger.info(f"[TRANSFER VERIFICATION] About to send email to {user.email}")
+        
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        
+        if sent:
+            logger.info(f"[TRANSFER VERIFICATION] Email sent successfully to {user.email}")
+            return True
+        else:
+            logger.error(f"[TRANSFER VERIFICATION] Failed to send email to {user.email}: {email_message}")
+            return False
+            
+    except Exception as e:
+        logger.exception(f"[TRANSFER VERIFICATION] Error in handle_send_transfer_verification: {str(e)}")
+        return False
+
+@app.task()
+def handle_send_wallet_update(user_id, transaction_details):
+    """
+    Task that sends wallet update notification
+    """
+    logger.info(f"[WALLET UPDATE] Sending wallet update for user {user_id}")
+    
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user:
+            logger.error(f"[WALLET UPDATE] User with ID {user_id} not found")
+            return False
+            
+        subject = "Wallet Transaction Update"
+        
+        message = f"""
+        Hi {user.username},
+        
+        Your wallet has been updated:
+        
+        {transaction_details}
+        
+        If you didn't authorize this transaction, please contact support immediately.
+        
+        Best regards,
+        Energy Sharing Team
+        """
+        
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        
+        if sent:
+            logger.info(f"[WALLET UPDATE] Email sent successfully to {user.email}")
+            return True
+        else:
+            logger.error(f"[WALLET UPDATE] Failed to send email to {user.email}: {email_message}")
+            return False
+            
+    except Exception as e:
+        logger.exception(f"[WALLET UPDATE] Error in handle_send_wallet_update: {str(e)}")
+        return False

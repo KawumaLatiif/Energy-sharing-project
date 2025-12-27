@@ -28,5 +28,11 @@ urlpatterns = [
         include(
             ("loan.api.urls", "loan"), namespace="loan"
         ),
+    ),    
+    path(
+        "wallet/",
+        include(
+            ("wallet.urls", "wallet"), namespace="wallet"
+        ),
     ),
 ]

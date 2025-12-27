@@ -50,8 +50,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     const fetchBalance = async () => {
       try {
         const response = await get<any>('wallet/balance');
-        if (response.success) {
-          setUserBalance(response.balance);
+        if (response.error === null && response.data) {
+          setUserBalance(response.data.balance);
         }
       } catch (error) {
         console.error("Failed to fetch balance:", error);
@@ -100,7 +100,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           verification_code: verificationCode,
         });
 
-        if (response.success) {
+        if (response.error === null && response.data) {
           setSuccess("Units shared successfully!");
           setVerificationStep(2);
           
@@ -117,7 +117,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
             if (onSuccess) onSuccess();
           }, 3000);
         } else {
-          setError(response.error || "Failed to share units");
+          setError(response.error?.message || "Failed to share units");
           setVerificationStep(0);
         }
       } catch (error: any) {
