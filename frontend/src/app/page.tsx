@@ -45,7 +45,6 @@ export default function Home() {
                   >
                     <span className="relative z-10 flex items-center gap-2">
                       Get Started
-                      <ArrowRight className="h-5 w-5 group-hover:translate-x-1 transition-transform" />
                     </span>
                     <div className="absolute inset-0 bg-gradient-to-r from-blue-700 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </motion.button>

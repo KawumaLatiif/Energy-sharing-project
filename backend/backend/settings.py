@@ -91,6 +91,8 @@ INSTALLED_APPS = [
     'cities_light',
     'drf_yasg',
     'corsheaders',
+    'share',
+    'transfer',
 ]
 
 MIDDLEWARE = [
@@ -180,6 +182,15 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+
+# Rate limiting settings
+SHARE_RATE_LIMIT = 10  # Max shares per hour per user
+IP_SHARE_RATE_LIMIT = 50  # Max shares per hour per IP
+
+# Security settings
+MINIMUM_SHARE_UNITS = 2
+MAXIMUM_SHARE_UNITS = 1000
 
 
 # Static files (CSS, JavaScript, Images)

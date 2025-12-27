@@ -279,7 +279,7 @@ export default function BuyUnitsForm() {
             </AlertTitle>
             <AlertDescription className="text-blue-700 dark:text-blue-400">
               <div className="space-y-2">
-                <p>💰 Sandbox Mode: Simulating payment processing...</p>
+                <p>Sandbox Mode: Simulating payment processing...</p>
                 <div className="flex items-center gap-2 text-sm">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Checking status... ({pollingCount + 1})</span>

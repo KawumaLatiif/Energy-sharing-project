@@ -16,7 +16,6 @@ from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from transactions.models import UnitTransaction
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
-# from ..models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from meter.models import MeterToken
 
 logger = logging.getLogger(__name__)
