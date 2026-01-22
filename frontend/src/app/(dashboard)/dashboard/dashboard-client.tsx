@@ -8,6 +8,7 @@ import LoanOverview from './_components/loan-overview';
 import MeterRegistrationPopup from './_components/meter-registration-popup';
 import UserProfilePopup from './_components/user-profile-popup';
 import { User } from '@/interface/user.interface';
+import LatestTransactions from './_components/latest-transactions';
 
 type SetupStep = 'loading' | 'meter' | 'profile' | 'complete';
 
@@ -116,10 +117,7 @@ export default function DashboardClient({
                   <h3 className="text-2xl text-left font-bold tracking-tight p-4">
                     Latest transactions
                   </h3>
-                  {/* Add your transactions component here */}
-                  <div className="p-4 text-center text-muted-foreground">
-                    No recent transactions
-                  </div>
+                  <LatestTransactions />
                 </div>
               </div>
             </>

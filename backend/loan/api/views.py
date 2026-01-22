@@ -14,7 +14,7 @@ from accounts.models import generate_random_string
 from meter.models import Meter
 from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
-from transactions.models import UnitTransaction
+from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from meter.models import MeterToken
 
@@ -41,7 +41,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
         try:
             data = request.data
             
-            # CHECK: Prevent multiple active loans
+            # Prevent multiple active loans
             existing_active_loans = LoanApplication.objects.filter(
                 user=request.user,
                 status__in=['PENDING', 'APPROVED', 'DISBURSED']
@@ -103,6 +103,22 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 tariff = tariff,
                 status="APPROVED" if amount_approved > 0 else "REJECTED",
                 rejection_reason="" if amount_approved > 0 else "Credit score below 75%"
+            )
+
+            # Log application
+            TransactionLog.objects.create(
+                user=request.user,
+                transaction_type=TransactionType.LOAN_APPLICATION,
+                amount=amount_requested,
+                status=loan.status,
+                reference_id=loan.loan_id,
+                details={
+                    'purpose': loan.purpose,
+                    'tenure_months': loan.tenure_months,
+                    'credit_score': credit_score,
+                    'loan_tier': tier_name,
+                    'amount_approved': float(amount_approved) if amount_approved else 0
+                }
             )
 
             # Calculate units based on tariff (for response)
@@ -395,6 +411,20 @@ class LoanRepaymentView(APIView):
                     meter = Meter.objects.get(user=request.user)
                     meter.units += units_equivalent
                     meter.save()
+
+                    # Log repayment
+                    TransactionLog.objects.create(
+                        user=request.user,
+                        transaction_type=TransactionType.LOAN_REPAYMENT,
+                        amount=amount,
+                        units=units_equivalent,
+                        status='COMPLETED',
+                        reference_id=loan.loan_id,
+                        details={
+                            'payment_reference': payment_ref,
+                            'units_added': float(units_equivalent)
+                        }
+                    )
                     
                     # SKIP UnitTransaction creation for now to avoid errors
                     logger.info(f"Repayment processed. Loan: {loan.loan_id}, Amount: {amount}, Units: {units_equivalent}")
@@ -545,6 +575,20 @@ class LoanDisbursementView(APIView):
                 # Update loan status to DISBURSED
                 loan.status = 'DISBURSED'
                 loan.save()
+
+                TransactionLog.objects.create(
+                    user=request.user,
+                    transaction_type=TransactionType.LOAN_DISBURSEMENT,
+                    amount=loan.amount_approved,
+                    units=units_to_disburse,
+                    status='COMPLETED',
+                    reference_id=loan.loan_id,
+                    details={
+                        'units_disbursed': float(units_to_disburse),
+                        'token': token,
+                        'token_expiry': token_expiry.isoformat()
+                    }
+                )
                 
                 # Add units to meter
                 meter.units += units_to_disburse
@@ -583,7 +627,6 @@ class LoanDisbursementView(APIView):
             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
         except Meter.DoesNotExist:
             return Response({"error": "No meter found for this account. Please register your meter first."}, status=400)
-
 
 class LoanNotificationView(APIView):
     permission_classes = (IsAuthenticated,)
@@ -635,12 +678,6 @@ class LoanStatsView(APIView):
             total_borrowed = user_loans.filter(status__in=['APPROVED', 'DISBURSED', 'COMPLETED']).aggregate(
                 total = Sum('amount_approved')
             )['total'] or 0
-           
-            # outstanding_balance = sum(
-            #     float(loan.outstanding_balance) 
-            #     for loan in user_loans.filter(status__in=['DISBURSED'])
-            # )
-
             disbursed_loans = user_loans.filter(status='DISBURSED')
             outstanding_balance = 0
             for loan in disbursed_loans:
@@ -662,3 +699,27 @@ class LoanStatsView(APIView):
                 {"error": "Failed to fetch loan statistics"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        try:
+            loans = LoanApplication.objects.filter(user=request.user)
+
+            stats = {
+                'active_loans': loans.filter(status='DISBURSED').count(),
+                'pending_applications': loans.filter(status='PENDING').count(),
+                'approved_loans': loans.filter(status='APPROVED').count(),
+                'total_loans': loans.count(),
+                'total_borrowed': float(loans.filter(status__in=['APPROVED', 'DISBURSED', 'COMPLETED'])
+                                       .aggregate(total=Sum('amount_approved'))['total'] or 0),
+                'total_repayments': float(LoanRepayment.objects.filter(loan__user=request.user)
+                                        .aggregate(total=Sum('amount_paid'))['total'] or 0),
+                'outstanding_balance': sum(float(l.outstanding_balance) for l in loans.filter(status='DISBURSED'))
+            }
+
+            return Response(stats, status=200)
+
+        except Exception as e:
+            logger.exception("Loan stats failed")
+            return Response({"error": "Failed to fetch stats"}, status=500)

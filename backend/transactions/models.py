@@ -61,3 +61,25 @@ class Transaction(TimestampMixin):
 
     def __str__(self):
         return f"{self.transaction_id} - {self.wallet}"
+
+class TransactionType(models.TextChoices):
+    LOAN_APPLICATION = 'LOAN_APPLICATION', _('Loan Application')
+    LOAN_APPROVAL = 'LOAN_APPROVAL', _('Loan Approval')
+    LOAN_DISBURSEMENT = 'LOAN_DISBURSEMENT', _('Loan Disbursement')
+    LOAN_REPAYMENT = 'LOAN_REPAYMENT', _('Loan Repayment')
+    UNIT_PURCHASE = 'UNIT_PURCHASE', _('Unit Purchase')
+    UNIT_SHARE = 'UNIT_SHARE', _('Unit Share')
+    UNIT_TRANSFER = 'UNIT_TRANSFER', _('Unit Transfer')
+
+class TransactionLog(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transaction_logs')
+    transaction_type = models.CharField(max_length=50, choices=TransactionType.choices)
+    amount = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True)  
+    units = models.DecimalField(max_digits=20, decimal_places=2, null=True, blank=True) 
+    status = models.CharField(max_length=20, default='PENDING')
+    reference_id = models.CharField(max_length=100, null=True, blank=True)  
+    details = models.JSONField(null=True, blank=True) 
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.transaction_type} - {self.user.username} - {self.created_at}"

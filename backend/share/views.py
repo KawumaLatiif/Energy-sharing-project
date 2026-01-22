@@ -7,6 +7,7 @@ from decimal import Decimal
 import uuid
 from datetime import datetime, timedelta
 import logging
+from transactions.models import TransactionType, TransactionLog
 
 from .serializers import ShareUnitSerializer, VerifyOTPSerializer
 from .models import Share, ShareTransaction
@@ -202,6 +203,15 @@ class ShareUnitsView(APIView):
                         meter_receive=receiver_meter,
                         status="COMPLETED",
                         message=f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
+                    )
+
+                    TransactionLog.objects.create(
+                        user=sender,
+                        transaction_type=TransactionType.UNIT_SHARE,
+                        units=units_to_share,
+                        status='COMPLETED',
+                        reference_id=transaction_ref,
+                        details={'receiver_meter': receiver_meter_no, 'sender_meter': sender_meter.meter_no}
                     )
                     
                     # Send update email (adapt as needed)
