@@ -5,7 +5,7 @@ from rest_framework.permissions import IsAuthenticated
 from django.db import transaction as db_transaction
 from decimal import Decimal
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
 import logging
 
 from .serializers import ShareUnitSerializer, VerifyOTPSerializer
@@ -110,12 +110,12 @@ class ShareUnitsView(APIView):
                     )
                     
                     # Prepare transaction details for email
-                    transaction_details = f"""
-                    You're sharing {units_to_share} units to meter {receiver_meter_no}.
-                    From your meter: {sender_meter.meter_no}.
-                    Transaction ID: {transaction_ref}.
-                    Code expires: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
-                    """
+                    transaction_details = (
+                    f"You're sharing {units_to_share} units to meter {receiver_meter_no}."
+                    f"From your meter: {sender_meter.meter_no}."
+                    f"Transaction ID: {transaction_ref}."
+                    f"Code expires: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}."
+                    )
                     
                     # Send verification email via Celery task
                     handle_send_share_verification.delay(

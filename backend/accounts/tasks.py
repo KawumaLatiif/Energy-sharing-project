@@ -154,24 +154,24 @@ def handle_send_share_verification(user_id, code, transaction_details):
         
         subject = "Verify Your Energy Units Sharing"
         
-        message = f"""
-        Hi {user.username},
+        message = (
+        f"Hi {user.first_name, user.last_name},"
         
-        You are about to share energy units. Please use the verification code below:
+        f"You are about to share energy units. Please use the verification code below:"
         
-        Verification Code: {code}
+        f"Verification Code: {code}"
         
-        Transaction Details:
-        {transaction_details}
+        f"Transaction Details:"
+        f"{transaction_details}."
         
-        This code will expire in 10 minutes.
+        f"This code will expire in 10 minutes."
         
-        If you didn't initiate this transaction, please contact support immediately.
+        f"If you did not initiate this transaction, please contact support immediately."
         
-        Best regards,
-        Energy Sharing Team
-        """
+        f"Best regards,"
+        f"Energy Sharing Team"
         
+        )
         logger.info(f"[SHARE VERIFICATION] About to send email to {user.email}")
         
         sent, email_message = send_email(
@@ -211,7 +211,7 @@ def handle_send_transfer_verification(user_id, code, transaction_details):
         subject = "Verify Your Meter Transfer"
         
         message = f"""
-        Hi {user.username},
+        Hi {user.first_name},
         
         You are about to transfer all units to a new meter. Please use the verification code below:
         
@@ -267,7 +267,7 @@ def handle_send_wallet_update(user_id, transaction_details):
         subject = "Wallet Transaction Update"
         
         message = f"""
-        Hi {user.username},
+        Hi {user.first_name},
         
         Your wallet has been updated:
         
