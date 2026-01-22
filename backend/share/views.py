@@ -8,12 +8,18 @@ import uuid
 from datetime import datetime
 import logging
 
-from .serializers import ShareUnitSerializer, TransferUnitsSerializer, VerifyOTPSerializer  # Now all importable
+from .serializers import ShareUnitSerializer, VerifyOTPSerializer
 from .models import Share, ShareTransaction
 from accounts.models import User
 from wallet.models import Wallet, MeterBalance, Transaction
+from meter.models import Meter
 from share.services import VerificationService, VerificationCode
-from utils.general import format_currency  # Now exists
+from utils.general import format_currency
+from accounts.tasks import (
+    handle_send_share_verification,
+    handle_send_transfer_verification,
+    handle_send_wallet_update,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,8 +27,10 @@ class ShareUnitsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        # Handle initial share request (step 1: create pending)
-        if 'verification_code' not in request.data:
+        verification_code = request.data.get('verification_code')
+        
+        if not verification_code:
+            # Step 1: Initial share request
             serializer = ShareUnitSerializer(data=request.data)
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -35,21 +43,35 @@ class ShareUnitsView(APIView):
                     
                     # Get sender (current user)
                     sender = request.user
-                    sender_wallet = Wallet.objects.select_for_update().get(user=sender)
                     
-                    # Check if sender has sufficient units
-                    if not sender_wallet.has_sufficient_balance(units_to_share):
+                    # Get sender's meters and handle multiple
+                    sender_meters = Meter.objects.filter(user=sender)
+                    if sender_meters.count() == 0:
+                        return Response(
+                            {"error": "No meter found for sender"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    if sender_meters.count() > 1:
+                        # For now, assume single; extend to accept 'sender_meter_no' in data if needed
+                        return Response(
+                            {"error": "Multiple meters found. Please specify which to send from."},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    sender_meter = sender_meters.first()
+                    
+                    # Check if sender's METER has sufficient units (not wallet)
+                    if sender_meter.units < units_to_share:
                         return Response({
-                            "error": f"Insufficient units in your wallet. Your balance: {format_currency(sender_wallet.balance)} units"
+                            "error": f"Insufficient units in your meter. Your balance: {format_currency(sender_meter.units)} units"
                         }, status=status.HTTP_400_BAD_REQUEST)
                     
                     # Validate receiver meter exists and is active
                     try:
-                        receiver_meter = MeterBalance.objects.select_for_update().get(
-                            meter_number=receiver_meter_no,
-                            is_active=True
+                        receiver_meter = Meter.objects.select_for_update().get(
+                            meter_no=receiver_meter_no,
+                            # is_active=True  # Uncomment if Meter has is_active field
                         )
-                    except MeterBalance.DoesNotExist:
+                    except Meter.DoesNotExist:
                         return Response(
                             {"error": "Receiver meter not found or inactive"},
                             status=status.HTTP_400_BAD_REQUEST
@@ -65,24 +87,18 @@ class ShareUnitsView(APIView):
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    # Get sender's meter
-                    sender_meter = MeterBalance.objects.filter(user=sender, is_active=True).first()
-                    if not sender_meter:
-                        return Response(
-                            {"error": "No active meter found for sender"},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    
                     # Generate transaction ref
                     transaction_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
                     
-                    # Store pending in session for verification
+                    # Store pending in session
                     request.session['pending_share'] = {
                         'receiver_meter_no': receiver_meter_no,
                         'units_to_share': str(units_to_share),
-                        'receiver_user': receiver_user.id,
-                        'sender_meter': sender_meter.meter_number,
-                        'transaction_ref': transaction_ref
+                        'receiver_user_id': receiver_user.id,
+                        'sender_meter_no': sender_meter.meter_no,
+                        'sender_meter_id': sender_meter.id,
+                        'transaction_ref': transaction_ref,
+                        'sender_meter_balance': str(sender_meter.units)  
                     }
                     request.session.modified = True
                     
@@ -93,37 +109,38 @@ class ShareUnitsView(APIView):
                         expiry_minutes=10
                     )
                     
-                    # Prepare transaction details
-                    transaction_details = VerificationService.format_transaction_details(
-                        'share',
-                        sender_username=sender.username,
-                        sender_meter=sender_meter.meter_number,
-                        receiver_username=receiver_user.username,
-                        receiver_meter=receiver_meter.meter_number,
-                        units=units_to_share,
-                        date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        transaction_id=transaction_ref
+                    # Prepare transaction details for email
+                    transaction_details = f"""
+                    You're sharing {units_to_share} units to meter {receiver_meter_no}.
+                    From your meter: {sender_meter.meter_no}.
+                    Transaction ID: {transaction_ref}.
+                    Code expires: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
+                    """
+                    
+                    # Send verification email via Celery task
+                    handle_send_share_verification.delay(
+                        user_id=sender.id,
+                        code=verification.code,
+                        transaction_details=transaction_details
                     )
                     
-                    # Send verification email via Celery
-                    VerificationService.send_share_verification_email(
-                        sender, verification.code, transaction_details
-                    )
+                    logger.info(f"Generated OTP for {sender.email}: {verification.code}")
                     
                     return Response({
                         "success": True,
-                        "message": "Verification code sent to your email. Please check and enter the 6-digit code.",
-                        "step": "verification"
+                        "message": "Verification code sent to your email. Please check and verify.",
+                        "transaction_ref": transaction_ref,
+                        "requires_verification": True
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
-                logger.error(f"Error initiating share: {str(e)}")
+                logger.error(f"Error initiating share: {str(e)}", exc_info=True)
                 return Response({
                     "error": "An error occurred while initiating the share request"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # Handle OTP verification and complete share (step 2)
         else:
+            # Step 2: OTP verification and complete share
             otp_serializer = VerifyOTPSerializer(data=request.data)
             if not otp_serializer.is_valid():
                 return Response(otp_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -135,8 +152,8 @@ class ShareUnitsView(APIView):
             if not pending_share:
                 return Response({"error": "No pending share found. Please start over."}, status=status.HTTP_400_BAD_REQUEST)
             
-            sender = request.user
-            if not VerificationCode.verify_code(sender, verification_code, 'share_units'):
+            user = request.user
+            if not VerificationCode.verify_code(user, verification_code, 'share_units'):
                 return Response({"error": "Invalid or expired verification code"}, status=status.HTTP_400_BAD_REQUEST)
             
             try:
@@ -144,124 +161,90 @@ class ShareUnitsView(APIView):
                     # Retrieve pending data
                     receiver_meter_no = pending_share['receiver_meter_no']
                     units_to_share = Decimal(pending_share['units_to_share'])
-                    receiver_user_id = pending_share['receiver_user']
                     transaction_ref = pending_share['transaction_ref']
-                    sender_meter_no = pending_share['sender_meter']
                     
-                    # Reload objects with locks
-                    sender_wallet = Wallet.objects.select_for_update().get(user=sender)
-                    receiver_user = User.objects.get(id=receiver_user_id)
-                    sender_meter = MeterBalance.objects.select_for_update().get(meter_number=sender_meter_no)
-                    receiver_meter = MeterBalance.objects.select_for_update().get(meter_number=receiver_meter_no)
+                    # Reload objects with lock
+                    sender_meter = Meter.objects.select_for_update().get(id=pending_share['sender_meter_id'])
+                    receiver_meter = Meter.objects.select_for_update().get(meter_no=receiver_meter_no)
                     
-                    # Double-check balance
-                    if not sender_wallet.has_sufficient_balance(units_to_share):
-                        return Response({"error": "Insufficient balance. Transaction cancelled."}, status=status.HTTP_400_BAD_REQUEST)
+                    # Double-check units
+                    if sender_meter.units < units_to_share:
+                        return Response({"error": "Insufficient units. Transaction cancelled."}, status=status.HTTP_400_BAD_REQUEST)
                     
-                    # Deduct from sender
-                    sender_wallet.deduct(
-                        units_to_share,
-                        description=f"Shared {units_to_share} units to {receiver_user.username}",
-                        transaction_ref=transaction_ref
-                    )
+                    # Perform share
+                    sender_meter.units -= units_to_share
+                    sender_meter.save()
                     
-                    sender_meter.update_balance(
-                        units_to_share,
-                        operation='deduct',
-                        description=f"Shared to {receiver_meter.meter_number}"
-                    )
+                    receiver_meter.units += units_to_share
+                    receiver_meter.save()
                     
-                    # Add to receiver
-                    receiver_wallet = Wallet.objects.get(user=receiver_user)
-                    receiver_wallet.add(
-                        units_to_share,
-                        description=f"Received {units_to_share} units from {sender.username}",
-                        transaction_ref=transaction_ref
-                    )
+                    # Sync to MeterBalance
+                    MeterBalance.objects.filter(meter_number=sender_meter.meter_no).update(balance=sender_meter.units)
+                    MeterBalance.objects.filter(meter_number=receiver_meter.meter_no).update(balance=receiver_meter.units)
                     
-                    receiver_meter.update_balance(
-                        units_to_share,
-                        operation='add',
-                        description=f"Received from {sender_meter.meter_number}"
-                    )
-                    
-                    # Create share transaction record
-                    share_transaction = ShareTransaction.objects.create(
+                    # Create share record (assuming Share model is used)
+                    Share.objects.create(
                         share_transaction_id=transaction_ref,
-                        sender=sender,
-                        receiver=receiver_user,
+                        wallet=user.mainwallet,  # Assuming related_name='mainwallet' in Wallet
+                        units=units_to_share,
+                        status="COMPLETED",
+                        meter_number=receiver_meter,
+                        share_transaction_reference=transaction_ref
+                    )
+                    
+                    # Create ShareTransaction
+                    ShareTransaction.objects.create(
+                        share_transaction_id=transaction_ref,
+                        sender=user,
+                        receiver=receiver_meter.user,
                         units=units_to_share,
                         meter_send=sender_meter,
                         meter_receive=receiver_meter,
                         status="COMPLETED",
-                        message=f"Unit sharing from {sender_meter.meter_number} to {receiver_meter.meter_number}"
+                        message=f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
                     )
                     
-                    # Create Share record
-                    Share.objects.create(
-                        share_transaction_id=transaction_ref,
-                        wallet=receiver_wallet,
-                        units=units_to_share,
-                        status="COMPLETED",
-                        meter_number=receiver_meter,
-                        message=f"Received {units_to_share} units from {sender.username}",
-                        share_transaction_reference=transaction_ref
-                    )
-                    
-                    # Send wallet update emails
-                    sender_details = VerificationService.format_transaction_details(
+                    # Send update email (adapt as needed)
+                    update_details = VerificationService.format_transaction_details(
                         'wallet_update',
                         amount=units_to_share,
-                        to_username=receiver_user.username,
-                        to_meter=receiver_meter.meter_number,
-                        new_balance=sender_wallet.balance,
                         transaction_id=transaction_ref,
+                        new_balance=sender_meter.units,
                         date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
                     )
-                    
-                    receiver_details = VerificationService.format_transaction_details(
-                        'wallet_update',
-                        amount=units_to_share,
-                        from_username=sender.username,
-                        from_meter=sender_meter.meter_number,
-                        new_balance=receiver_wallet.balance,
-                        transaction_id=transaction_ref,
-                        date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    )
-                    
-                    VerificationService.send_wallet_update_email(sender, sender_details)
-                    VerificationService.send_wallet_update_email(receiver_user, receiver_details)
+                    handle_send_wallet_update.delay(user.id, update_details)
                     
                     # Clear session
                     if 'pending_share' in request.session:
                         del request.session['pending_share']
                     request.session.modified = True
                     
-                    logger.info(f"Units shared successfully: {units_to_share} from {sender.username} to {receiver_user.username}")
+                    logger.info(f"Share completed: {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}")
                     
                     return Response({
                         "success": True,
                         "message": "Units shared successfully",
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
-                        "sender_balance": str(sender_wallet.balance),
-                        "receiver_meter": receiver_meter.meter_number,
+                        "new_sender_balance": str(sender_meter.units),
                         "timestamp": datetime.now().isoformat()
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
-                logger.error(f"Error completing share transaction: {str(e)}")
+                logger.error(f"Error completing share: {str(e)}", exc_info=True)
                 return Response({
-                    "error": "An error occurred while completing the transaction"
+                    "error": "An error occurred while completing the share"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-# Added: Missing TransferUnitsView (similar structure, adapted for transfer)
 class TransferUnitsView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        # Handle initial transfer request (step 1: create pending)
-        if 'verification_code' not in request.data:
+        # Check if this is verification step
+        verification_code = request.data.get('verification_code')
+        
+        if not verification_code:
+            # Step 1: Initial transfer request
             serializer = TransferUnitsSerializer(data=request.data)
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
@@ -284,24 +267,24 @@ class TransferUnitsView(APIView):
                     
                     # Validate old meter exists and is active (belongs to user)
                     try:
-                        old_meter = MeterBalance.objects.select_for_update().get(
-                            meter_number=old_meter_no,
+                        old_meter = Meter.objects.select_for_update().get(
+                            meter_no=old_meter_no,
                             user=user,
                             is_active=True
                         )
-                    except MeterBalance.DoesNotExist:
+                    except Meter.DoesNotExist:
                         return Response(
                             {"error": "Old meter not found or inactive"},
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    # Validate new meter exists and is active (any user, but different)
+                    # Validate new meter exists and is active
                     try:
-                        new_meter = MeterBalance.objects.select_for_update().get(
-                            meter_number=new_meter_no,
+                        new_meter = Meter.objects.select_for_update().get(
+                            meter_no=new_meter_no,
                             is_active=True
                         )
-                    except MeterBalance.DoesNotExist:
+                    except Meter.DoesNotExist:
                         return Response(
                             {"error": "New meter not found or inactive"},
                             status=status.HTTP_400_BAD_REQUEST
@@ -320,8 +303,10 @@ class TransferUnitsView(APIView):
                     request.session['pending_transfer'] = {
                         'old_meter_no': old_meter_no,
                         'new_meter_no': new_meter_no,
-                        'units_to_transfer': str(user_wallet.balance),  # Transfer all
-                        'transaction_ref': transaction_ref
+                        'units_to_transfer': str(user_wallet.balance),
+                        'transaction_ref': transaction_ref,
+                        'old_meter_id': old_meter.id,
+                        'new_meter_id': new_meter.id
                     }
                     request.session.modified = True
                     
@@ -333,40 +318,42 @@ class TransferUnitsView(APIView):
                     )
                     
                     # Prepare transaction details
-                    transaction_details = VerificationService.format_transaction_details(
-                        'transfer',
-                        old_meter=old_meter_no,
-                        new_meter=new_meter_no,
-                        units=user_wallet.balance,
-                        username=user.username,
-                        date=datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                        transaction_id=transaction_ref
+                    transaction_details = f"""
+                    You're transferring all units ({user_wallet.balance}) from meter {old_meter_no} to {new_meter_no}.
+                    WARNING: Your old meter will be deactivated!
+                    Transaction ID: {transaction_ref}.
+                    Code expires: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
+                    """
+                    
+                    # Send verification email via Celery
+                    handle_send_transfer_verification.delay(
+                        user_id=user.id,
+                        code=verification.code,
+                        transaction_details=transaction_details
                     )
                     
-                    # Send verification email
-                    VerificationService.send_transfer_verification_email(
-                        user, verification.code, transaction_details
-                    )
+                    logger.info(f"Generated transfer OTP for {user.email}: {verification.code}")
                     
                     return Response({
                         "success": True,
                         "message": "Verification code sent to your email. Please check and enter the 6-digit code.",
-                        "step": "verification"
+                        "step": "verification",
+                        "warning": "This will deactivate your old meter!"
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
-                logger.error(f"Error initiating transfer: {str(e)}")
+                logger.error(f"Error initiating transfer: {str(e)}", exc_info=True)
                 return Response({
                     "error": "An error occurred while initiating the transfer request"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
-        # Handle OTP verification and complete transfer (step 2)
         else:
+            # Step 2: OTP verification and complete transfer
             otp_serializer = VerifyOTPSerializer(data=request.data)
             if not otp_serializer.is_valid():
                 return Response(otp_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-            verification_code = otp_serializer.valid_data['verification_code']
+            verification_code = otp_serializer.validated_data['otp']
             
             # Verify OTP
             pending_transfer = request.session.get('pending_transfer')
@@ -387,8 +374,8 @@ class TransferUnitsView(APIView):
                     
                     # Reload objects
                     user_wallet = Wallet.objects.select_for_update().get(user=user)
-                    old_meter = MeterBalance.objects.select_for_update().get(meter_number=old_meter_no)
-                    new_meter = MeterBalance.objects.select_for_update().get(meter_number=new_meter_no)
+                    old_meter = Meter.objects.select_for_update().get(meter_no=old_meter_no)
+                    new_meter = Meter.objects.select_for_update().get(meter_no=new_meter_no)
                     
                     # Double-check units
                     if user_wallet.balance < units_to_transfer:
@@ -401,32 +388,20 @@ class TransferUnitsView(APIView):
                         transaction_ref=transaction_ref
                     )
                     
-                    # Note: Assuming transfer moves to new meter's owner wallet if different user; here simplified to same user
                     # Update meters: Deactivate old, transfer balance to new
                     old_meter.balance = Decimal('0.00')
                     old_meter.is_active = False
                     old_meter.save()
                     
-                    old_meter.update_balance(
-                        units_to_transfer,
-                        operation='deduct',
-                        description="Full transfer out - meter deactivated"
-                    )
-                    
+                    # Add to new meter
                     new_meter.balance += units_to_transfer
                     new_meter.save()
                     
-                    new_meter.update_balance(
-                        units_to_transfer,
-                        operation='add',
-                        description=f"Transferred from {old_meter_no}"
-                    )
-                    
-                    # Create transfer record (use ShareTransaction for simplicity, or add dedicated model)
+                    # Create transfer record
                     ShareTransaction.objects.create(
                         share_transaction_id=transaction_ref,
                         sender=user,
-                        receiver=new_meter.user if new_meter.user != user else user,  # Handle same/different user
+                        receiver=new_meter.user if new_meter.user != user else user,
                         units=units_to_transfer,
                         meter_send=old_meter,
                         meter_receive=new_meter,
@@ -435,16 +410,17 @@ class TransferUnitsView(APIView):
                     )
                     
                     # Send update email
-                    update_details = VerificationService.format_transaction_details(
-                        'transfer_complete',
-                        old_meter=old_meter_no,
-                        new_meter=new_meter_no,
-                        units=units_to_transfer,
-                        new_balance=new_meter.balance,
-                        transaction_id=transaction_ref,
-                        date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    )
-                    VerificationService.send_wallet_update_email(user, update_details)
+                    update_details = f"""
+                    Transfer Completed Successfully:
+                    - Old Meter: {old_meter_no} (Now deactivated)
+                    - New Meter: {new_meter_no}
+                    - Units Transferred: {units_to_transfer}
+                    - New Balance on {new_meter_no}: {new_meter.balance} units
+                    - Transaction ID: {transaction_ref}
+                    - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
+                    """
+                    
+                    handle_send_wallet_update.delay(user.id, update_details)
                     
                     # Clear session
                     if 'pending_transfer' in request.session:
@@ -464,7 +440,7 @@ class TransferUnitsView(APIView):
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
-                logger.error(f"Error completing transfer: {str(e)}")
+                logger.error(f"Error completing transfer: {str(e)}", exc_info=True)
                 return Response({
                     "error": "An error occurred while completing the transfer"
                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

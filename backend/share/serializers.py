@@ -4,6 +4,8 @@ from rest_framework import serializers
 from .models import Share
 from django.core.validators import MinValueValidator
 
+logger = logging.getLogger(__name__)
+
 class ShareUnitSerializer(serializers.ModelSerializer):
     meter_number = serializers.CharField(
         required=True,
@@ -31,8 +33,14 @@ class ShareUnitSerializer(serializers.ModelSerializer):
         if not value.isdigit():
             raise serializers.ValidationError("Meter number must contain only digits")
         return value
+    
+    def validate_units(self, value):
+        if value < Decimal('2.00'):
+            raise serializers.ValidationError("Minimum 2 units required to share")
+        return value
 
-class TransferUnitsSerializer(serializers.ModelSerializer):
+
+class TransferUnitsSerializer(serializers.Serializer):
     meter_no_old = serializers.CharField(
         required=True,
         min_length=10,
@@ -45,13 +53,6 @@ class TransferUnitsSerializer(serializers.ModelSerializer):
         max_length=10,
         help_text="New 10-digit meter number"
     )
-    
-    class Meta:
-        model = Share
-        fields = [
-            "meter_no_old",
-            "meter_no_new",
-        ]
     
     def validate(self, data):
         # Ensure old and new meter numbers are different
@@ -69,9 +70,9 @@ class TransferUnitsSerializer(serializers.ModelSerializer):
         
         return data
     
-    
+
 class VerifyOTPSerializer(serializers.Serializer):
-    otp = serializers.CharField(
+    verification_code = serializers.CharField(
         required=True,
         min_length=6,
         max_length=6,
@@ -82,6 +83,3 @@ class VerifyOTPSerializer(serializers.Serializer):
         if not value.isdigit():
             raise serializers.ValidationError("Verification code must contain only digits")
         return value
-    
-    
-    

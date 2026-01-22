@@ -2,7 +2,7 @@
 import type { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useEffect, useState, useTransition } from "react";
-import 'react-phone-number-input/style.css'
+// import 'react-phone-number-input/style.css'
 import PhoneInput from 'react-phone-number-input'
 
 import {
@@ -150,7 +150,7 @@ export default function RegisterForm() {
       <CardWrapper title="Create an account">
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
 
             <div className="mt-1">
 
@@ -235,7 +235,7 @@ export default function RegisterForm() {
                     <FormLabel className="font-semibold">Phone number</FormLabel>
                     <FormControl>
                       <PhoneInput
-                        // className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground  disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground  disabled:cursor-not-allowed disabled:opacity-50"
                         {...field}
 
                         inputComponent={ShadIput}

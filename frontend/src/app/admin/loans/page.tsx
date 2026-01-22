@@ -217,10 +217,10 @@ export default function LoansManagementPage() {
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
-          <Button>
+          {/* <Button>
             <Plus className="mr-2 h-4 w-4" />
             New Loan
-          </Button>
+          </Button> */}
         </div>
       </div>
 

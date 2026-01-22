@@ -1,6 +1,8 @@
 import random
 import string
 from django.db import models
+from django.core.validators import MinValueValidator
+from decimal import Decimal
 
 from accounts.models import User,TimestampMixin
 
@@ -21,7 +23,12 @@ class Meter(TimestampMixin):
     meter_no = models.CharField(max_length=100, unique=True)  # Unique identifier for the device
     static_ip = models.GenericIPAddressField()  # Store the static IP
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')  # Link device to a user
-    units = models.PositiveIntegerField(default=0)
+    units = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
 
 
     def __str__(self):
@@ -36,7 +43,11 @@ class MeterToken(TimestampMixin):
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     token = models.CharField(max_length=10, unique=True) 
-    units = models.FloatField()
+    units = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal('0.00'))]
+    )
     meter = models.ForeignKey('Meter', on_delete=models.CASCADE, related_name='tokens')
     is_used = models.BooleanField(default=False)
     source = models.CharField(max_length=10, choices=TOKEN_SOURCE_CHOICES, default='PURCHASE')

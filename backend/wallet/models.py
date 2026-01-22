@@ -3,6 +3,7 @@ from django.contrib.auth import get_user_model
 from django.core.validators import MinValueValidator
 from decimal import Decimal
 import uuid
+from meter.models import Meter
 
 User = get_user_model()
 
@@ -138,12 +139,9 @@ class MeterBalance(models.Model):
     """
     Tracks balance for each meter
     """
-    user = models.ForeignKey(
-        User, 
-        on_delete=models.CASCADE, 
-        related_name='meter_balances'
-    )
-    meter_number = models.CharField(max_length=20, unique=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='meter_balances')
+    meter = models.OneToOneField(Meter, on_delete=models.CASCADE, related_name='balance_record', null=True)  
+    meter_number = models.CharField(max_length=20, unique=True) 
     balance = models.DecimalField(
         max_digits=20, 
         decimal_places=2, 
@@ -161,14 +159,13 @@ class MeterBalance(models.Model):
         return f"Meter {self.meter_number}: {self.balance} units"
     
     def update_balance(self, amount, operation='add', description=""):
-        """Update meter balance"""
+        amount = Decimal(str(amount))
         if operation == 'add':
-            self.balance += Decimal(str(amount))
+            self.balance += amount
         elif operation == 'deduct':
-            if self.balance < Decimal(str(amount)):
+            if self.balance < amount:
                 raise ValueError("Insufficient meter balance")
-            self.balance -= Decimal(str(amount))
-        
+            self.balance -= amount
         self.save()
         
         # Create meter transaction record

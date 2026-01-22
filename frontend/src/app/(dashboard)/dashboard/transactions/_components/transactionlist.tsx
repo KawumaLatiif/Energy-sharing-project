@@ -29,7 +29,7 @@ import { cn } from "@/lib/utils";
 const TransList = async() => {
     let tokens: Token[] | null = null
     try{
-        const response = await get<any>(`meter/loan/`)
+        const response = await get<any>(`meter/token`)
         tokens = response.data?.data
         console.log("loans: ", tokens)
 

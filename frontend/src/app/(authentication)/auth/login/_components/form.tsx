@@ -1,4 +1,3 @@
-// app/auth/login/_components/form.tsx
 'use client';
 import { useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';

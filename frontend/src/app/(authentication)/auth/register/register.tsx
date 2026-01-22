@@ -1,4 +1,3 @@
-// app/auth/register/_actions/register.tsx
 "use server"
 
 import { get, post } from "@/lib/fetch";

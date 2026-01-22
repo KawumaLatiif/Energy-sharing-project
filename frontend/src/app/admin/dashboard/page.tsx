@@ -215,7 +215,7 @@ export default function AdminDashboard() {
       <div className="mb-8">
         <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
         <div className="flex flex-wrap gap-4">
-          <Button onClick={() => router.push('/admin/users')} size="lg">
+          <Button onClick={() => router.push('/admin/users')} variant="outline" size="lg">
             <Users className="mr-2 h-4 w-4" /> Manage Users
           </Button>
           <Button onClick={() => router.push('/admin/meters')} variant="outline" size="lg">

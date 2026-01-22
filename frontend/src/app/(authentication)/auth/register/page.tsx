@@ -8,16 +8,16 @@ import { ChevronRight } from 'lucide-react';
 const RegistrationPage = async ({params}: {params: any}) => {
 
 
-    return <>
+    return <div className='bg-gradient-to-br from-blue-50 via-emerald-50 to-blue-100 dark:from-blue-950 dark:via-emerald-900/20 dark:to-blue-900 py-12 sm:py-16 md:py-20 lg:py-24'>
          <Suspense fallback={<div>Server error</div>}>
             <RegisterForm />
 
-            <div className="sm:mx-auto sm:w-full sm:max-w-md flex justify-center items-center">
+            {/* <div className="sm:mx-auto sm:w-full sm:max-w-md flex justify-center items-center">
                 <Link className="text-white inline-flex" href="/auth/login"><span>Login</span> <ChevronRight /></Link>
-            </div>
+            </div> */}
 
         </Suspense>
-    </>
+    </div>
 }
 
 export default RegistrationPage;

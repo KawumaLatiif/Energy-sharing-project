@@ -3,6 +3,7 @@ from accounts.models import TimestampMixin, User
 from meter.models import Meter
 from django.utils.translation import gettext_lazy as _
 from phonenumber_field.modelfields import PhoneNumberField
+from accounts.models import Wallet
 
 # Create your models here.
 
@@ -46,7 +47,6 @@ class UnitTransaction(TimestampMixin):
     
 
 class Transaction(TimestampMixin):
-    from accounts.models import Wallet
     transaction_id = models.CharField(max_length=16, unique=True, null=True, blank=True)
     wallet = models.ForeignKey(Wallet, on_delete=models.CASCADE)
     amount = models.DecimalField(
