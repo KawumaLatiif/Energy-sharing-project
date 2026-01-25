@@ -1,4 +1,5 @@
 "use client";
+
 import {
   ArrowRight,
   ArrowUpRight,
@@ -14,6 +15,7 @@ import {
   Search,
   ShoppingCart,
   Users,
+  User,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -42,10 +44,31 @@ import { usePathname } from "next/navigation";
 import { ModeToggle } from "@/components/theme-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconMoneybag } from "@tabler/icons-react";
+import { useState } from "react";
+import { Zap, Settings, LogOut } from "lucide-react";
 
-export default function RightHeader() {
+interface RightHeaderProps {
+  onProfileClick?: () => void;
+  onMeterClick?: () => void;
+}
+
+export default function RightHeader({ onProfileClick, onMeterClick }: RightHeaderProps) {
   const pathname = usePathname();
-  // const {user, loading} = useAccount()
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  const handleProfileClick = () => {
+    if (onProfileClick) {
+      onProfileClick();
+      setIsProfileMenuOpen(false);
+    }
+  };
+
+  const handleMeterClick = () => {
+    if (onMeterClick) {
+      onMeterClick();
+      setIsProfileMenuOpen(false);
+    }
+  };
 
   return (
     <header className="flex justify-between sm:justify-end h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
@@ -142,22 +165,6 @@ export default function RightHeader() {
               <FileTextIcon className="h-4 w-4" />
               My Loans
             </Link>
-            {/* <Link
-                  href="/dashboard/buy-airtime"
-                  className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", {"bg-muted text-primary": pathname === "/dashboard/buy-airtime"})}
-                >
-                  <LineChart className="h-4 w-4" />
-                  Buy airtime &amp; data
-                </Link> */}
-            {/* {loading ? <Skeleton/> : <>
-                {user?.package !== "NONE" && <Link
-            href={`/dashboard/network/${user?.id}`}
-            className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", {"bg-muted text-primary": pathname === "/dashboard/network"})}
-          >
-            <Users className="h-4 w-4" />
-            My team
-          </Link>}
-          </>} */}
             <Link
               href={`/dashboard/transactions`}
               className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", { "bg-muted text-primary": pathname === "/dashboard/transactions" })}
@@ -178,45 +185,89 @@ export default function RightHeader() {
           </nav>
         </SheetContent>
       </Sheet>
-      {/* <div className="w-full flex-1">
-            <form>
-              <div className="relative">
-                <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="search"
-                  placeholder="Search products..."
-                  className="w-full appearance-none bg-background pl-8 shadow-none md:w-2/3 lg:w-1/3"
-                />
-              </div>
-            </form>
-          </div> */}
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="icon" className="rounded-full">
-            <CircleUser className="h-5 w-5" />
-            <span className="sr-only">Toggle user menu</span>
+      
+      <div className="flex items-center gap-3">
+        {/* Profile Management Button (visible on desktop) */}
+        {/* {onProfileClick && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleProfileClick}
+            className="hidden md:flex items-center gap-2"
+          >
+            <User className="h-4 w-4" />
+            Manage Profile
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/dashboard/myaccount">Settings</Link>
-          </DropdownMenuItem>
-          {/* <DropdownMenuItem>Support</DropdownMenuItem> */}
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <span
-              onClick={async () => {
-                await logout();
-              }}
-            >
-              Logout
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <ModeToggle />
+        )} */}
+        
+        <ModeToggle />
+        
+        <DropdownMenu open={isProfileMenuOpen} onOpenChange={setIsProfileMenuOpen}>
+          <DropdownMenuTrigger asChild>
+            <Button variant="secondary" size="icon" className="rounded-full">
+              <CircleUser className="h-5 w-5" />
+              <span className="sr-only">Toggle user menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>My Account</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            
+            {/* Profile Management Option */}
+            {onProfileClick && (
+              <DropdownMenuItem onClick={handleProfileClick}>
+                <User className="h-4 w-4 mr-2" />
+                Manage Profile
+              </DropdownMenuItem>
+            )}
+            
+            {/* Meter Management Option */}
+            {onMeterClick && (
+              <DropdownMenuItem onClick={handleMeterClick}>
+                <Zap className="h-4 w-4 mr-2" />
+                Manage Meter
+              </DropdownMenuItem>
+            )}
+            
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/myaccount">
+                <Settings className="h-4 w-4 mr-2" />
+                Account Settings
+              </Link>
+            </DropdownMenuItem>
+            
+            <DropdownMenuSeparator />
+            
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/transactions">
+                <FileTextIcon className="h-4 w-4 mr-2" />
+                Transaction History
+              </Link>
+            </DropdownMenuItem>
+            
+            <DropdownMenuItem asChild>
+              <Link href="/dashboard/myloans">
+                <IconMoneybag className="h-4 w-4 mr-2" />
+                My Loans
+              </Link>
+            </DropdownMenuItem>
+            
+            <DropdownMenuSeparator />
+            
+            <DropdownMenuItem asChild>
+              <span
+                onClick={async () => {
+                  await logout();
+                }}
+                className="w-full text-left cursor-pointer"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </header>
   );
 }

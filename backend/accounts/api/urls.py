@@ -9,8 +9,10 @@ from accounts.api.views import (
     LoginAPIView,
     ForgotPasswordAPIView,
     UserConfigAPIView,
-    user_profile_view,
-  
+    # user_profile_view,
+    UserProfileAPIView,
+    # RawUserProfileAPIView,
+    # UpdateUserProfileAPIView,
 )
 from django.urls import path, include
 
@@ -65,7 +67,8 @@ urlpatterns = [
         name="update_account_details",
     ),
     path(
-        "user-profile/", user_profile_view, name='user-profile'
-    )
-   
+    "user-profile/",
+    view=UserProfileAPIView.as_view(),
+    name="user_profile",
+    ),
 ]

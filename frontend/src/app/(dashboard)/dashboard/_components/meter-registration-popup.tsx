@@ -7,7 +7,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, Zap, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-// import { useRouter } from "next/navigation";
 import { registerMeter } from "../request-loan/register-meter/action";
 
 interface MeterRegistrationPopupProps {
@@ -15,6 +14,7 @@ interface MeterRegistrationPopupProps {
   onClose: () => void;
   onSuccess: () => void;
   forceCompletion?: boolean;
+  // Remove mode prop since this is only for setup
 }
 
 export default function MeterRegistrationPopup({ 
@@ -27,7 +27,7 @@ export default function MeterRegistrationPopup({
   const [staticIp, setStaticIp] = useState("");
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  // const router = useRouter();
+  const [isAuthValid, setIsAuthValid] = useState(true);
 
   // Validation helpers
   const isValidMeterNumber = (meterNo: string) => {
@@ -40,58 +40,34 @@ export default function MeterRegistrationPopup({
     return ipPattern.test(ip);
   };
 
-  const [isAuthValid, setIsAuthValid] = useState(true);
+  useEffect(() => {
+    if (isOpen) {
+      const checkAuthAndRole = async () => {
+        try {
+          const response = await fetch('/api/v1/auth/get-user-config/');
+          if (response.status === 401) {
+            setIsAuthValid(false);
+            // Clear and redirect
+            document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+            window.location.href = '/auth/login';
+            return;
+          }
 
-// useEffect(() => {
-//   if (isOpen) {
-//     const checkAuth = async () => {
-//       try {
-//         const response = await fetch('/api/v1/auth/get-user-config/');
-//         if (response.status === 401) {
-//           setIsAuthValid(false);
-//           // Clear and redirect
-//           document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-//           document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-//           window.location.href = '/auth/login';
-//           return;
-//         }
-//         setIsAuthValid(true);
-//       } catch (error) {
-//         console.error('Auth check failed:', error);
-//       }
-//     };
-//     checkAuth();
-//   }
-// }, [isOpen]);
+          const userData = await response.json();
+          setIsAuthValid(true);
 
-useEffect(() => {
-  if (isOpen) {
-    const checkAuthAndRole = async () => {
-      try {
-        const response = await fetch('/api/v1/auth/get-user-config/');
-        if (response.status === 401) {
-          setIsAuthValid(false);
-          // Clear and redirect
-          document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-          document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-          window.location.href = '/auth/login';
-          return;
+          // Check if admin and skip popup
+          if (userData.is_admin || userData.user_role === 'ADMIN') {
+            onSuccess();
+          }
+        } catch (error) {
+          console.error('Auth check failed:', error);
         }
-
-        const userData = await response.json();
-        setIsAuthValid(true);
-
-        // ADD THIS: Check if admin and skip popup
-        if (userData.is_admin || userData.user_role === 'ADMIN') {
-          onSuccess();  // Skip registration for admins
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-      }
-    };
-    checkAuthAndRole();
-  }
-}, [isOpen, onSuccess]);  // Add onSuccess to dependencies
+      };
+      checkAuthAndRole();
+    }
+  }, [isOpen, onSuccess]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -134,7 +110,7 @@ useEffect(() => {
     if (!forceCompletion) {
       onClose();
     }
-    // If forceCompletion is true, don't allow closing
+    // If forceCompletion is true, don't allow closing (setup mode)
   };
 
   if (!isOpen) return null;

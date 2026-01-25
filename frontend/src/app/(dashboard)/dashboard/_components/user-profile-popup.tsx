@@ -2,12 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, User, X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useRouter } from "next/navigation";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -81,12 +79,19 @@ interface UserProfilePopupProps {
     onClose: () => void;
     onSuccess: () => void;
     forceCompletion?: boolean;
+    mode?: 'setup' | 'edit';
 }
 
-export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceCompletion = false }: UserProfilePopupProps) {
+export default function UserProfilePopup({ 
+    isOpen, 
+    onClose, 
+    onSuccess, 
+    forceCompletion = false,
+    mode = 'setup'
+}: UserProfilePopupProps) {
     const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
     const [isLoading, setIsLoading] = useState(false);
-    const router = useRouter();
+    const [isAuthValid, setIsAuthValid] = useState(true);
 
     const form = useForm<UserProfileFormValues>({
         resolver: zodResolver(UserProfileSchema),
@@ -102,67 +107,40 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
         },
     });
 
-    const [isAuthValid, setIsAuthValid] = useState(true); // New state
-
-    // useEffect(() => {
-    //     if (isOpen) {
-    //         const checkAuth = async () => {
-    //             try {
-    //                 const response = await fetch('/api/v1/auth/get-user-config/');
-    //                 if (response.status === 401) {
-    //                     setIsAuthValid(false);
-    //                     // Clear and redirect
-    //                     document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    //                     document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-    //                     window.location.href = '/auth/login';
-    //                     return;
-    //                 }
-    //                 setIsAuthValid(true);
-    //             } catch (error) {
-    //                 console.error('Auth check failed:', error);
-    //             }
-    //         };
-    //         checkAuth();
-    //     }
-    // }, [isOpen]);
-
-
     useEffect(() => {
-  if (isOpen) {
-    const checkAuthAndRole = async () => {
-      try {
-        const response = await fetch('/api/v1/auth/get-user-config/');
-        if (response.status === 401) {
-          setIsAuthValid(false);
-          // Clear and redirect
-          document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-          document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-          window.location.href = '/auth/login';
-          return;
+        if (isOpen) {
+            const checkAuthAndRole = async () => {
+                try {
+                    const response = await fetch('/api/v1/auth/get-user-config/');
+                    if (response.status === 401) {
+                        setIsAuthValid(false);
+                        // Clear and redirect
+                        document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                        document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
+                        window.location.href = '/auth/login';
+                        return;
+                    }
+
+                    const userData = await response.json();
+                    setIsAuthValid(true);
+
+                    // Check if admin and skip popup (only in setup mode)
+                    if (mode === 'setup' && (userData.is_admin || userData.user_role === 'ADMIN')) {
+                        onSuccess();
+                    }
+                } catch (error) {
+                    console.error('Auth check failed:', error);
+                }
+            };
+            checkAuthAndRole();
         }
-
-        const userData = await response.json();
-        setIsAuthValid(true);
-
-        // ADD THIS: Check if admin and skip popup
-        if (userData.is_admin || userData.user_role === 'ADMIN') {
-          onSuccess();  // Skip profile for admins
-        }
-      } catch (error) {
-        console.error('Auth check failed:', error);
-      }
-    };
-    checkAuthAndRole();
-  }
-}, [isOpen, onSuccess]);  // Add onSuccess to dependencies
-
+    }, [isOpen, onSuccess, mode]);
 
     const onSubmit = async (values: UserProfileFormValues) => {
         setIsLoading(true);
         setMessage(null);
 
         try {
-            // Save user profile data (you might want to create a separate endpoint for this)
             const response = await post<any>('auth/user-profile/', values);
 
             if (response.error) {
@@ -171,7 +149,9 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
                 setMessage({ type: 'success', text: 'Profile completed successfully!' });
                 setTimeout(() => {
                     onSuccess();
-                    onClose();
+                    if (mode === 'setup') {
+                        onClose();
+                    }
                 }, 1500);
             }
         } catch (err: any) {
@@ -182,10 +162,10 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
     };
 
     const handleClose = () => {
-        if (!forceCompletion) {
+        if (!forceCompletion && mode === 'edit') {
             onClose();
         }
-
+        // Don't allow closing during mandatory setup
     };
 
     if (!isOpen) return null;
@@ -193,10 +173,10 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
     return (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
             <Card className="w-full max-w-2xl max-h-[90vh] overflow-y-auto relative">
-                {!forceCompletion && (
+                {mode === 'edit' && (
                     <Button
-                        variant={"ghost"}
-                        size={"icon"}
+                        variant="ghost"
+                        size="icon"
                         className="absolute right-2 top-2 h-6 w-6"
                         onClick={handleClose}
                         disabled={isLoading}
@@ -204,26 +184,24 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
                         <X className="h-4 w-4" />
                     </Button>
                 )}
-                <Button
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-2 h-6 w-6"
-                    onClick={handleClose}
-                    disabled={isLoading}
-                >
-                    <X className="h-4 w-4" />
-                </Button>
-
+                
                 <CardHeader className="text-center pb-4">
                     <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3 mx-auto">
                         <User className="h-6 w-6 text-blue-600" />
                     </div>
                     <CardTitle className="text-lg">
-                        {forceCompletion ? "Step 2: Complete Your Profile" : "Complete Your Profile"}
+                        {mode === 'setup' 
+                            ? (forceCompletion ? "Step 2: Complete Your Profile" : "Complete Your Profile")
+                            : "Edit Your Profile"
+                        }
                     </CardTitle>
                     <CardDescription>
-                        {forceCompletion ? "Final step: Help us understand your electricity usage patterns for better loan assessment" :
-                            "Help us understand your electricity usage patterns for better loan assessment"}
+                        {mode === 'setup'
+                            ? (forceCompletion 
+                                ? "Final step: Help us understand your electricity usage patterns for better loan assessment"
+                                : "Help us understand your electricity usage patterns for better loan assessment")
+                            : "Update your profile information"
+                        }
                     </CardDescription>
                 </CardHeader>
 
@@ -454,9 +432,20 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
                             </div>
 
                             <div className="flex gap-2 pt-4">
+                                {mode === 'edit' && (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="flex-1"
+                                        onClick={handleClose}
+                                        disabled={isLoading}
+                                    >
+                                        Cancel
+                                    </Button>
+                                )}
                                 <Button
                                     type="submit"
-                                    className="flex-1"
+                                    className={mode === 'edit' ? "flex-1" : "w-full"}
                                     disabled={isLoading}
                                 >
                                     {isLoading ? (
@@ -467,7 +456,10 @@ export default function UserProfilePopup({ isOpen, onClose, onSuccess, forceComp
                                     ) : (
                                         <>
                                             <User className="h-4 w-4 mr-2" />
-                                            {forceCompletion ? "Complete Setup to contunie" : "Complete Proile"}
+                                            {mode === 'setup' 
+                                                ? (forceCompletion ? "Complete Setup to Continue" : "Complete Profile")
+                                                : "Save Changes"
+                                            }
                                         </>
                                     )}
                                 </Button>

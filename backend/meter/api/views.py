@@ -69,6 +69,64 @@ def check_user_meter(request):
             'message': 'Failed to check meter status'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+
+@api_view(['PUT', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def update_meter(request):
+    """
+    Update existing meter information
+    """
+    try:
+        user = request.user
+        data = request.data
+        
+        # Get user's meter
+        try:
+            meter = Meter.objects.get(user=user)
+        except Meter.DoesNotExist:
+            return Response(
+                {"error": "No meter found to update"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Validate meter number uniqueness (excluding current meter)
+        new_meter_no = data.get('meter_no')
+        if new_meter_no and new_meter_no != meter.meter_no:
+            if Meter.objects.filter(meter_no=new_meter_no).exclude(id=meter.id).exists():
+                return Response({
+                    "success": False,
+                    "error": "Duplicate Meter Number",
+                    "message": "This meter number is already registered to another account."
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+        # Update fields
+        serializer = MeterSerializer(meter, data=data, partial=True)
+        if serializer.is_valid():
+            updated_meter = serializer.save()
+            
+            logger.info(f"Meter updated for user {user.id}: {updated_meter.meter_no}")
+            
+            return Response({
+                "success": True,
+                "message": "Meter updated successfully",
+                "data": MeterSerializer(updated_meter).data
+            }, status=status.HTTP_200_OK)
+        else:
+            return Response({
+                "success": False,
+                "error": "Validation Error",
+                "message": serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+            
+    except Exception as e:
+        logger.error(f"Meter update error: {str(e)}")
+        return Response({
+            "success": False,
+            "error": "Update Failed",
+            "message": "Failed to update meter. Please try again."
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class MeterRegisterView(generics.CreateAPIView):
     serializer_class = MeterSerializer
     permission_classes = [permissions.IsAuthenticated]

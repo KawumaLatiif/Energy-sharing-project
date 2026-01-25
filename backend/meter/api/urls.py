@@ -4,7 +4,8 @@ from .views import BuyUnitsView, CheckPaymentStatusView, MeterRegisterView
 from .views import (
     SendUnitsView, 
     ReceiveUnitsView,
-    TokenView
+    TokenView,
+    update_meter,
     )
 from meter.api import views
 
@@ -18,5 +19,6 @@ urlpatterns = [
     path('check-payment-status/', CheckPaymentStatusView.as_view(), name="check-payment-status"),
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
+    path('update/', update_meter, name='update-meter'),
 ]
 
