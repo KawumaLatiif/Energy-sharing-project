@@ -113,7 +113,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
               <CheckCircleIcon className={`h-5 w-5 ${
                 profile.emailVerified ? "text-green-500" : "text-gray-400"
               }`} />
-              <span className="text-sm">Email Verified</span>
+              <span className="text-sm text-gray-800">Email Verified</span>
             </div>
             {profile.emailVerified ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
@@ -129,7 +129,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
               <HomeIcon className={`h-5 w-5 ${
                 profile.address ? "text-green-500" : "text-gray-400"
               }`} />
-              <span className="text-sm">Address Provided</span>
+              <span className="text-sm text-gray-800">Address Provided</span>
             </div>
             {profile.address ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
@@ -143,7 +143,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
               <WifiIcon className={`h-5 w-5 ${
                 profile.profileCompletion.hasMeter ? "text-green-500" : "text-gray-400"
               }`} />
-              <span className="text-sm">Meter Registered</span>
+              <span className="text-sm text-gray-800">Meter Registered</span>
             </div>
             {profile.profileCompletion.hasMeter ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
@@ -159,7 +159,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
               <ChartBarIcon className={`h-5 w-5 ${
                 profile.profileCompletion.hasCompleteProfile ? "text-green-500" : "text-gray-400"
               }`} />
-              <span className="text-sm">Full Profile Complete</span>
+              <span className="text-sm text-gray-800">Full Profile Complete</span>
             </div>
             {profile.profileCompletion.hasCompleteProfile ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
@@ -189,16 +189,16 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Contact Information</h3>
           <div className="space-y-4">
             <div>
-              <p className="text-sm text-gray-500">Email Address</p>
-              <p className="font-medium">{profile.email}</p>
+              <p className="text-sm text-gray-800">Email Address</p>
+              <p className="font-medium text-gray-400">{profile.email}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Phone Number</p>
-              <p className="font-medium">{profile.phoneNumber}</p>
+              <p className="text-sm text-gray-800">Phone Number</p>
+              <p className="font-medium text-gray-400">{profile.phoneNumber}</p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Address</p>
-              <p className="font-medium">{profile.address || "Not provided"}</p>
+              <p className="text-sm text-gray-800">Address</p>
+              <p className="font-medium text-gray-400">{profile.address || "Not provided"}</p>
             </div>
           </div>
         </div>
@@ -208,14 +208,14 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
           <h3 className="text-lg font-semibold text-gray-900 mb-4">Account Preferences</h3>
           <div className="space-y-4">
             <div>
-              <p className="text-sm text-gray-500">Energy Preference</p>
-              <p className="font-medium capitalize">
+              <p className="text-sm text-gray-800">Energy Preference</p>
+              <p className="font-medium capitalize text-gray-500">
                 {profile.energyPreference?.toLowerCase() || "Not set"}
               </p>
             </div>
             <div>
-              <p className="text-sm text-gray-500">Payment Method</p>
-              <p className="font-medium">
+              <p className="text-sm text-gray-800">Payment Method</p>
+              <p className="font-medium text-gray-500">
                 {profile.paymentMethod === PaymentMethod.CREDIT_CARD && "Credit Card"}
                 {profile.paymentMethod === PaymentMethod.MOBILE_MONEY && "Mobile Money"}
                 {profile.paymentMethod === PaymentMethod.BANK_TRANSFER && "Bank Transfer"}
@@ -234,17 +234,17 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
             </div>
             <div className="space-y-4">
               <div>
-                <p className="text-sm text-gray-500">Meter Number</p>
-                <p className="font-mono font-medium">{profile.meter.meter_no}</p>
+                <p className="text-sm text-gray-800">Meter Number</p>
+                <p className="font-mono font-medium text-gray-400">{profile.meter.meter_no}</p>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <p className="text-sm text-gray-500">Available Units</p>
+                  <p className="text-sm text-gray-800">Available Units</p>
                   <p className="text-2xl font-bold text-green-600">{profile.meter.units.toFixed(2)}</p>
                 </div>
                 <div>
-                  <p className="text-sm text-gray-500">Static IP</p>
-                  <p className="font-mono text-sm">{profile.meter.static_ip}</p>
+                  <p className="text-sm text-gray-800">Static IP</p>
+                  <p className="font-mono text-sm text-gray-400">{profile.meter.static_ip}</p>
                 </div>
               </div>
             </div>

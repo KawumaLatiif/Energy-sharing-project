@@ -7,7 +7,11 @@ from .views import (
     UserDetailView,
     AdminStatsView,
     LoanManagementView,
-    AdminAccountView
+    AdminAccountView,
+    AdminPasswordChangeView,
+    AdminNotificationSettingsView,
+    AdminSessionManagementView,
+    AdminActivityLogView
 )
 
 urlpatterns = [
@@ -18,5 +22,9 @@ urlpatterns = [
     path('stats/', AdminStatsView.as_view(), name='admin-stats'),
     path('toggle-user-status/', ToggleUserStatusView.as_view(), name='toggle-user-status'),
     path('loans/', LoanManagementView.as_view(), name='admin-loans'),
-    path('account/', AdminAccountView.as_view(), name = 'admin-account'),
+    path('account/', AdminAccountView.as_view(), name='admin-account'),
+    path('account/password-change/', AdminPasswordChangeView.as_view(), name='admin-password-change'),
+    path('account/notifications/', AdminNotificationSettingsView.as_view(), name='admin-notifications'),
+    path('account/sessions/', AdminSessionManagementView.as_view(), name='admin-sessions'),
+    path('account/activities/', AdminActivityLogView.as_view(), name='admin-activities'),
 ]

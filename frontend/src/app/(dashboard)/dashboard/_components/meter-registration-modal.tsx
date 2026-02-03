@@ -225,24 +225,24 @@ export default function MeterManagementModal({
                     <div className="bg-white p-3 rounded border">
                       <div className="flex items-center space-x-2 mb-1">
                         <Wifi className="h-4 w-4 text-blue-500" />
-                        <span className="text-sm font-medium">Meter Number</span>
+                        <span className="text-sm font-medium text-gray-800">Meter Number</span>
                       </div>
-                      <p className="text-lg font-mono">{meterData.data.meter_number}</p>
+                      <p className="text-lg font-mono text-gray-500">{meterData.data.meter_number}</p>
                     </div>
                     
                     <div className="bg-white p-3 rounded border">
                       <div className="flex items-center space-x-2 mb-1">
                         <Zap className="h-4 w-4 text-green-500" />
-                        <span className="text-sm font-medium">Static IP</span>
+                        <span className="text-sm font-medium text-gray-800">Static IP</span>
                       </div>
-                      <p className="text-lg font-mono">{meterData.data.static_ip}</p>
+                      <p className="text-lg font-mono text-gray-500">{meterData.data.static_ip}</p>
                     </div>
                   </div>
                   
                   <div className="bg-white p-3 rounded border">
                     <div className="flex items-center space-x-2 mb-1">
                       <Battery className="h-4 w-4 text-purple-500" />
-                      <span className="text-sm font-medium">Available Units</span>
+                      <span className="text-sm font-medium text-gray-800">Available Units</span>
                     </div>
                     <div className="flex items-baseline">
                       <p className="text-2xl font-bold text-green-600">
@@ -252,10 +252,10 @@ export default function MeterManagementModal({
                     </div>
                   </div>
                   
-                  <div className="flex gap-2 pt-2">
+                  <div className="flex gap-2 pt-2 ">
                     <Button
                       onClick={() => setIsEditing(true)}
-                      className="flex-1"
+                      className="flex-1 rounded border"
                     >
                       <Edit className="h-4 w-4 mr-2" />
                       Edit Meter

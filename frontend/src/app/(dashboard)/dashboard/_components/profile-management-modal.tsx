@@ -265,7 +265,7 @@ export default function ProfileManagementModal({
                                             <Input
                                                 value={`${userData.first_name} ${userData.last_name}`}
                                                 readOnly
-                                                className="bg-gray-50"
+                                                className="bg-gray-50 text-gray-700"
                                             />
                                         </div>
 
@@ -274,7 +274,7 @@ export default function ProfileManagementModal({
                                             <Input
                                                 value={userData.email}
                                                 readOnly
-                                                className="bg-gray-50"
+                                                className="bg-gray-50 text-gray-700"
                                             />
                                         </div>
 
@@ -283,7 +283,7 @@ export default function ProfileManagementModal({
                                             <Input
                                                 value={userData.phone_number}
                                                 readOnly
-                                                className="bg-gray-50"
+                                                className="bg-gray-50 text-gray-700"
                                             />
                                         </div>
 
@@ -293,7 +293,7 @@ export default function ProfileManagementModal({
                                             <Input
                                                 value={userData.account_details?.account_number || 'Not set'}
                                                 readOnly
-                                                className="bg-gray-50"
+                                                className="bg-gray-50 text-gray-700"
                                             />
                                         </div>
 
@@ -355,8 +355,155 @@ export default function ProfileManagementModal({
                                                 </FormItem>
                                             )}
                                         />
-
-                                        {/* Add more fields as needed... */}
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="payment_consistency"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Payment Consistency</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select consistency" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="Always on time">Always on time</SelectItem>
+                                                                                            <SelectItem value="Often on time">Often on time</SelectItem>
+                                                                                            <SelectItem value="Sometimes late">Sometimes late</SelectItem>
+                                                                                            <SelectItem value="Mostly late">Mostly late</SelectItem>
+                                                                                            <SelectItem value="Never paid">Never paid</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="disconnection_history"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Disconnection History</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select history" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="No disconnections">No disconnections</SelectItem>
+                                                                                            <SelectItem value="1–2 disconnections">1–2 disconnections</SelectItem>
+                                                                                            <SelectItem value="3–4 disconnections">3–4 disconnections</SelectItem>
+                                                                                            <SelectItem value=">4 disconnections">Over 4 disconnections</SelectItem>
+                                                                                            <SelectItem value="Frequently disconnected">Frequently disconnected</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="meter_sharing"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Meter Sharing</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select sharing status" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="No sharing">No sharing</SelectItem>
+                                                                                            <SelectItem value="Shared with 1 household">Shared with 1 household</SelectItem>
+                                                                                            <SelectItem value="Shared with 2+ households">Shared with 2+ households</SelectItem>
+                                                                                            <SelectItem value="Commercial sharing">Commercial sharing</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="monthly_income"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Monthly Income</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select income range" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="<100,000 UGX">Less than 100,000 UGX</SelectItem>
+                                                                                            <SelectItem value="100,000–199,999 UGX">100,000–199,999 UGX</SelectItem>
+                                                                                            <SelectItem value="200,000–499,999 UGX">200,000–499,999 UGX</SelectItem>
+                                                                                            <SelectItem value="500,000–999,999 UGX">500,000–999,999 UGX</SelectItem>
+                                                                                            <SelectItem value=">1,000,000 UGX">Over 1,000,000 UGX</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="income_stability"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Income Stability</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select stability" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="Fixed and stable">Fixed and stable</SelectItem>
+                                                                                            <SelectItem value="Regular but variable">Regular but variable</SelectItem>
+                                                                                            <SelectItem value="Seasonal income">Seasonal income</SelectItem>
+                                                                                            <SelectItem value="Irregular but frequent">Irregular but frequent</SelectItem>
+                                                                                            <SelectItem value="Unstable income">Unstable income</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
+                                        
+                                                                        <FormField
+                                                                            control={form.control}
+                                                                            name="consumption_level"
+                                                                            render={({ field }) => (
+                                                                                <FormItem>
+                                                                                    <FormLabel>Consumption Level</FormLabel>
+                                                                                    <Select onValueChange={field.onChange} value={field.value}>
+                                                                                        <FormControl>
+                                                                                            <SelectTrigger>
+                                                                                                <SelectValue placeholder="Select consumption" />
+                                                                                            </SelectTrigger>
+                                                                                        </FormControl>
+                                                                                        <SelectContent>
+                                                                                            <SelectItem value="Very low (<50 kWh)">Very low (less than 50 kWh)</SelectItem>
+                                                                                            <SelectItem value="Low (50–99 kWh)">Low (50–99 kWh)</SelectItem>
+                                                                                            <SelectItem value="Moderate (100–200 kWh)">Moderate (100–200 kWh)</SelectItem>
+                                                                                            <SelectItem value="High (>200 kWh)">High (over 200 kWh)</SelectItem>
+                                                                                            <SelectItem value="Extremely high (>300 kWh)">Extremely high (over 300 kWh)</SelectItem>
+                                                                                        </SelectContent>
+                                                                                    </Select>
+                                                                                    <FormMessage />
+                                                                                </FormItem>
+                                                                            )}
+                                                                        />
                                     </div>
 
                                     {isEditing && (
@@ -398,7 +545,7 @@ export default function ProfileManagementModal({
                                                     <Input
                                                         value={meterData.data.meter_number || ''}
                                                         readOnly
-                                                        className="bg-gray-50 font-mono"
+                                                        className="bg-gray-50 font-mono text-gray-700"
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
@@ -406,7 +553,7 @@ export default function ProfileManagementModal({
                                                     <Input
                                                         value={meterData.data.static_ip || ''}
                                                         readOnly
-                                                        className="bg-gray-50 font-mono"
+                                                        className="bg-gray-50 font-mono text-gray-700"
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
@@ -414,7 +561,7 @@ export default function ProfileManagementModal({
                                                     <Input
                                                         value={`${meterData.data.units || 0} units`}
                                                         readOnly
-                                                        className="bg-gray-50"
+                                                        className="bg-gray-50 text-gray-700"
                                                     />
                                                 </div>
                                                 <div className="space-y-2">
