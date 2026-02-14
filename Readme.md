@@ -1,3 +1,4 @@
+### Energy-sharing-project with next(typescript), Django and postgres
 Step,Backend (Django),Frontend (Next.js),Notes
 
 1. Clone Repo,"git clone url,
@@ -13,4 +14,9 @@ Step,Backend (Django),Frontend (Next.js),Notes
 - Run migrations: python manage.py migrate.
 - Create superuser: python manage.py createsuperuser.
 
-4. Start Servers,"- Terminal 1: python manage.py runserver (runs on localhost:8000).
+# make sure the virtual environment is started
+4. Start Servers,"
+- Terminal 1: python manage.py runserver (runs on localhost:8000).
+- Terminal 2: npm run dev (runs on localhost:3000).
+- Terminal 3: (redis server)
+- Terminal 4: (celery server)

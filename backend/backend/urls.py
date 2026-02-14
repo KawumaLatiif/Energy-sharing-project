@@ -13,10 +13,9 @@ def home(request):
 
 urlpatterns = [
     path('', home, name='home'),
-    path('admin-panel/', admin.site.urls),  # Django admin panel
+    path('admin-panel/', admin.site.urls), 
     path('api/v1/', include(("backend.api1", "api1"), namespace="api1")),
-    # Add our custom admin API URLs
-    path('api/v1/admin/', include('admin.urls')),  # Custom admin API
+    path('api/v1/admin/', include('admin.urls')),
     path('api/v1/wallet/', include('wallet.urls')),
 ]
 

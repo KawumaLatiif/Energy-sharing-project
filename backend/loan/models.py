@@ -1,3 +1,4 @@
+# Updated models.py with fix for fallback
 from django.db import models
 from accounts.models import User
 import random
@@ -39,12 +40,12 @@ LOAN_TIERS = [
     }
 ]
 
-def get_tier_by_score(score):
-    """Get loan tier based on credit score"""
-    for tier in LOAN_TIERS:
-        if tier['min_score'] <= score <= tier['max_score']:
-            return tier
-    return None    
+# def get_tier_by_score(score):
+#     """Get loan tier based on credit score"""
+#     for tier in LOAN_TIERS:
+#         if tier['min_score'] <= score <= tier['max_score']:
+#             return tier
+#     return None    
 
 def generate_loan_id():
     return ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
@@ -319,3 +320,56 @@ class LoanRepayment(TimeStampedModel):
     
     class Meta:
         ordering = ['-created_at']
+
+
+class LoanTier(models.Model):
+    """Dynamic loan tier configuration"""
+    name = models.CharField(max_length=20, unique=True)  # Bronze, Silver, Gold, Platinum
+    display_name = models.CharField(max_length=50)
+    min_score = models.IntegerField()
+    max_score = models.IntegerField()
+    max_amount = models.DecimalField(max_digits=10, decimal_places=2)
+    interest_rate = models.DecimalField(max_digits=5, decimal_places=2)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    class Meta:
+        ordering = ['min_score']
+    
+    def __str__(self):
+        return f"{self.name} ({self.min_score}-{self.max_score})"
+    
+    def clean(self):
+        """Validate score ranges don't overlap"""
+        overlapping = LoanTier.objects.filter(
+            is_active=True
+        ).exclude(id=self.id).filter(
+            models.Q(min_score__lte=self.max_score, max_score__gte=self.min_score)
+        )
+        if overlapping.exists():
+            raise ValidationError("Tier score ranges cannot overlap")
+    
+    def save(self, *args, **kwargs):
+        self.clean()
+        super().save(*args, **kwargs)
+
+
+# Update your LOAN_TIERS constant to use the database
+# You can keep it as fallback but mark it as deprecated
+LOAN_TIERS_DEPRECATED = LOAN_TIERS  # Reference the hardcoded for fallback
+
+def get_tier_by_score(score):
+    """Get loan tier based on credit score from database"""
+    try:
+        return LoanTier.objects.filter(
+            is_active=True,
+            min_score__lte=score,
+            max_score__gte=score
+        ).first()
+    except Exception:
+        # Fallback to hardcoded tiers if database fails
+        for tier in LOAN_TIERS:  # Fixed to LOAN_TIERS
+            if tier['min_score'] <= score <= tier['max_score']:
+                return tier
+        return None

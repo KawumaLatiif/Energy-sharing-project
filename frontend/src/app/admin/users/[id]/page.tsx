@@ -501,7 +501,7 @@ export default function UserDetailPage() {
               </Button>
               <Button variant="outline" className="w-full justify-start">
                 <Zap className="mr-2 h-4 w-4" />
-                Meter History
+                Loan History
               </Button>
               <Button variant="outline" className="w-full justify-start">
                 <AlertCircle className="mr-2 h-4 w-4" />

@@ -109,3 +109,38 @@ export const patch = async (path: string, data: any) => {
     return { error: "" }
 
 }
+
+export const put = async <T>(path: string, data: any) => {
+    const res = await fetch(`${API_URL}/${path}`, {
+        method: "PUT",
+        headers: {"Content-Type": "application/json", ...(await getHeaders()) },
+        body: JSON.stringify(data)
+    })
+
+    if (!res.ok) {
+        const parsedRes = await res.json();
+        return {error: parsedRes, data: null, status: res.status}
+    }
+
+    const contentType = res.headers.get('content-type');
+    let parsedRes: T | null = null;
+    if (contentType && contentType.includes('application/json')) {
+        parsedRes = await res.json() as T;
+    }
+
+    return { error: "", data: parsedRes, status: res.status }
+}
+
+export const del = async (path: string) => {
+    const res = await fetch(`${API_URL}/${path}`, {
+        method: "DELETE",
+        headers: await getHeaders()
+    })
+
+    if (!res.ok) {
+        const parsedRes = await res.json();
+        return {error: parsedRes, status: res.status}
+    }
+
+    return { error: "", status: res.status }
+}

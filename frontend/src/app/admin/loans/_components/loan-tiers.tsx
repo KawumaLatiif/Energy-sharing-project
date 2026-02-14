@@ -1,0 +1,1 @@
+<h1>loan tiers page to view them edit them basing on the database data</h1>

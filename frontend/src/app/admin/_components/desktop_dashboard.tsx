@@ -1,5 +1,6 @@
 'use client';
 import {
+  ActivityIcon,
   ArrowUpRight,
   Bell,
   FileTextIcon,
@@ -21,7 +22,7 @@ import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconMoneybag } from "@tabler/icons-react";
-import { PersonIcon } from "@radix-ui/react-icons";
+import { ActivityLogIcon, PersonIcon } from "@radix-ui/react-icons";
 
 export default function AdminDesktopSidebar() {
   const pathname = usePathname();
@@ -93,16 +94,16 @@ export default function AdminDesktopSidebar() {
               <PersonIcon className="h-4 w-4" />
               My Account
             </Link>
-            {/* <Link
+            <Link
               href="/admin/analytics"
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
                 { "bg-muted text-primary": pathname === "/admin/analytics" }
               )}
             >
-              <PersonIcon className="h-4 w-4" />
-             stats
-            </Link> */}
+              <ActivityIcon className="h-4 w-4" />
+             Analytics info
+            </Link>
           </nav>
         </div>
       </div>

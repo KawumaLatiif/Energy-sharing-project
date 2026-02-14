@@ -43,6 +43,7 @@ import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { get } from '@/lib/fetch';
+import Link from 'next/link';
 
 interface Loan {
   id: number;
@@ -82,36 +83,36 @@ export default function LoansManagementPage() {
     try {
       setLoading(true);
       const params = new URLSearchParams({
-              page: currentPage.toString(),
-              limit: limit.toString(),
-              ...(search && { search })
-            });
-      
-            const res = await get<any>(`admin/loans/?${params}`);
-            
-      
-            if (res.status === 403 || res.status === 401) {
-              router.push('/dashboard');
-              return;
-            }
-      
-            if (res.error) throw new Error('Failed to fetch loans');
-            if(res.data && res.data.loans){
-              console.log('Data is ested as', res.data.loans);
-            // const data = await res.json();
-            setLoans(res.data.loans);
-            setTotalPages(res.data.pagination.pages);
-            setTotalLoans(res.data.pagination.total);
-            }
-            else if (res.data){
-              console.log('data is flat', res.data);
-              setLoans(res.data.loans);
-            setTotalPages(res.data.pagination.pages);
-            setTotalLoans(res.data.pagination.total);
-            } else {
-                console.error('No data in response');
-              }
-      
+        page: currentPage.toString(),
+        limit: limit.toString(),
+        ...(search && { search })
+      });
+
+      const res = await get<any>(`admin/loans/?${params}`);
+
+
+      if (res.status === 403 || res.status === 401) {
+        router.push('/dashboard');
+        return;
+      }
+
+      if (res.error) throw new Error('Failed to fetch loans');
+      if (res.data && res.data.loans) {
+        console.log('Data is ested as', res.data.loans);
+        // const data = await res.json();
+        setLoans(res.data.loans);
+        setTotalPages(res.data.pagination.pages);
+        setTotalLoans(res.data.pagination.total);
+      }
+      else if (res.data) {
+        console.log('data is flat', res.data);
+        setLoans(res.data.loans);
+        setTotalPages(res.data.pagination.pages);
+        setTotalLoans(res.data.pagination.total);
+      } else {
+        console.error('No data in response');
+      }
+
     } catch (error) {
       console.error('Error fetching loans:', error);
       toast({
@@ -132,10 +133,10 @@ export default function LoansManagementPage() {
   //     completed: { variant: "outline" as const, icon: CheckCircle },
   //     defaulted: { variant: "destructive" as const, icon: AlertCircle },
   //   };
-    
+
   //   const { variant, icon: Icon } = variants[status];
   //   const statusText = status.charAt(0).toUpperCase() + status.slice(1);
-    
+
   //   return (
   //     <Badge variant={variant} className="gap-1">
   //       <Icon className="h-3 w-3" />
@@ -211,6 +212,14 @@ export default function LoansManagementPage() {
           <p className="text-muted-foreground">
             Manage all loan applications and disbursements
           </p>
+          <div className="space-x-2">
+            <Link href="/admin/loan-tiers">
+              <Button variant="outline">Manage Loan Tiers</Button>
+            </Link>
+            <Link href="/admin/tariffs">
+              <Button variant="outline">Manage Tariffs</Button>
+            </Link>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" onClick={exportLoans}>
@@ -437,7 +446,7 @@ function LoansManagementSkeleton() {
           <Skeleton className="h-10 w-40" />
         </div>
       </div>
-      
+
       <div className="grid gap-6 md:grid-cols-4">
         {[...Array(4)].map((_, i) => (
           <Card key={i}>
@@ -451,7 +460,7 @@ function LoansManagementSkeleton() {
           </Card>
         ))}
       </div>
-      
+
       <Card>
         <CardHeader>
           <div className="flex gap-4">

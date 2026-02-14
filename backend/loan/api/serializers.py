@@ -1,19 +1,64 @@
 from rest_framework import serializers
-from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, TariffBlock
+from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, TariffBlock, LoanTier
+
+# class TariffBlockSerializer(serializers.ModelSerializer):
+#     class Meta:
+#         model = TariffBlock
+#         fields = ['id', 'block_name', 'min_units', 'max_units', 'rate_per_unit', 'block_order']
+
+# class ElectricityTariffSerializer(serializers.ModelSerializer):
+#     blocks = TariffBlockSerializer(many=True, read_only=True)
+    
+#     class Meta:
+#         model = ElectricityTariff
+#         fields = [
+#             'id', 'tariff_code', 'tariff_name', 'tariff_type', 'voltage_level', 'voltage_value', 'service_charge', 'blocks', 'is_active'
+#         ]
+
 
 class TariffBlockSerializer(serializers.ModelSerializer):
     class Meta:
         model = TariffBlock
-        fields = ['id', 'block_name', 'min_units', 'max_units', 'rate_per_unit', 'block_order']
+        fields = '__all__'
 
 class ElectricityTariffSerializer(serializers.ModelSerializer):
-    blocks = TariffBlockSerializer(many=True, read_only=True)
-    
+    blocks = TariffBlockSerializer(many=True)
+
     class Meta:
         model = ElectricityTariff
         fields = [
-            'id', 'tariff_code', 'tariff_name', 'tariff_type', 'voltage_level', 'voltage_value', 'service_charge', 'blocks', 'is_active'
+            'id', 'tariff_code', 'tariff_name', 'tariff_type', 'voltage_level', 'voltage_value', 'service_charge', 'blocks', 'is_active', 'effective_date'
         ]
+
+    def create(self, validated_data):
+        blocks_data = validated_data.pop('blocks', [])
+        tariff = ElectricityTariff.objects.create(**validated_data)
+        for block_data in blocks_data:
+            TariffBlock.objects.create(tariff=tariff, **block_data)
+        return tariff
+
+    def update(self, instance, validated_data):
+        blocks_data = validated_data.pop('blocks', [])
+        # Update tariff fields
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+
+        # Handle blocks: Update existing, create new if no id, but for simplicity, assume all blocks are provided with ids for updates
+        # (You can extend this to handle creation/deletion if needed)
+        for block_data in blocks_data:
+            block_id = block_data.pop('id', None)
+            if block_id:
+                block = TariffBlock.objects.get(id=block_id, tariff=instance)
+                for attr, value in block_data.items():
+                    setattr(block, attr, value)
+                block.save()
+            else:
+                # Optional: Create new block if no id
+                TariffBlock.objects.create(tariff=instance, **block_data)
+
+        return instance
+
 
 class LoanRepaymentSerializer(serializers.ModelSerializer):
     class Meta:
@@ -154,6 +199,16 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
         if value not in valid_choices:
             raise serializers.ValidationError("Invalid choice for monthly expenditure")
         return value
+
+class LoanTierSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = LoanTier
+        fields = '__all__'
+
+    def validate(self, data):
+        if data['min_score'] >= data['max_score']:
+            raise serializers.ValidationError("min_score must be less than max_score")
+        return data
 
 
 class LoanDisbursementSerializer(serializers.ModelSerializer):

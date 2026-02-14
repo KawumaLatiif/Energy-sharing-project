@@ -17,9 +17,11 @@ import {
   AlertCircle,
   FileText,
   TrendingUp,
+  Activity,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { get } from "@/lib/fetch";
+import { Badge } from '@/components/ui/badge';
 
 interface AdminStats {
   total_users: number;
@@ -36,9 +38,16 @@ interface AdminStats {
   outstanding_balance: number;
   recent_registrations: number;
 }
+interface Activity {
+  id: number;
+  action: string;
+  details: any;
+  created_at: string;
+}
 
 export default function AdminDashboard() {
   const router = useRouter();
+  const [activities, setActivities] = useState<Activity[]>([]);
   const [stats, setStats] = useState<AdminStats>({
     total_users: 0,
     total_admins: 0,
@@ -61,15 +70,15 @@ export default function AdminDashboard() {
       try {
         console.log('Fetching admin dashboard data...');
         const res = await get<any>("admin/dashboard/");
-        
+
         console.log('Admin Dashboard Response:', res);
-        
+
         if (res.status === 403 || res.status === 401) {
           console.log('Unauthorized access to admin dashboard');
           router.push('auth/login');
           return;
         }
-        
+
         if (res.error) {
           console.error('Failed to load admin dashboard:', res.error);
           return;
@@ -211,21 +220,60 @@ export default function AdminDashboard() {
           </CardContent>
         </Card>
       </div>
-
-      <div className="mb-8">
-        <h2 className="text-xl font-semibold mb-4">Quick Actions</h2>
-        <div className="flex flex-wrap gap-4">
-          <Button onClick={() => router.push('/admin/users')} variant="outline" size="lg">
-            <Users className="mr-2 h-4 w-4" /> Manage Users
-          </Button>
-          <Button onClick={() => router.push('/admin/meters')} variant="outline" size="lg">
-            <Zap className="mr-2 h-4 w-4" /> Manage Meters
-          </Button>
-          <Button onClick={() => router.push('/admin/loans')} variant="outline" size="lg">
-            <DollarSign className="mr-2 h-4 w-4" /> Manage Loans
-          </Button>
-        </div>
-      </div>
+      <Card className='mb-8'>
+        <CardHeader>
+          <CardTitle>
+            Quick Actions
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="flex flex-wrap gap-4">
+            <Button onClick={() => router.push('/admin/users')} variant="outline" size="lg">
+              <Users className="mr-2 h-4 w-4" /> Manage Users
+            </Button>
+            <Button onClick={() => router.push('/admin/meters')} variant="outline" size="lg">
+              <Zap className="mr-2 h-4 w-4" /> Manage Meters
+            </Button>
+            <Button onClick={() => router.push('/admin/loans')} variant="outline" size="lg">
+              <DollarSign className="mr-2 h-4 w-4" /> Manage Loans
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Activities</CardTitle>
+          <CardDescription>
+            Your recent account activities
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          {activities.length > 0 ? (
+            <div className="space-y-3">
+              {activities.map((activity) => (
+                <div key={activity.id} className="flex items-center justify-between p-3 border rounded">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <Activity className="h-4 w-4 text-primary" />
+                      <span className="font-medium">{activity.action}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      {new Date(activity.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <Badge variant="outline">
+                    {Object.keys(activity.details || {}).length > 0 ? 'With details' : 'No details'}
+                  </Badge>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div className="text-center py-8">
+              <p className="text-muted-foreground">No recent activities</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </div>
   );
 }

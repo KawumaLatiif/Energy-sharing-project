@@ -1,5 +1,6 @@
 'use client';
 import {
+  ActivityIcon,
   ArrowUpRight,
   CircleUser,
   FileTextIcon,
@@ -97,6 +98,16 @@ export default function AdminRightHeader() {
             >
               <IconMoneybag className="h-4 w-4" />
               Manage Loans
+            </Link>
+            <Link
+              href="/admin/analytics"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname.startsWith("/admin/analytics") }
+              )}
+            >
+              <ActivityIcon className="h-4 w-4" />
+              Analytics info
             </Link>
             <Link
               href="/admin/myaccount"

@@ -165,6 +165,8 @@ from .serializers import (
     AdminPasswordChangeSerializer,
     AdminNotificationSettingsSerializer
 )
+from loan.models import LoanTier, ElectricityTariff
+from loan.api.serializers import LoanTierSerializer, ElectricityTariffSerializer  
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
@@ -199,6 +201,140 @@ class AdminPermissionMixin:
             )
         except Exception as e:
             logger.error(f"Failed to log admin activity: {str(e)}")
+
+
+class LoanTierDetailView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tier = LoanTier.objects.get(pk=pk)
+            serializer = LoanTierSerializer(tier)
+            return Response(serializer.data)
+        except LoanTier.DoesNotExist:
+            return Response({"error": "Loan tier not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tier = LoanTier.objects.get(pk=pk)
+            serializer = LoanTierSerializer(tier, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except LoanTier.DoesNotExist:
+            return Response({"error": "Loan tier not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tier = LoanTier.objects.get(pk=pk)
+            tier.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except LoanTier.DoesNotExist:
+            return Response({"error": "Loan tier not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+class TariffsView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        tariffs = ElectricityTariff.objects.filter(is_active=True)
+        serializer = ElectricityTariffSerializer(tariffs, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        serializer = ElectricityTariffSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+
+class TariffDetailView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tariff = ElectricityTariff.objects.get(pk=pk)
+            serializer = ElectricityTariffSerializer(tariff)
+            return Response(serializer.data)
+        except ElectricityTariff.DoesNotExist:
+            return Response({"error": "Tariff not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def put(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tariff = ElectricityTariff.objects.get(pk=pk)
+            serializer = ElectricityTariffSerializer(tariff, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except ElectricityTariff.DoesNotExist:
+            return Response({"error": "Tariff not found"}, status=status.HTTP_404_NOT_FOUND)
+
+    def delete(self, request, pk):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        try:
+            tariff = ElectricityTariff.objects.get(pk=pk)
+            tariff.delete()
+            return Response(status=status.HTTP_204_NO_CONTENT)
+        except ElectricityTariff.DoesNotExist:
+            return Response({"error": "Tariff not found"}, status=status.HTTP_404_NOT_FOUND)
+
+
+class LoanTiersView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        tiers = LoanTier.objects.filter(is_active=True).order_by('min_score')
+        serializer = LoanTierSerializer(tiers, many=True)
+        return Response(serializer.data)
+
+    def post(self, request):
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+
+        serializer = LoanTierSerializer(data=request.data)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 
 class AdminAccountView(APIView, AdminPermissionMixin):
@@ -1179,6 +1315,7 @@ class AdminStatsView(APIView, AdminPermissionMixin):
             today = datetime.now().date()
             last_week = today - timedelta(days=7)
             last_month = today - timedelta(days=30)
+            last_year = today - timedelta(days=365)
             
             # User registration stats
             daily_registrations = []

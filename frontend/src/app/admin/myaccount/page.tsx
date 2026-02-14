@@ -14,13 +14,13 @@ import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
-import { 
-  User, 
-  Shield, 
-  Bell, 
-  Key, 
-  Mail, 
-  Phone, 
+import {
+  User,
+  Shield,
+  Bell,
+  Key,
+  Mail,
+  Phone,
   Save,
   Eye,
   EyeOff,
@@ -98,7 +98,7 @@ export default function AdminAccountPage() {
   const [showCurrentPassword, setShowCurrentPassword] = useState(false);
   const [showNewPassword, setShowNewPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-  
+
   const [profile, setProfile] = useState<AdminProfile | null>(null);
   const [editedProfile, setEditedProfile] = useState<Partial<AdminProfile>>({});
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings>({
@@ -112,7 +112,7 @@ export default function AdminAccountPage() {
   });
   const [sessions, setSessions] = useState<Session[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
-  
+
   const [securityData, setSecurityData] = useState({
     currentPassword: '',
     newPassword: '',
@@ -134,19 +134,19 @@ export default function AdminAccountPage() {
     setLoading(prev => ({ ...prev, profile: true }));
     try {
       const response = await get<any>('admin/account/');
-      
+
       if (response.error) throw new Error('Failed to fetch admin data');
-      
+
       // const data = await response.json();
 
-      if(response.data && response.data.profile){
+      if (response.data && response.data.profile) {
         setProfile(response.data.user);
         setEditedProfile(response.data.user);
         setNotificationSettings(response.data.notification_settings);
         setSessions(response.data.sessions || []);
         setActivities(response.data.recent_activities || []);
       }
-      else if (response.data){
+      else if (response.data) {
         setProfile(response.data.user);
         setEditedProfile(response.data.user);
         setNotificationSettings(response.data.notification_settings);
@@ -155,7 +155,7 @@ export default function AdminAccountPage() {
       } else {
         console.error('No data');
       }
-      
+
       // if (data.success) {
       //   setProfile(data.user);
       //   setEditedProfile(data.user);
@@ -185,19 +185,19 @@ export default function AdminAccountPage() {
         },
         body: JSON.stringify(editedProfile)
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to update profile');
-      
+
       toast({
         title: 'Success',
         description: data.message,
       });
-      
+
       // Refresh data
       fetchAdminData();
-      
+
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -238,23 +238,23 @@ export default function AdminAccountPage() {
         },
         body: JSON.stringify(securityData)
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to change password');
-      
+
       toast({
         title: 'Success',
         description: data.message,
       });
-      
+
       // Clear password fields
       setSecurityData({
         currentPassword: '',
         newPassword: '',
         confirmPassword: ''
       });
-      
+
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -277,16 +277,16 @@ export default function AdminAccountPage() {
         },
         body: JSON.stringify(notificationSettings)
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to update notifications');
-      
+
       toast({
         title: 'Success',
         description: data.message,
       });
-      
+
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -308,19 +308,19 @@ export default function AdminAccountPage() {
         },
         body: JSON.stringify({ session_id: sessionId })
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to terminate session');
-      
+
       toast({
         title: 'Success',
         description: data.message,
       });
-      
+
       // Refresh sessions
       fetchSessions();
-      
+
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -338,19 +338,19 @@ export default function AdminAccountPage() {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         }
       });
-      
+
       const data = await response.json();
-      
+
       if (!response.ok) throw new Error(data.error || 'Failed to terminate sessions');
-      
+
       toast({
         title: 'Success',
         description: data.message,
       });
-      
+
       // Refresh sessions
       fetchSessions();
-      
+
     } catch (error: any) {
       toast({
         title: 'Error',
@@ -368,9 +368,9 @@ export default function AdminAccountPage() {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         }
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setSessions(data.sessions);
       }
@@ -393,9 +393,9 @@ export default function AdminAccountPage() {
           'Authorization': `Bearer ${localStorage.getItem('access_token')}`
         }
       });
-      
+
       const data = await response.json();
-      
+
       if (data.success) {
         setActivities(data.activities);
       }
@@ -473,7 +473,7 @@ export default function AdminAccountPage() {
                       <Input
                         id="firstName"
                         value={editedProfile.first_name || ''}
-                        onChange={(e) => setEditedProfile({...editedProfile, first_name: e.target.value})}
+                        onChange={(e) => setEditedProfile({ ...editedProfile, first_name: e.target.value })}
                         disabled={loading.saving}
                       />
                     </div>
@@ -482,7 +482,7 @@ export default function AdminAccountPage() {
                       <Input
                         id="lastName"
                         value={editedProfile.last_name || ''}
-                        onChange={(e) => setEditedProfile({...editedProfile, last_name: e.target.value})}
+                        onChange={(e) => setEditedProfile({ ...editedProfile, last_name: e.target.value })}
                         disabled={loading.saving}
                       />
                     </div>
@@ -495,7 +495,7 @@ export default function AdminAccountPage() {
                         id="email"
                         type="email"
                         value={editedProfile.email || ''}
-                        onChange={(e) => setEditedProfile({...editedProfile, email: e.target.value})}
+                        onChange={(e) => setEditedProfile({ ...editedProfile, email: e.target.value })}
                         disabled={loading.saving}
                       />
                     </div>
@@ -507,7 +507,7 @@ export default function AdminAccountPage() {
                       <Input
                         id="phone"
                         value={editedProfile.phone_number || ''}
-                        onChange={(e) => setEditedProfile({...editedProfile, phone_number: e.target.value})}
+                        onChange={(e) => setEditedProfile({ ...editedProfile, phone_number: e.target.value })}
                         disabled={loading.saving}
                       />
                     </div>
@@ -631,7 +631,7 @@ export default function AdminAccountPage() {
                       id="currentPassword"
                       type={showCurrentPassword ? "text" : "password"}
                       value={securityData.currentPassword}
-                      onChange={(e) => setSecurityData({...securityData, currentPassword: e.target.value})}
+                      onChange={(e) => setSecurityData({ ...securityData, currentPassword: e.target.value })}
                       disabled={loading.saving}
                     />
                     <Button
@@ -657,7 +657,7 @@ export default function AdminAccountPage() {
                       id="newPassword"
                       type={showNewPassword ? "text" : "password"}
                       value={securityData.newPassword}
-                      onChange={(e) => setSecurityData({...securityData, newPassword: e.target.value})}
+                      onChange={(e) => setSecurityData({ ...securityData, newPassword: e.target.value })}
                       disabled={loading.saving}
                     />
                     <Button
@@ -686,7 +686,7 @@ export default function AdminAccountPage() {
                       id="confirmPassword"
                       type={showConfirmPassword ? "text" : "password"}
                       value={securityData.confirmPassword}
-                      onChange={(e) => setSecurityData({...securityData, confirmPassword: e.target.value})}
+                      onChange={(e) => setSecurityData({ ...securityData, confirmPassword: e.target.value })}
                       disabled={loading.saving}
                     />
                     <Button
@@ -806,7 +806,7 @@ export default function AdminAccountPage() {
 
                 <div className="space-y-4">
                   <h4 className="font-medium">Notification Types</h4>
-                  
+
                   <div className="flex items-center justify-between">
                     <div className="space-y-0.5">
                       <Label htmlFor="loanApprovals">Loan Approvals</Label>
@@ -931,8 +931,8 @@ export default function AdminAccountPage() {
                     Manage your active sessions and login history
                   </CardDescription>
                 </div>
-                <Button 
-                  variant="outline" 
+                <Button
+                  variant="outline"
                   size="sm"
                   onClick={() => setTerminateDialog({ open: true, sessionId: 0, allSessions: true })}
                   disabled={sessions.filter(s => !s.is_current).length === 0}
@@ -969,7 +969,7 @@ export default function AdminAccountPage() {
                         </div>
                       ))}
                   </div>
-                  
+
                   {sessions.filter(s => !s.is_current).length > 0 && (
                     <div className="space-y-2">
                       <h4 className="font-medium">Other Sessions</h4>
@@ -1017,14 +1017,14 @@ export default function AdminAccountPage() {
       </Tabs>
 
       {/* Terminate Session Dialog */}
-      <AlertDialog open={terminateDialog.open} onOpenChange={(open) => setTerminateDialog({...terminateDialog, open})}>
+      <AlertDialog open={terminateDialog.open} onOpenChange={(open) => setTerminateDialog({ ...terminateDialog, open })}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
               {terminateDialog.allSessions ? 'Terminate All Other Sessions' : 'Terminate Session'}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {terminateDialog.allSessions 
+              {terminateDialog.allSessions
                 ? 'This will log you out from all other devices. You will remain logged in on this device.'
                 : 'Are you sure you want to terminate this session? The user will be logged out from that device.'
               }
