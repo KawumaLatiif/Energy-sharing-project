@@ -211,8 +211,8 @@ EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = get_env_variable("EMAIL_PORT", 587, cast=int)
 EMAIL_USE_TLS = get_env_variable("EMAIL_USE_TLS", "True") == "True"
 EMAIL_USE_SSL = get_env_variable("EMAIL_USE_SSL", "False") == "True"
-EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "shanonsimon082@gmail.com")
-EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "yvlqjybdbwyweblc")
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "kawumalatiif5@gmail.com")
+EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "onlvknccibgjoaly")
 DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", EMAIL_HOST_USER)
 DEFAULT_EMAIL_SENDER = DEFAULT_FROM_EMAIL
 
