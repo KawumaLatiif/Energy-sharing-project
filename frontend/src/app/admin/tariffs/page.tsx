@@ -122,7 +122,7 @@ export default function TariffsManagementPage() {
       ...tariff,
       blocks: (tariff.blocks || []).map(block => ({
         ...block,
-        id: block.id // Keep the ID for existing blocks
+        id: block.id 
       }))
     });
     setModalOpen(true);
@@ -228,7 +228,6 @@ export default function TariffsManagementPage() {
             block_order: block.block_order || index + 1,
           };
           
-          // Include id ONLY for existing blocks
           if (block.id) {
             blockPayload.id = block.id;
           }
@@ -410,7 +409,7 @@ export default function TariffsManagementPage() {
         </CardContent>
       </Card>
 
-      {/* Modal for Create/Edit - Exactly like loan-tiers modal pattern */}
+      {/* Modal for Create/Edit*/}
       {modalOpen && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-background rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
@@ -424,7 +423,7 @@ export default function TariffsManagementPage() {
                 </Button>
               </div>
 
-              {/* Basic fields - same as before */}
+              {/* Basic fields */}
               <div className="grid grid-cols-2 gap-4 mb-6">
                 <div>
                   <label className="block text-sm font-medium mb-1.5">Code *</label>
@@ -575,7 +574,7 @@ export default function TariffsManagementPage() {
                 )}
               </div>
 
-              {/* Modal Footer - Exactly like loan-tiers pattern */}
+              {/* Modal Footer  */}
               <div className="flex justify-end gap-3 mt-8">
                 <Button variant="outline" onClick={() => setModalOpen(false)}>
                   Cancel
