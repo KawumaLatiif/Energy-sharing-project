@@ -80,7 +80,7 @@ export default function DesktopSidebar() {
               <Forward className="h-4 w-4" />
               Share Units
             </Link>            
-            <Link
+            {/* <Link
               href="/dashboard/transfering"
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
@@ -89,7 +89,7 @@ export default function DesktopSidebar() {
             >
               <ArrowRight className="h-4 w-4" />
               Transfer Units
-            </Link>
+            </Link> */}
             <Link
               href="/dashboard/tokens"
               className={cn(

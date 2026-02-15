@@ -94,6 +94,7 @@ export default function LatestTransactions() {
       APPROVED: "bg-orange-100 text-orange-800 hover:bg-orange-100",
       DISBURSED: "bg-orange-100 text-orange-800 hover:bg-orange-100",
       SUCCESS: "bg-green-100 text-green-800 hover:bg-green-100",
+      REJECTED: "bg-red-100 text-red-800 hover:bg-red-100",
     };
     
     const statusKey = status?.toUpperCase() || "PENDING";
