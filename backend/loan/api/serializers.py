@@ -21,14 +21,22 @@ class TariffBlockSerializer(serializers.ModelSerializer):
         model = TariffBlock
         fields = '__all__'
 
+    def validate(self, data):
+        if data['min_units'] < 0:
+            raise serializers.ValidationError({"min_units": "Cannot be negative"})
+        if data.get('max_units') is not None and data['max_units'] <= data['min_units']:
+            raise serializers.ValidationError({"max_units": "Must be > min_units"})
+        return data
+
 class ElectricityTariffSerializer(serializers.ModelSerializer):
-    blocks = TariffBlockSerializer(many=True)
+    blocks = TariffBlockSerializer(many=True, read_only=False)
 
     class Meta:
         model = ElectricityTariff
         fields = [
             'id', 'tariff_code', 'tariff_name', 'tariff_type', 'voltage_level', 'voltage_value', 'service_charge', 'blocks', 'is_active', 'effective_date'
         ]
+        read_only_fields = ['id']
 
     def create(self, validated_data):
         blocks_data = validated_data.pop('blocks', [])
@@ -38,27 +46,42 @@ class ElectricityTariffSerializer(serializers.ModelSerializer):
         return tariff
 
     def update(self, instance, validated_data):
-        blocks_data = validated_data.pop('blocks', [])
-        # Update tariff fields
+        blocks_data = validated_data.pop('blocks', None)  
+
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
 
-        # Handle blocks: Update existing, create new if no id, but for simplicity, assume all blocks are provided with ids for updates
-        # (You can extend this to handle creation/deletion if needed)
-        for block_data in blocks_data:
-            block_id = block_data.pop('id', None)
-            if block_id:
-                block = TariffBlock.objects.get(id=block_id, tariff=instance)
-                for attr, value in block_data.items():
-                    setattr(block, attr, value)
-                block.save()
-            else:
-                # Optional: Create new block if no id
-                TariffBlock.objects.create(tariff=instance, **block_data)
+        if blocks_data is not None:
+            existing_blocks_map = {b.id: b for b in instance.blocks.all()}
+            seen_ids = set()
+
+            for block_data in blocks_data:
+                block_id = block_data.get('id')  
+
+                if block_id:
+                    try:
+                        block = existing_blocks_map[block_id]
+                    except KeyError:
+                        raise serializers.ValidationError(
+                            f"Block with id {block_id} not found for this tariff"
+                        )
+
+                    for attr, value in block_data.items():
+                        if attr != 'id':         
+                            setattr(block, attr, value)
+                    block.save()
+
+                    seen_ids.add(block_id)
+
+                else:
+                    TariffBlock.objects.create(tariff=instance, **block_data)
+
+            for block_id, block in existing_blocks_map.items():
+                if block_id not in seen_ids:
+                    block.delete()
 
         return instance
-
 
 class LoanRepaymentSerializer(serializers.ModelSerializer):
     class Meta:

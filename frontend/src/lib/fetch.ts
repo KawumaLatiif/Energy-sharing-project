@@ -66,7 +66,7 @@ export const get = async <T>(path: string) => {
             console.log('Response data:', parsedRes);
             
             if(res.status === 400){
-                return {error: parsedRes}
+                return {error: parsedRes, data: null, status: res.status}
             }
             if(!res.ok){
                 return {error: parsedRes, data: null, status: res.status}
@@ -111,24 +111,49 @@ export const patch = async (path: string, data: any) => {
 }
 
 export const put = async <T>(path: string, data: any) => {
-    const res = await fetch(`${API_URL}/${path}`, {
-        method: "PUT",
-        headers: {"Content-Type": "application/json", ...(await getHeaders()) },
-        body: JSON.stringify(data)
-    })
+    try {
+        const res = await fetch(`${API_URL}/${path}`, {
+            method: "PUT",
+            headers: {"Content-Type": "application/json", ...(await getHeaders()) },
+            body: JSON.stringify(data)
+        })
 
-    if (!res.ok) {
-        const parsedRes = await res.json();
-        return {error: parsedRes, data: null, status: res.status}
+        // Always try to parse the response as JSON first
+        let parsedRes = null;
+        const contentType = res.headers.get('content-type');
+        
+        if (contentType && contentType.includes('application/json')) {
+            parsedRes = await res.json();
+        } else {
+            parsedRes = { message: await res.text() };
+        }
+
+        console.log("PUT response:", parsedRes, "status:", res.status);
+
+        // Handle error responses
+        if (!res.ok) {
+            return {
+                error: parsedRes,
+                data: null,
+                status: res.status
+            };
+        }
+
+        // Success response
+        return {
+            error: null,
+            data: parsedRes as T,
+            status: res.status
+        };
+
+    } catch (error) {
+        console.error('PUT fetch error:', error);
+        return {
+            error: { message: 'Network error occurred' },
+            data: null,
+            status: 0
+        };
     }
-
-    const contentType = res.headers.get('content-type');
-    let parsedRes: T | null = null;
-    if (contentType && contentType.includes('application/json')) {
-        parsedRes = await res.json() as T;
-    }
-
-    return { error: "", data: parsedRes, status: res.status }
 }
 
 export const del = async (path: string) => {

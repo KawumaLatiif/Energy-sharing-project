@@ -1,1 +1,0 @@
-<h1>tariffs page for view and edit of the electricity tariffs</h1>

@@ -15,7 +15,8 @@ from .views import (
     LoanTiersView,
     LoanTierDetailView,
     TariffsView,
-    TariffDetailView
+    TariffDetailView,
+    LoanDetailView,
 )
 
 urlpatterns = [
@@ -26,6 +27,7 @@ urlpatterns = [
     path('stats/', AdminStatsView.as_view(), name='admin-stats'),
     path('toggle-user-status/', ToggleUserStatusView.as_view(), name='toggle-user-status'),
     path('loans/', LoanManagementView.as_view(), name='admin-loans'),
+    path('loans/<int:loan_id>/', LoanDetailView.as_view(), name='admin-loan-detail'),
     path('account/', AdminAccountView.as_view(), name='admin-account'),
     path('account/password-change/', AdminPasswordChangeView.as_view(), name='admin-password-change'),
     path('account/notifications/', AdminNotificationSettingsView.as_view(), name='admin-notifications'),

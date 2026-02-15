@@ -165,13 +165,26 @@ export default function AdminDashboard() {
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Recent Registrations</CardTitle>
+            <Users className="h-5 w-5 text-indigo-600" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {stats.recent_registrations || 0}
+            </div>
+            <p className="text-xs text-muted-foreground">Last 7 days</p>
+          </CardContent>
+        </Card>
+
+        {/* <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Active Loans</CardTitle>
             <DollarSign className="h-5 w-5 text-amber-600" />
           </CardHeader>
           <CardContent>
             <div className="text-3xl font-bold">{stats.active_loans || 0}</div>
           </CardContent>
-        </Card>
+        </Card> */}
 
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -184,8 +197,8 @@ export default function AdminDashboard() {
         </Card>
       </div>
 
-      <div className="grid gap-6 mb-8 md:grid-cols-3">
-        <Card>
+      {/* <div className="grid gap-6 mb-8 md:grid-cols-3"> */}
+        {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total Loans</CardTitle>
             <FileText className="h-5 w-5 text-purple-600" />
@@ -193,7 +206,7 @@ export default function AdminDashboard() {
           <CardContent>
             <div className="text-2xl font-bold">{stats.total_loans || 0}</div>
           </CardContent>
-        </Card>
+        </Card> */}
 
         {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -207,7 +220,7 @@ export default function AdminDashboard() {
           </CardContent>
         </Card> */}
 
-        <Card>
+        {/* <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Recent Registrations</CardTitle>
             <Users className="h-5 w-5 text-indigo-600" />
@@ -218,8 +231,8 @@ export default function AdminDashboard() {
             </div>
             <p className="text-xs text-muted-foreground">Last 7 days</p>
           </CardContent>
-        </Card>
-      </div>
+        </Card> */}
+      {/* </div> */}
       <Card className='mb-8'>
         <CardHeader>
           <CardTitle>

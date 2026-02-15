@@ -1254,6 +1254,110 @@ class LoanManagementView(APIView, AdminPermissionMixin):
             )
 
 
+class LoanDetailView(APIView, AdminPermissionMixin):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, loan_id):
+        # Check admin permission
+        is_admin, error_response = self.check_admin_permission(request)
+        if not is_admin:
+            return error_response
+        
+        try:
+            loan = LoanApplication.objects.select_related('user', 'tariff').get(id=loan_id)
+            
+            # Get repayments
+            repayments = loan.repayments.all().order_by('-payment_date')
+            
+            # Get disbursement if exists
+            disbursement = getattr(loan, 'disbursement', None)
+            
+            # Serialize data
+            loan_data = {
+                "id": loan.id,
+                "loan_id": loan.loan_id,
+                "user": {
+                    "id": loan.user.id,
+                    "email": loan.user.email,
+                    "first_name": loan.user.first_name,
+                    "last_name": loan.user.last_name,
+                    "phone_number": str(loan.user.phone_number),
+                    "account_active": loan.user.account_is_active,
+                },
+                "purpose": loan.purpose,
+                "amount_requested": float(loan.amount_requested),
+                "amount_approved": float(loan.amount_approved) if loan.amount_approved else None,
+                "tenure_months": loan.tenure_months,
+                "interest_rate": float(loan.interest_rate),
+                "status": loan.status,
+                "credit_score": loan.credit_score,
+                "loan_tier": loan.loan_tier,
+                "rejection_reason": loan.rejection_reason,
+                "user_notified": loan.user_notified,
+                "created_at": loan.created_at.isoformat(),
+                "due_date": loan.due_date.isoformat() if loan.due_date else None,
+                "total_amount_due": float(loan.total_amount_due),
+                "amount_paid": float(loan.amount_paid),
+                "outstanding_balance": float(loan.outstanding_balance),
+                "repayments": [
+                    {
+                        "id": r.id,
+                        "amount_paid": float(r.amount_paid),
+                        "payment_date": r.payment_date.isoformat(),
+                        "units_paid": float(r.units_paid),
+                        "is_on_time": r.is_on_time,
+                        "payment_reference": r.payment_reference
+                    }
+                    for r in repayments
+                ]
+            }
+            
+            # Add tariff info if exists
+            if loan.tariff:
+                loan_data["tariff"] = {
+                    "id": loan.tariff.id,
+                    "tariff_code": loan.tariff.tariff_code,
+                    "tariff_name": loan.tariff.tariff_name,
+                    "tariff_type": loan.tariff.tariff_type
+                }
+            
+            # Add disbursement info if exists
+            if disbursement:
+                loan_data["disbursement"] = {
+                    "id": disbursement.id,
+                    "token": disbursement.token,
+                    "units_disbursed": float(disbursement.units_disbursed),
+                    "disbursement_date": disbursement.disbursement_date.isoformat(),
+                    "token_expiry": disbursement.token_expiry.isoformat(),
+                    "meter": {
+                        "id": disbursement.meter.id,
+                        "meter_no": disbursement.meter.meter_no
+                    }
+                }
+            
+            # Calculate units and cost breakdown if approved/disbursed
+            if loan.amount_approved and loan.tariff:
+                loan_data["units_calculated"] = loan.calculate_units_from_amount()
+                loan_data["cost_breakdown"] = loan.get_cost_breakdown()
+            
+            return Response({
+                "success": True,
+                "loan": loan_data
+            })
+            
+        except LoanApplication.DoesNotExist:
+            return Response(
+                {"error": "Loan not found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Loan detail error: {str(e)}")
+            return Response(
+                {"error": "Failed to fetch loan details"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
 class ToggleUserStatusView(APIView, AdminPermissionMixin):
     permission_classes = [IsAuthenticated]
     

@@ -44,11 +44,11 @@ export default function LoanTiersManagementPage() {
   const [tiers, setTiers] = useState<LoanTier[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // ── Edit state ────────────────────────────────────────
+
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<Partial<LoanTier>>({});
 
-  // ── Create state ──────────────────────────────────────
+
   const [creating, setCreating] = useState(false);
   const [newForm, setNewForm] = useState<Partial<LoanTier>>({
     name: '',
@@ -90,7 +90,6 @@ export default function LoanTiersManagementPage() {
     fetchTiers();
   }, []);
 
-  // ── Edit handlers ─────────────────────────────────────
   const startEdit = (tier: LoanTier) => {
     setEditingId(tier.id);
     setEditForm({ ...tier });
@@ -152,7 +151,7 @@ export default function LoanTiersManagementPage() {
     }));
   };
 
-  // ── Create handlers ───────────────────────────────────
+
   const handleNewChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
     setNewForm(prev => ({
@@ -384,7 +383,7 @@ export default function LoanTiersManagementPage() {
         </CardContent>
       </Card>
 
-      {/* ── Create New Tier Modal ──────────────────────────────────────── */}
+      
       {creating && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
           <div className="bg-background rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
