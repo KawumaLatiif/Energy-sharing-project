@@ -29,6 +29,7 @@ import BuyUnitsSuggestion from "../../request-loan/_components/buy-units-suggest
 import TokenPopup from "../../request-loan/_components/token-popup";
 import RepaymentForm from "../../request-loan/_components/repayment-form";
 import { disburseLoan, repayLoan } from "../action";
+import { get } from "@/lib/fetch";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -122,11 +123,21 @@ export default function LoanList({ loans }: LoanListProps) {
     return loan.status?.toUpperCase() || 'UNKNOWN';
   };
 
+  const isLoanCompleted = (loan: Loan): boolean => {
+    return getLoanStatus(loan) === 'COMPLETED';
+  };
+
   const canRepay = (loan: Loan): boolean => {
     const status = getLoanStatus(loan);
     const balance = calculateOutstandingBalance(loan);
     return status === 'DISBURSED' && balance > 0;
   };
+
+  // const canRepay = (loan: Loan): boolean => {
+  //   const status = getLoanStatus(loan);
+  //   const balance = calculateOutstandingBalance(loan);
+  //   return status === 'DISBURSED' && balance > 0;
+  // };
 
   const canDisburse = (loan: Loan): boolean => {
     const status = getLoanStatus(loan);
@@ -141,15 +152,39 @@ export default function LoanList({ loans }: LoanListProps) {
   //   setShowTokenPopup(true);
   // };
 
+  // const handleRepaymentSuccess = () => {
+  //   setShowRepaymentForm(false);
+  //   setSelectedLoan(null);
+  //   setSuccessMessage("Payment processed successfully!");
+  //   // Clear success message after 3 seconds
+  //   setTimeout(() => {
+  //     setSuccessMessage(null);
+  //     window.location.reload();
+  //   }, 3000);
+  // };
+
+
   const handleRepaymentSuccess = () => {
     setShowRepaymentForm(false);
     setSelectedLoan(null);
     setSuccessMessage("Payment processed successfully!");
+    fetchLoans();
+
     // Clear success message after 3 seconds
     setTimeout(() => {
       setSuccessMessage(null);
-      window.location.reload();
     }, 3000);
+  };
+
+  const fetchLoans = async () => {
+    try {
+      const response = await get<any>('loans/my-loans/');
+      const data = await response.json();
+      // Update loans state if you're managing it locally
+      // setLoans(data.data || data.results || []);
+    } catch (error) {
+      console.error('Error refreshing loans:', error);
+    }
   };
 
   const formatAmount = (amount: string | null | undefined): string => {

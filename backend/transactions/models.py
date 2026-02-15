@@ -67,6 +67,7 @@ class TransactionType(models.TextChoices):
     LOAN_APPROVAL = 'LOAN_APPROVAL', _('Loan Approval')
     LOAN_DISBURSEMENT = 'LOAN_DISBURSEMENT', _('Loan Disbursement')
     LOAN_REPAYMENT = 'LOAN_REPAYMENT', _('Loan Repayment')
+    LOAN_COMPLETION = 'LOAN_COMPLETION', _('Loan Completion') 
     UNIT_PURCHASE = 'UNIT_PURCHASE', _('Unit Purchase')
     UNIT_SHARE = 'UNIT_SHARE', _('Unit Share')
     UNIT_TRANSFER = 'UNIT_TRANSFER', _('Unit Transfer')

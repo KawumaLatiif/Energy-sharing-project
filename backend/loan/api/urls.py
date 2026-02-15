@@ -1,5 +1,5 @@
 from django.urls import path
-from loan.api.views import LoanApplicationView, LoanDetailView, LoanDisbursementView, LoanNotificationView, LoanRepaymentView, LoanStatsView, TariffListView, UserLoansView
+from .views import LoanApplicationView, LoanDetailView, LoanDisbursementView, LoanNotificationView, LoanRepaymentView, LoanStatsView, TariffListView, UserLoansView
 from loan.api.momo_views import MoMoPaymentView, PaymentStatusView
 from webhooks.api.views import LoanTokenVerificationView
 

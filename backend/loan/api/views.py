@@ -17,8 +17,10 @@ from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, Lo
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from meter.models import MeterToken
+from loan.models import get_tier_by_score
 
 logger = logging.getLogger(__name__)
+
 
 class TariffListView(generics.ListAPIView):
     permission_classes = (IsAuthenticated,)
@@ -316,18 +318,25 @@ class LoanApplicationView(generics.ListCreateAPIView):
         else:
             return -10  
     
+    # def determine_loan_tier(self, score):
+    #     """Determine loan tier, maximum amount, and interest rate based on credit score"""
+    #     tiers = [
+    #         {'min_score': 75, 'max_score': 79, 'name': 'BRONZE', 'max_amount': 50000, 'interest_rate': 12.0},
+    #         {'min_score': 80, 'max_score': 84, 'name': 'SILVER', 'max_amount': 100000, 'interest_rate': 11.0},
+    #         {'min_score': 85, 'max_score': 89, 'name': 'GOLD', 'max_amount': 150000, 'interest_rate': 10.0},
+    #         {'min_score': 90, 'max_score': 100, 'name': 'PLATINUM', 'max_amount': 200000, 'interest_rate': 9.0}
+    #     ]
+        
+    #     for tier in tiers:
+    #         if tier['min_score'] <= score <= tier['max_score']:
+    #             return tier['name'], tier['max_amount'], tier['interest_rate']
+    #     return None
     def determine_loan_tier(self, score):
         """Determine loan tier, maximum amount, and interest rate based on credit score"""
-        tiers = [
-            {'min_score': 75, 'max_score': 79, 'name': 'BRONZE', 'max_amount': 50000, 'interest_rate': 12.0},
-            {'min_score': 80, 'max_score': 84, 'name': 'SILVER', 'max_amount': 100000, 'interest_rate': 11.0},
-            {'min_score': 85, 'max_score': 89, 'name': 'GOLD', 'max_amount': 150000, 'interest_rate': 10.0},
-            {'min_score': 90, 'max_score': 100, 'name': 'PLATINUM', 'max_amount': 200000, 'interest_rate': 9.0}
-        ]
-        
-        for tier in tiers:
-            if tier['min_score'] <= score <= tier['max_score']:
-                return tier['name'], tier['max_amount'], tier['interest_rate']
+        tier_info = get_tier_by_score(score)
+    
+        if tier_info:
+            return tier_info['name'], tier_info['max_amount'], tier_info['interest_rate']
         return None
 
     def determine_approved_amount(self, score, requested_amount):
@@ -359,6 +368,111 @@ class LoanDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return LoanApplication.objects.filter(user=self.request.user)
 
+# class LoanRepaymentView(APIView):
+#     permission_classes = (IsAuthenticated,)
+    
+#     def post(self, request, loan_id):
+#         try:
+#             loan = LoanApplication.objects.get(id=loan_id, user=request.user)
+            
+#             if loan.status != 'DISBURSED':
+#                 return Response({"error": "Loan is not disbursed or already completed"}, status=status.HTTP_400_BAD_REQUEST)
+            
+#             amount = float(request.data.get('amount', 0))
+            
+#             if amount <= 0:
+#                 return Response({"error": "Invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
+            
+#             if amount > loan.outstanding_balance:
+#                 return Response({"error": "Amount exceeds outstanding balance"}, status=status.HTTP_400_BAD_REQUEST)
+            
+#              # Calculate units equivalent based on tariff block rates
+#             if loan.tariff:
+#                 units_equivalent = loan.calculate_units_from_amount(amount)
+#                 cost_breakdown = self.get_repayment_breakdown(loan, amount)
+#                 tariff_info = {
+#                     'tariff_code': loan.tariff.tariff_code,
+#                     'cost_breakdown': cost_breakdown
+#                 }
+#             else:
+#                 # Default calculation (500 UGX per unit)
+#                 units_equivalent = round(amount / 500)
+#                 tariff_info = {
+#                     'tariff_code': 'DEFAULT',
+#                     'rate_used': 500
+#                 }
+            
+#             with transaction.atomic():
+#                 # Generate payment reference
+#                 payment_ref = generate_random_string(12)
+                
+#                 # Create repayment record
+#                 repayment = LoanRepayment.objects.create(
+#                     loan=loan,
+#                     amount_paid=amount,
+#                     units_paid=units_equivalent,
+#                     payment_reference=payment_ref,
+#                     is_on_time=self.check_payment_timeliness(loan)
+#                 )
+                
+#                 # Add units to user's meter
+#                 try:
+#                     meter = Meter.objects.get(user=request.user)
+#                     meter.units += units_equivalent
+#                     meter.save()
+
+#                     # Log repayment
+#                     TransactionLog.objects.create(
+#                         user=request.user,
+#                         transaction_type=TransactionType.LOAN_REPAYMENT,
+#                         amount=amount,
+#                         units=units_equivalent,
+#                         status='COMPLETED',
+#                         reference_id=loan.loan_id,
+#                         details={
+#                             'payment_reference': payment_ref,
+#                             'units_added': float(units_equivalent)
+#                         }
+#                     )
+                    
+#                     # SKIP UnitTransaction creation for now to avoid errors
+#                     logger.info(f"Repayment processed. Loan: {loan.loan_id}, Amount: {amount}, Units: {units_equivalent}")
+                    
+#                 except Meter.DoesNotExist:
+#                     return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
+                
+#                 # Check if loan is fully paid
+#                 if loan.outstanding_balance <= 0:
+#                     loan.status = 'COMPLETED'
+#                     loan.save()
+            
+#             return Response({
+#                 "message": "Payment successful", 
+#                 "units_added": round(units_equivalent,2),
+#                 "payment_reference": payment_ref,
+#                 "tariff_info": tariff_info,
+#                 "outstanding_balance": loan.outstanding_balance
+#             })
+            
+#         except LoanApplication.DoesNotExist:
+#             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
+#         except Exception as e:
+#             logger.error(f"Repayment error: {str(e)}")
+#             return Response(
+#                 {"error": f"Failed to process repayment: {str(e)}"}, 
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+        
+#     def get_repayment_breakdown(self, loan, amount):
+#         """Calculate breakdown for repayment amount"""
+#         if not loan.tariff:
+#             return None
+        
+#         return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
+    
+#     def check_payment_timeliness(self, loan):
+#         return True
+
 class LoanRepaymentView(APIView):
     permission_classes = (IsAuthenticated,)
     
@@ -367,17 +481,29 @@ class LoanRepaymentView(APIView):
             loan = LoanApplication.objects.get(id=loan_id, user=request.user)
             
             if loan.status != 'DISBURSED':
-                return Response({"error": "Loan is not disbursed or already completed"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": "Loan is not disbursed or already completed"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
             amount = float(request.data.get('amount', 0))
             
             if amount <= 0:
-                return Response({"error": "Invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(
+                    {"error": "Invalid amount"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             
-            if amount > loan.outstanding_balance:
-                return Response({"error": "Amount exceeds outstanding balance"}, status=status.HTTP_400_BAD_REQUEST)
+            # Get current outstanding balance
+            current_balance = loan.outstanding_balance
             
-             # Calculate units equivalent based on tariff block rates
+            if amount > current_balance:
+                return Response(
+                    {"error": f"Amount exceeds outstanding balance of {current_balance} UGX"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Calculate units equivalent based on tariff block rates
             if loan.tariff:
                 units_equivalent = loan.calculate_units_from_amount(amount)
                 cost_breakdown = self.get_repayment_breakdown(loan, amount)
@@ -387,7 +513,7 @@ class LoanRepaymentView(APIView):
                 }
             else:
                 # Default calculation (500 UGX per unit)
-                units_equivalent = round(amount / 500)
+                units_equivalent = round(amount / 500, 2)
                 tariff_info = {
                     'tariff_code': 'DEFAULT',
                     'rate_used': 500
@@ -403,7 +529,9 @@ class LoanRepaymentView(APIView):
                     amount_paid=amount,
                     units_paid=units_equivalent,
                     payment_reference=payment_ref,
-                    is_on_time=self.check_payment_timeliness(loan)
+                    is_on_time=self.check_payment_timeliness(loan),
+                    payment_method='CASH',  # or whatever method was used
+                    payment_status='SUCCESS'
                 )
                 
                 # Add units to user's meter
@@ -411,58 +539,103 @@ class LoanRepaymentView(APIView):
                     meter = Meter.objects.get(user=request.user)
                     meter.units += units_equivalent
                     meter.save()
-
-                    # Log repayment
-                    TransactionLog.objects.create(
-                        user=request.user,
-                        transaction_type=TransactionType.LOAN_REPAYMENT,
-                        amount=amount,
-                        units=units_equivalent,
-                        status='COMPLETED',
-                        reference_id=loan.loan_id,
-                        details={
-                            'payment_reference': payment_ref,
-                            'units_added': float(units_equivalent)
-                        }
-                    )
-                    
-                    # SKIP UnitTransaction creation for now to avoid errors
-                    logger.info(f"Repayment processed. Loan: {loan.loan_id}, Amount: {amount}, Units: {units_equivalent}")
                     
                 except Meter.DoesNotExist:
-                    return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response(
+                        {"error": "Meter not found"}, 
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
                 
-                # Check if loan is fully paid
-                if loan.outstanding_balance <= 0:
+                # Create Transaction Log - THIS WAS MISSING
+                TransactionLog.objects.create(
+                    user=request.user,
+                    transaction_type=TransactionType.LOAN_REPAYMENT,
+                    amount=amount,
+                    units=units_equivalent,
+                    status='COMPLETED',
+                    reference_id=loan.loan_id,
+                    details={
+                        'payment_reference': payment_ref,
+                        'units_added': float(units_equivalent),
+                        'loan_id': loan.loan_id,
+                        'payment_method': 'CASH'
+                    }
+                )
+                
+                # Create UnitTransaction
+                try:
+                    UnitTransaction.objects.create(
+                        sender=request.user,
+                        receiver=request.user,
+                        units=units_equivalent,
+                        meter=meter,
+                        direction='IN',
+                        status='COMPLETED',
+                        message=f'Loan repayment for {loan.loan_id}'
+                    )
+                except Exception as e:
+                    logger.warning(f"UnitTransaction creation failed: {e}")
+                
+                # IMPORTANT: Refresh loan from database to get updated state
+                loan.refresh_from_db()
+                
+                # Check if loan is fully paid - after recording the payment
+                new_balance = loan.outstanding_balance
+                
+                if new_balance <= 0:
                     loan.status = 'COMPLETED'
                     loan.save()
+                    
+                    # Log completion
+                    TransactionLog.objects.create(
+                        user=request.user,
+                        transaction_type=TransactionType.LOAN_COMPLETION,
+                        amount=0,
+                        status='COMPLETED',
+                        reference_id=loan.loan_id,
+                        details={'message': 'Loan fully repaid'}
+                    )
+                    
+                    message = "Loan fully repaid! Thank you."
+                else:
+                    message = "Payment successful"
             
+            # Return updated loan info
             return Response({
-                "message": "Payment successful", 
-                "units_added": round(units_equivalent,2),
+                "message": message,
+                "units_added": round(units_equivalent, 2),
                 "payment_reference": payment_ref,
                 "tariff_info": tariff_info,
-                "outstanding_balance": loan.outstanding_balance
+                "outstanding_balance": loan.outstanding_balance,
+                "loan_status": loan.status,  # Return updated status
+                "total_paid": loan.amount_paid,
+                "total_due": loan.total_amount_due
             })
             
         except LoanApplication.DoesNotExist:
-            return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
+            return Response(
+                {"error": "Loan not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
         except Exception as e:
             logger.error(f"Repayment error: {str(e)}")
             return Response(
                 {"error": f"Failed to process repayment: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-        
+    
     def get_repayment_breakdown(self, loan, amount):
         """Calculate breakdown for repayment amount"""
         if not loan.tariff:
             return None
-        
         return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
     
     def check_payment_timeliness(self, loan):
-        return True
+        """Check if payment is on time"""
+        if not loan.due_date:
+            return True
+        return timezone.now() <= loan.due_date
+
 
 class LoanDisbursementView(APIView):
     permission_classes = (IsAuthenticated,)

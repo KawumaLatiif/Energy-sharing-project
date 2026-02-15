@@ -5,15 +5,15 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { get } from "@/lib/fetch";
-import { Clock, ArrowUpRight, ArrowDownRight } from "lucide-react";
+import { Clock, ArrowUpRight, ArrowDownRight, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Transaction {
   id: number;
   transaction_type_display: string;
   transaction_type: string;
-  amount?: number;
-  units?: number;
+  amount?: number | string | null;
+  units?: number | string | null;
   status: string;
   created_at: string;
   reference_id?: string;
@@ -45,12 +45,43 @@ export default function LatestTransactions() {
     fetchLatest();
   }, []);
 
+  // Safe number formatting function
+  const formatUnits = (units: number | string | null | undefined): string => {
+    if (units === null || units === undefined) return "";
+    
+    // Convert to number safely
+    const num = typeof units === 'string' ? parseFloat(units) : units;
+    
+    // Check if it's a valid number
+    if (isNaN(num)) return "";
+    
+    // Format with 2 decimal places
+    return `${num.toFixed(2)} units`;
+  };
+
+  // Safe amount formatting function
+  const formatAmount = (amount: number | string | null | undefined): string => {
+    if (amount === null || amount === undefined) return "";
+    
+    // Convert to number safely
+    const num = typeof amount === 'string' ? parseFloat(amount) : amount;
+    
+    // Check if it's a valid number
+    if (isNaN(num)) return "";
+    
+    // Format with commas
+    return `${num.toLocaleString()} UGX`;
+  };
+
   const getIcon = (type: string) => {
     if (type.includes("PURCHASE") || type.includes("DISBURSEMENT")) {
       return <ArrowUpRight className="h-4 w-4 text-green-500" />;
     }
     if (type.includes("REPAYMENT") || type.includes("SHARE")) {
       return <ArrowDownRight className="h-4 w-4 text-amber-500" />;
+    }
+    if (type.includes("UNIT")) {
+      return <Zap className="h-4 w-4 text-yellow-500" />;
     }
     return <Clock className="h-4 w-4 text-blue-500" />;
   };
@@ -60,13 +91,33 @@ export default function LatestTransactions() {
       COMPLETED: "bg-green-100 text-green-800 hover:bg-green-100",
       PENDING: "bg-yellow-100 text-yellow-800 hover:bg-yellow-100",
       FAILED: "bg-red-100 text-red-800 hover:bg-red-100",
+      APPROVED: "bg-orange-100 text-orange-800 hover:bg-orange-100",
       DISBURSED: "bg-orange-100 text-orange-800 hover:bg-orange-100",
+      SUCCESS: "bg-green-100 text-green-800 hover:bg-green-100",
     };
+    
+    const statusKey = status?.toUpperCase() || "PENDING";
+    
     return (
-      <Badge variant="outline" className={cn("text-xs", variants[status] || "bg-gray-100")}>
-        {status}
+      <Badge variant="outline" className={cn("text-xs", variants[statusKey] || "bg-gray-100")}>
+        {status || "PENDING"}
       </Badge>
     );
+  };
+
+  // Safe date formatter
+  const formatDate = (dateString: string) => {
+    try {
+      const date = new Date(dateString);
+      return date.toLocaleString([], {
+        month: "short",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      });
+    } catch {
+      return "Invalid date";
+    }
   };
 
   return (
@@ -97,41 +148,47 @@ export default function LatestTransactions() {
           </div>
         ) : (
           <div className="space-y-4">
-            {transactions.map((txn) => (
-              <div
-                key={txn.id}
-                className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
-                    {getIcon(txn.transaction_type)}
+            {transactions.map((txn) => {
+              const formattedAmount = formatAmount(txn.amount);
+              const formattedUnits = formatUnits(txn.units);
+              
+              return (
+                <div
+                  key={txn.id}
+                  className="flex items-center justify-between border-b pb-3 last:border-0 last:pb-0"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="flex h-9 w-9 items-center justify-center rounded-full bg-muted">
+                      {getIcon(txn.transaction_type)}
+                    </div>
+                    <div>
+                      <p className="font-medium text-sm">
+                        {txn.transaction_type_display || txn.transaction_type.replace(/_/g, ' ')}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatDate(txn.created_at)}
+                      </p>
+                      {txn.reference_id && (
+                        <p className="text-xs text-gray-400 mt-0.5">
+                          Ref: {txn.reference_id.slice(0, 8)}...
+                        </p>
+                      )}
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium text-sm">
-                      {txn.transaction_type_display}
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      {new Date(txn.created_at).toLocaleString([], {
-                        month: "short",
-                        day: "numeric",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </p>
-                  </div>
-                </div>
 
-                <div className="text-right">
-                  {(txn.amount || txn.units) && (
-                    <p className="font-medium">
-                      {txn.amount ? `${txn.amount.toLocaleString()} UGX` : ""}
-                      {txn.units ? `${txn.units.toFixed(2)} units` : ""}
-                    </p>
-                  )}
-                  {getStatusBadge(txn.status)}
+                  <div className="text-right space-y-1">
+                    {(formattedAmount || formattedUnits) && (
+                      <p className="font-medium text-sm">
+                        {formattedAmount}
+                        {formattedAmount && formattedUnits && <br />}
+                        {formattedUnits}
+                      </p>
+                    )}
+                    {getStatusBadge(txn.status)}
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </CardContent>

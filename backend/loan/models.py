@@ -1,4 +1,3 @@
-# Updated models.py with fix for fallback
 from django.db import models
 from accounts.models import User
 import random
@@ -7,8 +6,9 @@ from django.utils import timezone
 from datetime import timedelta
 from django.core.exceptions import ValidationError
 from dateutil.relativedelta import relativedelta
+import logging
+logger = logging.getLogger(__name__)
 
-# Add tier configuration
 LOAN_TIERS = [
     {
         'name': 'Bronze',
@@ -130,30 +130,30 @@ class LoanApplication(TimeStampedModel):
     def check_eligibility(self):
         return self.credit_score >= 75 if self.credit_score else False
     
+    # In loan/models.py - Update the save method
+
     def save(self, *args, **kwargs):
         if self.credit_score:
             tier_info = get_tier_by_score(self.credit_score)
             if tier_info:
-                tier_name = tier_info['name']
-                interest_rate = tier_info['interest_rate']
-                self.loan_tier = tier_name
-                self.interest_rate = interest_rate
-        
-        # Auto-set status based on eligibility if not already set
+                self.loan_tier = tier_info['name']
+                self.interest_rate = tier_info['interest_rate']
+    
         if not self.pk and not self.status:  # Only for new instances
             if self.check_eligibility():
                 self.status = 'APPROVED'
             else:
                 self.status = 'REJECTED'
                 self.rejection_reason = "Credit score below 75% threshold"
-        
+    
         super().save(*args, **kwargs)
 
     def get_max_eligible_amount(self):
-        """Get maximum loan amount user is eligible for based on tier"""
+        """Get maximum loan amount user is eligible for based on tier (from database)"""
         if self.credit_score and self.loan_tier:
-            tier = get_tier_by_score(self.credit_score)
-            return tier['max_amount'] if tier else 0
+            tier_info = get_tier_by_score(self.credit_score)
+            if tier_info:
+                return tier_info['max_amount']
         return 0
     
     def calculate_units_from_amount(self, amount=None):
@@ -250,16 +250,30 @@ class LoanApplication(TimeStampedModel):
     @property
     def amount_paid(self):
         return sum(float(repayment.amount_paid) for repayment in self.repayments.all())
-    
+
+
     @property
     def outstanding_balance(self):
+        """Calculate outstanding balance correctly"""
+        if not self.amount_approved:
+            return 0
+    
+        # Calculate total amount due with interest
         total_due = self.total_amount_due
+    
+        # Add penalty if applicable
         if self.due_date and timezone.now() > self.due_date:
             days_late = (timezone.now() - self.due_date).days
-            penalty_rate = 0.001  # 0.1% per day penalty (adjust as needed)
+            penalty_rate = 0.001  # 0.1% per day penalty
             penalty = days_late * penalty_rate * float(self.amount_approved)
             total_due += penalty
-        return total_due - self.amount_paid
+    
+        # Calculate total paid
+        total_paid = self.amount_paid
+    
+        # Return the difference, ensuring it's not negative
+        balance = total_due - total_paid
+        return max(0, balance)  # Never return negative
     
     class Meta:
         ordering = ['-created_at']
@@ -355,21 +369,39 @@ class LoanTier(models.Model):
         super().save(*args, **kwargs)
 
 
-# Update your LOAN_TIERS constant to use the database
-# You can keep it as fallback but mark it as deprecated
-LOAN_TIERS_DEPRECATED = LOAN_TIERS  # Reference the hardcoded for fallback
+LOAN_TIERS_DEPRECATED = LOAN_TIERS 
 
 def get_tier_by_score(score):
-    """Get loan tier based on credit score from database"""
+    """Get loan tier based on credit score from database (admin-configured)"""
     try:
-        return LoanTier.objects.filter(
+        # ALWAYS try to get from database first (admin configured)
+        tier = LoanTier.objects.filter(
             is_active=True,
             min_score__lte=score,
             max_score__gte=score
         ).first()
-    except Exception:
-        # Fallback to hardcoded tiers if database fails
-        for tier in LOAN_TIERS:  # Fixed to LOAN_TIERS
+        
+        if tier:
+            return {
+                'name': tier.name,
+                'display_name': tier.display_name,
+                'min_score': tier.min_score,
+                'max_score': tier.max_score,
+                'max_amount': float(tier.max_amount),  # Convert to float for calculations
+                'interest_rate': float(tier.interest_rate),  # Convert to float for calculations
+                'is_active': tier.is_active,
+                'id': tier.id  
+            }
+        
+        # If no tier found in database for this score, log it
+        logger.warning(f"No active loan tier found for credit score: {score}")
+        return None
+        
+    except Exception as e:
+        logger.error(f"Error fetching loan tier from database: {str(e)}")
+        
+        logger.warning("Falling back to hardcoded loan tiers")
+        for tier in LOAN_TIERS:  # Your hardcoded fallback
             if tier['min_score'] <= score <= tier['max_score']:
                 return tier
         return None
