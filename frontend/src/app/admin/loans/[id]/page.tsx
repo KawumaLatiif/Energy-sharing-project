@@ -664,7 +664,9 @@ export default function LoanDetailPage() {
                         </CardHeader>
                         <CardContent>
                             {loan.repayments && loan.repayments.length > 0 ? (
-                                <Table>
+                                <div className="rounded-md border overflow-x-auto">
+                                    <div className="rounded-md border overflow-x-auto">
+                                        <Table>
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Date</TableHead>
@@ -700,7 +702,9 @@ export default function LoanDetailPage() {
                                             </TableRow>
                                         ))}
                                     </TableBody>
-                                </Table>
+                                        </Table>
+                                    </div>
+                                </div>
                             ) : (
                                 <div className="text-center py-8">
                                     <History className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
@@ -869,7 +873,8 @@ export default function LoanDetailPage() {
                                     <CardDescription>Progressive block rates for electricity consumption</CardDescription>
                                 </CardHeader>
                                 <CardContent>
-                                    <Table>
+                                    <div className="rounded-md border overflow-x-auto">
+                                        <Table>
                                         <TableHeader>
                                             <TableRow>
                                                 <TableHead>Block Name</TableHead>
@@ -890,7 +895,8 @@ export default function LoanDetailPage() {
                                                 </TableRow>
                                             ))}
                                         </TableBody>
-                                    </Table>
+                                        </Table>
+                                    </div>
                                 </CardContent>
                             </Card>
                         </>

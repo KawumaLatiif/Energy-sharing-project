@@ -168,8 +168,8 @@ export default function MetersManagementPage() {
             Manage all registered meters ({totalMeters} total)
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportMeters}>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <Button variant="outline" onClick={exportMeters} className="w-full sm:w-auto">
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -239,7 +239,7 @@ export default function MetersManagementPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -341,16 +341,17 @@ export default function MetersManagementPage() {
           )}
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4">
               <div className="text-sm text-muted-foreground">
                 Page {currentPage} of {totalPages}
               </div>
-              <div className="flex gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
+                  className="w-full sm:w-auto"
                 >
                   Previous
                 </Button>
@@ -359,6 +360,7 @@ export default function MetersManagementPage() {
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
+                  className="w-full sm:w-auto"
                 >
                   Next
                 </Button>
@@ -374,14 +376,14 @@ export default function MetersManagementPage() {
 function MetersManagementSkeleton() {
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="space-y-2">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-10 w-32" />
-          <Skeleton className="h-10 w-40" />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Skeleton className="h-10 w-full sm:w-32" />
+          <Skeleton className="h-10 w-full sm:w-40" />
         </div>
       </div>
       

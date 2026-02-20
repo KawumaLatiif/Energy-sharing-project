@@ -106,13 +106,13 @@ function DashboardLoading() {
           </div>
         </div>
       </div>
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-col overflow-x-hidden">
         {/* Header skeleton */}
         <div className="flex h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6 justify-end">
           <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse"></div>
           <div className="h-8 w-8 bg-gray-200 rounded-full animate-pulse"></div>
         </div>
-        <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+        <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
           <div className="flex items-center">
             <div className="h-8 w-48 bg-gray-200 rounded animate-pulse"></div>
           </div>
@@ -121,8 +121,8 @@ function DashboardLoading() {
               <div key={i} className="h-32 bg-gray-200 rounded-lg animate-pulse"></div>
             ))}
           </div>
-          <div className="flex flex-1 justify-center rounded-lg border border-dashed shadow-sm">
-            <div className="flex flex-col gap-1 w-full p-4">
+          <div className="flex min-w-0 flex-1 justify-center rounded-lg border border-dashed shadow-sm">
+            <div className="flex min-w-0 flex-col gap-1 w-full p-4">
               <div className="h-6 w-48 bg-gray-200 rounded animate-pulse mb-4"></div>
               <div className="h-32 bg-gray-200 rounded animate-pulse"></div>
             </div>

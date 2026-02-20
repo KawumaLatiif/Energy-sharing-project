@@ -22,7 +22,7 @@ const logos = [
 
 export default function Partners() {
   return (
-    <section className="py-16 md:py-20 bg-white/50 dark:bg-gray-900/50">
+    <section className="py-16 md:py-20 bg-gradient-to-b from-white via-slate-50 to-white dark:from-slate-950 dark:via-slate-900 dark:to-slate-900">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -38,7 +38,7 @@ export default function Partners() {
             sustainable communities worldwide.
           </p>
         </motion.div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-8 lg:gap-12 justify-items-center">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 sm:gap-8 lg:gap-12 justify-items-center">
           {logos.map((logo, idx) => (
             <motion.div
               key={idx}
@@ -49,7 +49,7 @@ export default function Partners() {
                 scale: 1.05,
                 filter: "grayscale(0%) brightness(110%)",
               }}
-              className="flex items-center justify-center p-4 bg-white/80 dark:bg-gray-800/80 rounded-xl shadow-md hover:shadow-lg transition-all cursor-pointer grayscale hover:grayscale-0"
+              className="flex items-center justify-center p-4 bg-white/90 dark:bg-slate-900/80 rounded-2xl shadow-md hover:shadow-xl transition-all cursor-pointer grayscale hover:grayscale-0 border border-white/60 dark:border-slate-800/70"
             >
               <Image
                 alt={`Partner ${idx + 1}`}

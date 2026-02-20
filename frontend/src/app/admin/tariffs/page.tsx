@@ -337,17 +337,18 @@ export default function TariffsManagementPage() {
       </div>
 
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Tariffs Management</CardTitle>
             <CardDescription>Create and manage electricity tariff rates</CardDescription>
           </div>
-          <Button onClick={openCreateModal}>
+          <Button onClick={openCreateModal} className="w-full sm:w-auto">
             <Plus className="h-4 w-4 mr-2" /> New Tariff
           </Button>
         </CardHeader>
         <CardContent>
-          <Table>
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Code</TableHead>
@@ -405,7 +406,8 @@ export default function TariffsManagementPage() {
                 </TableRow>
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

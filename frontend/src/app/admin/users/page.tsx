@@ -247,16 +247,22 @@ export default function UsersManagementPage() {
             Manage all registered users ({totalUsers} total)
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
           <Button 
             variant="outline" 
             onClick={() => fetchUsers()}
             disabled={loading}
+            className="w-full sm:w-auto"
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
             Refresh
           </Button>
-          <Button variant="outline" onClick={exportUsers} disabled={users.length === 0}>
+          <Button
+            variant="outline"
+            onClick={exportUsers}
+            disabled={users.length === 0}
+            className="w-full sm:w-auto"
+          >
             <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
@@ -277,7 +283,7 @@ export default function UsersManagementPage() {
               />
             </div>
             <Select value={statusFilter} onValueChange={handleStatusFilterChange} disabled={loading}>
-              <SelectTrigger className="w-[180px]">
+              <SelectTrigger className="w-full sm:w-[180px]">
                 <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -292,7 +298,7 @@ export default function UsersManagementPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -438,20 +444,21 @@ export default function UsersManagementPage() {
           </div>
 
           {totalPages > 1 && (
-            <div className="flex items-center justify-between mt-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4">
               <div className="text-sm text-muted-foreground">
                 Showing {((currentPage - 1) * limit) + 1} to {Math.min(currentPage * limit, totalUsers)} of {totalUsers} users
               </div>
-              <div className="flex gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
                   disabled={currentPage === 1 || loading}
+                  className="w-full sm:w-auto"
                 >
                   Previous
                 </Button>
-                <div className="flex items-center">
+                <div className="flex items-center justify-center">
                   <span className="text-sm mx-2">Page {currentPage} of {totalPages}</span>
                 </div>
                 <Button
@@ -459,6 +466,7 @@ export default function UsersManagementPage() {
                   size="sm"
                   onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages || loading}
+                  className="w-full sm:w-auto"
                 >
                   Next
                 </Button>
@@ -474,14 +482,14 @@ export default function UsersManagementPage() {
 function UsersManagementSkeleton() {
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="space-y-2">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-10 w-32" />
-          <Skeleton className="h-10 w-32" />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Skeleton className="h-10 w-full sm:w-32" />
+          <Skeleton className="h-10 w-full sm:w-32" />
         </div>
       </div>
       

@@ -311,23 +311,23 @@ export default function LoansManagementPage() {
           <p className="text-muted-foreground">
             Manage all loan applications, disbursements, and repayments
           </p>
-          <div className="flex gap-2 mt-2">
+          <div className="flex flex-col gap-2 mt-2 sm:flex-row">
             <Link href="/admin/loan-tiers">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">
                 <TrendingUp className="mr-2 h-4 w-4" />
                 Manage Loan Tiers
               </Button>
             </Link>
             <Link href="/admin/tariffs">
-              <Button variant="outline" size="sm">
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">
                 <Zap className="mr-2 h-4 w-4" />
                 Manage Tariffs
               </Button>
             </Link>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={exportLoans}>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+          <Button variant="outline" onClick={exportLoans} className="w-full sm:w-auto">
             <Download className="mr-2 h-4 w-4" />
             Export CSV
           </Button>
@@ -422,7 +422,7 @@ export default function LoansManagementPage() {
               />
             </div>
             <Select value={statusFilter} onValueChange={setStatusFilter}>
-              <SelectTrigger className="w-[200px]">
+              <SelectTrigger className="w-full sm:w-[200px]">
                 <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Filter by status" />
               </SelectTrigger>
@@ -439,7 +439,7 @@ export default function LoansManagementPage() {
           </div>
         </CardHeader>
         <CardContent>
-          <div className="rounded-md border">
+          <div className="rounded-md border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -871,14 +871,14 @@ export default function LoansManagementPage() {
 function LoansManagementSkeleton() {
   return (
     <div className="container mx-auto py-6 space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
         <div className="space-y-2">
           <Skeleton className="h-8 w-48" />
           <Skeleton className="h-4 w-64" />
         </div>
-        <div className="flex gap-2">
-          <Skeleton className="h-10 w-24" />
-          <Skeleton className="h-10 w-24" />
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Skeleton className="h-10 w-full sm:w-24" />
+          <Skeleton className="h-10 w-full sm:w-24" />
         </div>
       </div>
 
@@ -898,9 +898,9 @@ function LoansManagementSkeleton() {
 
       <Card>
         <CardHeader>
-          <div className="flex gap-4">
+          <div className="flex flex-col sm:flex-row gap-4">
             <Skeleton className="h-10 flex-1" />
-            <Skeleton className="h-10 w-48" />
+            <Skeleton className="h-10 w-full sm:w-48" />
           </div>
         </CardHeader>
         <CardContent>

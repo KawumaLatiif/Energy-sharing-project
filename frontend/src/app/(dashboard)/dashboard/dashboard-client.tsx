@@ -92,9 +92,9 @@ export default function DashboardClient({
     return (
       <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
         <DesktopSidebar />
-        <div className="flex flex-col">
+        <div className="flex min-w-0 flex-col overflow-x-hidden">
           <RightHeader />
-          <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+          <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
             <div className="flex justify-center items-center h-64">
               <div className="text-center">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4" />
@@ -110,7 +110,7 @@ export default function DashboardClient({
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
       <DesktopSidebar />
-      <div className="flex flex-col">
+      <div className="flex min-w-0 flex-col overflow-x-hidden">
         <RightHeader 
           onProfileClick={openProfileManagement}
           onMeterClick={openMeterManagement}
@@ -154,7 +154,7 @@ export default function DashboardClient({
           mode="edit"
         />
 
-        <main className="flex flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+        <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-semibold md:text-2xl">Dashboard</h1>
             

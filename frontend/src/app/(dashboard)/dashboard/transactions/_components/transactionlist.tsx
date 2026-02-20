@@ -113,9 +113,9 @@ const TransList = () => {
       </h3>
 
       {/* Filters */}
-      <div className="flex gap-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
         <Select onValueChange={(v) => handleFilterChange('type', v)}>
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Filter by Type" />
           </SelectTrigger>
           <SelectContent>
@@ -133,72 +133,90 @@ const TransList = () => {
           placeholder="Start Date"
           value={filters.start_date}
           onChange={(e) => handleFilterChange('start_date', e.target.value)}
+          className="w-full sm:w-auto"
         />
         <Input
           type="date"
           placeholder="End Date"
           value={filters.end_date}
           onChange={(e) => handleFilterChange('end_date', e.target.value)}
+          className="w-full sm:w-auto"
         />
-        <Button onClick={() => fetchTransactions(1)}>Apply Filters</Button>
+        <Button onClick={() => fetchTransactions(1)} className="w-full sm:w-auto">
+          Apply Filters
+        </Button>
       </div>
 
-      <Table className="w-full">
-        <TableHeader>
-          <TableRow>
-            <TableHead>ID</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Amount/Units</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Date</TableHead>
-            <TableHead className="text-right">Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {transactions.map((txn) => (
-            <TableRow key={txn.id}>
-              <TableCell>{txn.id}</TableCell>
-              <TableCell>{getTypeBadge(txn.transaction_type)}</TableCell>
-              <TableCell>
-                {txn.amount ? `${txn.amount} UGX` : ''}
-                {txn.units ? `${txn.units} units` : ''}
-              </TableCell>
-              <TableCell>
-                <Badge variant={txn.status === 'COMPLETED' ? 'default' : 'destructive'}>
-                  {txn.status}
-                </Badge>
-              </TableCell>
-              <TableCell>{txn.created_at}</TableCell>
-              <TableCell className="text-right">
-                <DropdownMenu>
-                  <DropdownMenuTrigger><EllipsisVertical /></DropdownMenuTrigger>
-                  <DropdownMenuContent>
-                    <DropdownMenuItem>
-                      <Button asChild variant="link"><Link href={`/transactions/${txn.id}`}>View Transaction</Link></Button>
-                    </DropdownMenuItem>
-                    {txn.reference_id && (
-                      <DropdownMenuItem asChild>
-                        <Link href={`/details/${txn.transaction_type.toLowerCase()}/${txn.reference_id}`}>View Details</Link>
-                      </DropdownMenuItem>
-                    )}
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </TableCell>
-            </TableRow>
-          ))}
-          {transactions.length === 0 && (
+      <div className="rounded-md border overflow-x-auto w-full max-w-full">
+        <Table className="w-full">
+          <TableHeader>
             <TableRow>
-              <TableCell colSpan={6} className="text-center">No transactions found</TableCell>
+              <TableHead>ID</TableHead>
+              <TableHead>Type</TableHead>
+              <TableHead>Amount/Units</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Date</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
-          )}
-        </TableBody>
-      </Table>
+          </TableHeader>
+          <TableBody>
+            {transactions.map((txn) => (
+              <TableRow key={txn.id}>
+                <TableCell>{txn.id}</TableCell>
+                <TableCell>{getTypeBadge(txn.transaction_type)}</TableCell>
+                <TableCell>
+                  {txn.amount ? `${txn.amount} UGX` : ''}
+                  {txn.units ? `${txn.units} units` : ''}
+                </TableCell>
+                <TableCell>
+                  <Badge variant={txn.status === 'COMPLETED' ? 'default' : 'destructive'}>
+                    {txn.status}
+                  </Badge>
+                </TableCell>
+                <TableCell>{txn.created_at}</TableCell>
+                <TableCell className="text-right">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger><EllipsisVertical /></DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                      <DropdownMenuItem>
+                        <Button asChild variant="link"><Link href={`/transactions/${txn.id}`}>View Transaction</Link></Button>
+                      </DropdownMenuItem>
+                      {txn.reference_id && (
+                        <DropdownMenuItem asChild>
+                          <Link href={`/details/${txn.transaction_type.toLowerCase()}/${txn.reference_id}`}>View Details</Link>
+                        </DropdownMenuItem>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </TableCell>
+              </TableRow>
+            ))}
+            {transactions.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={6} className="text-center">No transactions found</TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
 
       {/* Pagination */}
-      <div className="flex justify-between mt-4">
-        <Button disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</Button>
-        <span>Page {page} of {Math.ceil(total / pageSize)}</span>
-        <Button disabled={page * pageSize >= total} onClick={() => setPage(page + 1)}>Next</Button>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mt-4">
+        <Button
+          disabled={page === 1}
+          onClick={() => setPage(page - 1)}
+          className="w-full sm:w-auto"
+        >
+          Previous
+        </Button>
+        <span className="text-center">Page {page} of {Math.ceil(total / pageSize)}</span>
+        <Button
+          disabled={page * pageSize >= total}
+          onClick={() => setPage(page + 1)}
+          className="w-full sm:w-auto"
+        >
+          Next
+        </Button>
       </div>
     </div>
   );

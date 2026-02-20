@@ -18,7 +18,7 @@ export default function PublicHeader() {
   return (
     <Disclosure
       as="nav"
-      className="sticky top-0 z-50 bg-white/95 dark:bg-gray-900/95 backdrop-blur-md border-b border-gray-200/50 dark:border-gray-700/50"
+      className="sticky top-0 z-50 bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-800/60 shadow-sm"
     >
       {({ open }) => (
         <>
@@ -31,9 +31,9 @@ export default function PublicHeader() {
                     width={48}
                     height={48}
                     alt="EnergyShare"
-                    className="h-10 w-auto rounded-lg shadow-md"
+                    className="h-10 w-auto rounded-xl shadow-md ring-1 ring-white/50 dark:ring-slate-800/60"
                   />
-                  <span className="hidden sm:block text-2xl font-bold text-gray-900 dark:text-white">
+                  <span className="hidden sm:block text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
                     <span className="text-blue-600">Energy</span>
                     <span className="text-gray-900 dark:text-white">Share</span>
                   </span>
@@ -43,19 +43,19 @@ export default function PublicHeader() {
                 <div className="ml-10 flex items-baseline space-x-4">
                   <Link
                     href="/about"
-                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-md transition-colors"
+                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-lg transition-colors"
                   >
                     About
                   </Link>
                   <Link
                     href="/contact"
-                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-md transition-colors"
+                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-lg transition-colors"
                   >
                     Contact
                   </Link>
                   <Link
                     href="/privacy"
-                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-md transition-colors"
+                    className="text-sm font-medium text-gray-900 dark:text-white hover:text-blue-600 dark:hover:text-blue-400 px-3 py-2 rounded-lg transition-colors"
                   >
                     Privacy
                   </Link>
@@ -67,7 +67,7 @@ export default function PublicHeader() {
                     <motion.div whileHover={{ scale: 1.02 }}>
                       <Link
                         href="/auth/register"
-                        className="px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-100 hover:bg-blue-200 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-800/30 rounded-lg transition-all"
+                        className="px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-100/70 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/40 rounded-xl transition-all"
                       >
                         Sign Up
                       </Link>
@@ -75,7 +75,7 @@ export default function PublicHeader() {
                     <motion.div whileHover={{ scale: 1.02 }}>
                       <Link
                         href="/auth/login"
-                        className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-md"
+                        className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
                       >
                         Sign In
                       </Link>
@@ -85,7 +85,7 @@ export default function PublicHeader() {
                 {auth && (
                   <Link
                     href="/dashboard"
-                    className="px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-md"
+                    className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
                   >
                     Dashboard
                   </Link>
@@ -102,23 +102,23 @@ export default function PublicHeader() {
             </div>
           </div>
 
-          <Disclosure.Panel className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700">
+          <Disclosure.Panel className="md:hidden bg-white/95 dark:bg-slate-950/90 border-t border-gray-200/70 dark:border-slate-800/70 backdrop-blur-lg">
             <div className="px-2 pt-2 pb-3 space-y-1">
               <Link
                 href="#"
-                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
+                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 About
               </Link>
               <Link
                 href="#"
-                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
+                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 Contact
               </Link>
               <Link
                 href="#"
-                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md"
+                className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 Privacy
               </Link>
@@ -126,13 +126,13 @@ export default function PublicHeader() {
                 <>
                   <Link
                     href="/auth/register"
-                    className="block w-full text-left px-3 py-2 text-base font-medium text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-md"
+                    className="block w-full text-left px-3 py-2 text-base font-medium text-blue-600 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-lg"
                   >
                     Sign Up
                   </Link>
                   <Link
                     href="/auth/login"
-                    className="block w-full text-left px-3 py-2 text-base font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+                    className="block w-full text-left px-3 py-2 text-base font-medium text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-lg"
                   >
                     Sign In
                   </Link>

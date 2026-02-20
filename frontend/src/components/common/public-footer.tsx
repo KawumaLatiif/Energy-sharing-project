@@ -18,9 +18,9 @@ export default function PublicFooter() {
   ];
 
   return (
-    <footer className="pt-12 bg-gradient-to-t from-gray-50 to-white dark:from-gray-900 dark:to-gray-800">
+    <footer className="pt-12 bg-gradient-to-t from-slate-50 via-white to-white dark:from-slate-950 dark:via-slate-900 dark:to-slate-900">
       <div className="max-w-7xl mx-auto px-4 md:px-8">
-        <div className="border-t border-gray-200 dark:border-gray-700 py-10 mt-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+        <div className="border-t border-gray-200/80 dark:border-slate-800/70 py-10 mt-10 flex flex-col sm:flex-row items-center justify-between gap-6">
           <p className="text-gray-500 dark:text-gray-400 text-sm">
             &copy; {new Date().getFullYear()} EnergyShare Inc. All rights
             reserved.

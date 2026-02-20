@@ -231,19 +231,20 @@ export default function LoanTiersManagementPage() {
       </Button>
     </div>
       <Card>
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between space-y-0 pb-2">
           <div>
             <CardTitle>Loan Tiers Management</CardTitle>
             <CardDescription>View, edit and create dynamic loan tiers</CardDescription>
           </div>
-          <Button onClick={() => setCreating(true)}>
+          <Button onClick={() => setCreating(true)} className="w-full sm:w-auto">
             <Plus className="h-4 w-4 mr-2" />
             New Loan Tier
           </Button>
         </CardHeader>
 
         <CardContent>
-          <Table>
+          <div className="rounded-md border overflow-x-auto">
+            <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
@@ -290,7 +291,7 @@ export default function LoanTiersManagementPage() {
                           onChange={handleEditChange}
                           className="w-20"
                         />
-                        <span>–</span>
+                        <span>-</span>
                         <Input
                           name="max_score"
                           type="number"
@@ -300,7 +301,7 @@ export default function LoanTiersManagementPage() {
                         />
                       </div>
                     ) : (
-                      `${tier.min_score} – ${tier.max_score}`
+                      `${tier.min_score} - ${tier.max_score}`
                     )}
                   </TableCell>
                   <TableCell>
@@ -379,7 +380,8 @@ export default function LoanTiersManagementPage() {
                 </TableRow>
               )}
             </TableBody>
-          </Table>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 

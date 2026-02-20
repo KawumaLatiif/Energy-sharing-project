@@ -310,7 +310,7 @@ export default function LoanList({ loans }: LoanListProps) {
         </div>
       )}
 
-      <div className="rounded-md border">
+      <div className="rounded-md border overflow-x-auto w-full max-w-full">
         <Table>
           <TableHeader>
             <TableRow>

@@ -30,6 +30,7 @@ import Image from "next/image";
 import logo from "@/assets/images/logo.jpg";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { ModeToggle } from "@/components/theme-toggle";
 import { IconMoneybag } from "@tabler/icons-react";
 import { Zap } from "lucide-react";
@@ -37,10 +38,15 @@ import logout from "@/app/(dashboard)/dashboard/logout";
 
 export default function AdminRightHeader() {
   const pathname = usePathname();
+  const [isOpen, setIsOpen] = useState(false);
+
+  useEffect(() => {
+    setIsOpen(false);
+  }, [pathname]);
 
   return (
     <header className="flex justify-between sm:justify-end h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
-      <Sheet>
+      <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetTrigger asChild>
           <Button variant="outline" size="icon" className="shrink-0 md:hidden">
             <Menu className="h-5 w-5" />

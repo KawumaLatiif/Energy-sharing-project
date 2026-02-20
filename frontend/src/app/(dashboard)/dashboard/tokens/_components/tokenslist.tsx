@@ -88,98 +88,100 @@ const TokenList = ({ tokens }: TokenListProps) => {
           All Tokens
         </h3>
 
-        <Table className="w-full">
-          <TableHeader>
-            <TableRow>
-              <TableHead className="w-[100px]">Token ID</TableHead>
-              <TableHead>Source</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Token</TableHead>
-              <TableHead className="text-right">Units</TableHead>
-              {/* <TableHead className="text-right">Date</TableHead> */}
-              <TableHead className="text-right">&nbsp;</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {sortedTokens.map((token) => (
-              <TableRow key={token.id} className="hover:bg-muted/50">
-                <TableCell className="font-medium">#{token.id}</TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    {getSourceIcon(token.source)}
-                    <span
-                      className={cn(
-                        "text-sm font-medium",
-                        getSourceColor(token.source)
-                      )}
-                    >
-                      {getSourceDisplayText(token)}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1">
-                    {token.is_used ? (
-                      <>
-                        <CheckCheck className="h-4 w-4 text-green-600" />
-                        <span className="text-green-600 text-sm">Used</span>
-                      </>
-                    ) : (
-                      <>
-                        <Clock10Icon className="h-4 w-4 text-amber-600" />
-                        <span className="text-amber-600 text-sm">Active</span>
-                      </>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  <TransactionButton txn={token} />
-                </TableCell>
-                <TableCell className="text-right font-medium">
-                  <span
-                    className={cn({
-                      "text-green-600": token.source === "PURCHASE",
-                      "text-yellow-600": token.source === "LOAN",
-                    })}
-                  >
-                    {Number(token.units).toFixed(2)} units
-                  </span>
-                </TableCell>
-                {/* <TableCell className="text-right text-sm text-muted-foreground">
-                  {token.created_at
-                    ? new Date(token.created_at).toLocaleDateString()
-                    : "N/A"}
-                </TableCell> */}
-                {/* <TableCell className="text-sm text-muted-foreground">
-                  {new Date(token.created_at).toLocaleDateString("en-US", {
-                    year: "numeric",
-                    month: "short",
-                    day: "numeric",
-                  })}
-                </TableCell> */}
-                <TableCell>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger className="p-2 hover:bg-muted rounded">
-                      <EllipsisVertical className="h-4 w-4" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem asChild>
-                        <Link href={`/tokens/${token.id}`}>View Details</Link>
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() =>
-                          navigator.clipboard.writeText(token.token)
-                        }
-                      >
-                        Copy Token
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
+        <div className="rounded-md border overflow-x-auto w-full max-w-full">
+          <Table className="w-full">
+            <TableHeader>
+              <TableRow>
+                <TableHead className="w-[100px]">Token ID</TableHead>
+                <TableHead>Source</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Token</TableHead>
+                <TableHead className="text-right">Units</TableHead>
+                {/* <TableHead className="text-right">Date</TableHead> */}
+                <TableHead className="text-right">&nbsp;</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {sortedTokens.map((token) => (
+                <TableRow key={token.id} className="hover:bg-muted/50">
+                  <TableCell className="font-medium">#{token.id}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-2">
+                      {getSourceIcon(token.source)}
+                      <span
+                        className={cn(
+                          "text-sm font-medium",
+                          getSourceColor(token.source)
+                        )}
+                      >
+                        {getSourceDisplayText(token)}
+                      </span>
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1">
+                      {token.is_used ? (
+                        <>
+                          <CheckCheck className="h-4 w-4 text-green-600" />
+                          <span className="text-green-600 text-sm">Used</span>
+                        </>
+                      ) : (
+                        <>
+                          <Clock10Icon className="h-4 w-4 text-amber-600" />
+                          <span className="text-amber-600 text-sm">Active</span>
+                        </>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    <TransactionButton txn={token} />
+                  </TableCell>
+                  <TableCell className="text-right font-medium">
+                    <span
+                      className={cn({
+                        "text-green-600": token.source === "PURCHASE",
+                        "text-yellow-600": token.source === "LOAN",
+                      })}
+                    >
+                      {Number(token.units).toFixed(2)} units
+                    </span>
+                  </TableCell>
+                  {/* <TableCell className="text-right text-sm text-muted-foreground">
+                    {token.created_at
+                      ? new Date(token.created_at).toLocaleDateString()
+                      : "N/A"}
+                  </TableCell> */}
+                  {/* <TableCell className="text-sm text-muted-foreground">
+                    {new Date(token.created_at).toLocaleDateString("en-US", {
+                      year: "numeric",
+                      month: "short",
+                      day: "numeric",
+                    })}
+                  </TableCell> */}
+                  <TableCell>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger className="p-2 hover:bg-muted rounded">
+                        <EllipsisVertical className="h-4 w-4" />
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem asChild>
+                          <Link href={`/tokens/${token.id}`}>View Details</Link>
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          onClick={() =>
+                            navigator.clipboard.writeText(token.token)
+                          }
+                        >
+                          Copy Token
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
 
         {/* Summary Stats */}
         {/* <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
