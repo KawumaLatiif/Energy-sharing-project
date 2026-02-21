@@ -62,7 +62,7 @@ export default function LoginForm() {
   };
 
   return (
-    <CardWrapper title="Sign in to your account">
+    <CardWrapper title="Sign in to your account" variant="auth">
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           {showTwoFactor && (

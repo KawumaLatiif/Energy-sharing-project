@@ -80,15 +80,13 @@ export default function VerifyEmailPage() {
   };
 
   return (
-    <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
-          Email Verification
-        </h2>
-      </div>
-
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+    <div className="min-h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-emerald-50 to-blue-100 dark:from-blue-950 dark:via-emerald-900/20 dark:to-blue-900">
+      <div className="min-h-screen flex items-center justify-center px-4 py-8">
+        <div className="w-full max-w-md">
+          <h2 className="text-center text-3xl font-bold tracking-tight text-gray-900 dark:text-white">
+            Email Verification
+          </h2>
+          <div className="mt-6 bg-white/95 dark:bg-slate-900/90 backdrop-blur-sm py-8 px-4 shadow-xl shadow-blue-500/10 rounded-2xl sm:px-10 border border-gray-200/70 dark:border-slate-800/70 max-h-[85vh] overflow-y-auto">
           {status === 'verifying' && (
             <div className="text-center">
               <p>Verifying your email address...</p>
@@ -134,6 +132,7 @@ export default function VerifyEmailPage() {
               )}
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

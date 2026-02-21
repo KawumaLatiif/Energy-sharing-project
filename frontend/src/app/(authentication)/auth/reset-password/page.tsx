@@ -14,14 +14,16 @@ export default async function ResetPasswordPage({
   }
 
   return (
-    <Suspense
-      fallback={
-        <div className="flex items-center justify-center min-h-screen">
-          Loading...
-        </div>
-      }
-    >
-      <ResetPasswordForm uid={params.uid} token={params.token} />
-    </Suspense>
+    <div className="min-h-screen overflow-hidden bg-gradient-to-br from-blue-50 via-emerald-50 to-blue-100 dark:from-blue-950 dark:via-emerald-900/20 dark:to-blue-900">
+      <Suspense
+        fallback={
+          <div className="flex items-center justify-center min-h-screen">
+            Loading...
+          </div>
+        }
+      >
+        <ResetPasswordForm uid={params.uid} token={params.token} />
+      </Suspense>
+    </div>
   );
 }

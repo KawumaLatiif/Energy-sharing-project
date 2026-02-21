@@ -77,7 +77,7 @@ export default function ForgotPasswordForm() {
    
     return (
       <>
-          <CardWrapper title="Forgot password">
+          <CardWrapper title="Forgot password" variant="auth">
           
             <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">

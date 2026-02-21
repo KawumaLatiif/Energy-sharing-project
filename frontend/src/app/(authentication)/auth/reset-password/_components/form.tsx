@@ -77,7 +77,7 @@ export default function ResetPasswordForm({
 
   if (isValidating) {
     return (
-      <CardWrapper title="Reset Password">
+      <CardWrapper title="Reset Password" variant="auth">
         <div className="flex items-center justify-center py-8">
           Validating reset link...
         </div>
@@ -87,7 +87,7 @@ export default function ResetPasswordForm({
 
   if (!isValid) {
     return (
-      <CardWrapper title="Reset Password">
+      <CardWrapper title="Reset Password" variant="auth">
         <div className="text-center py-8 text-destructive">
           {error || "Invalid or expired reset link. Please request a new one."}
         </div>
@@ -102,7 +102,7 @@ export default function ResetPasswordForm({
   }
 
   return (
-    <CardWrapper title="Reset Password">
+    <CardWrapper title="Reset Password" variant="auth">
       {" "}
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">

@@ -279,6 +279,48 @@
   min-width: 0;
 }
 
+.phone-input {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
+.phone-input .PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.phone-input .PhoneInputCountrySelect {
+  height: 2rem;
+  width: 2.25rem;
+  padding-right: 0.75rem;
+  font-size: 0;
+  color: transparent;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  appearance: none;
+}
+
+.phone-input .PhoneInputCountryIcon {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 0.25rem;
+}
+
+.phone-input .PhoneInputInput {
+  flex: 1;
+  min-width: 0;
+  width: 100%;
+}
+
+.phone-input .PhoneInputCountrySelect option {
+  font-size: 0.875rem;
+  color: initial;
+}
+
 @media (min-width: 768px) {
   .embla__slide {
     flex: 0 0 45%;
