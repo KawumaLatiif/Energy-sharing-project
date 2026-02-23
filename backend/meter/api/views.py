@@ -1,5 +1,6 @@
 import random
 import uuid
+from decimal import Decimal, InvalidOperation
 from django.forms import ValidationError
 import requests
 import logging
@@ -34,6 +35,7 @@ from accounts.models import Wallet
 import time
 import threading
 from django.db import transaction as db_transaction
+from loan.models import ElectricityTariff
 
 base_url = settings.BASE_URL
 
@@ -504,6 +506,59 @@ class TokenView(GenericAPIView):
    
 class BuyUnitsView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
+
+    def _get_active_tariff(self):
+        tariff = ElectricityTariff.objects.filter(
+            tariff_code="CODE10.1",
+            is_active=True
+        ).first()
+        if tariff:
+            return tariff
+        return ElectricityTariff.objects.filter(is_active=True).order_by('-effective_date').first()
+
+    def _calculate_units_from_tariff(self, amount):
+        """
+        Calculate purchasable units from amount using tariff blocks.
+        Falls back to legacy flat rate (500 UGX/unit) if no active tariff exists.
+        """
+        tariff = self._get_active_tariff()
+        fallback_rate = Decimal("500")
+
+        if not tariff:
+            return (amount / fallback_rate).quantize(Decimal("0.01")), None
+
+        blocks = tariff.blocks.all().order_by('block_order')
+        if not blocks.exists():
+            return (amount / fallback_rate).quantize(Decimal("0.01")), tariff
+
+        remaining_amount = Decimal(str(amount))
+        total_units = Decimal("0")
+
+        for block in blocks:
+            if remaining_amount <= 0:
+                break
+
+            rate = Decimal(str(block.rate_per_unit))
+            if rate <= 0:
+                continue
+
+            if block.max_units is None:
+                total_units += remaining_amount / rate
+                remaining_amount = Decimal("0")
+                break
+
+            block_units_available = Decimal(block.max_units - block.min_units + 1)
+            block_cost = block_units_available * rate
+
+            if remaining_amount >= block_cost:
+                total_units += block_units_available
+                remaining_amount -= block_cost
+            else:
+                total_units += remaining_amount / rate
+                remaining_amount = Decimal("0")
+                break
+
+        return total_units.quantize(Decimal("0.01")), tariff
     
     def post(self, request, *args, **kwargs):
         amount = request.data.get("amount")
@@ -516,7 +571,17 @@ class BuyUnitsView(GenericAPIView):
         
         try:
             user = request.user
-            amount = int(amount)
+            try:
+                amount = Decimal(str(amount))
+            except (InvalidOperation, TypeError, ValueError):
+                return Response({
+                    "error": "Amount must be a valid number"
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if amount <= 0:
+                return Response({
+                    "error": "Amount must be greater than 0"
+                }, status=status.HTTP_400_BAD_REQUEST)
             
             try:
                 meter = Meter.objects.get(user=user)
@@ -524,20 +589,31 @@ class BuyUnitsView(GenericAPIView):
                 return Response({
                     "error": "No meter found. Please register your meter before purchasing units."
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            wallet = Wallet.objects.filter(user=user).order_by('-create_date').first()
+            if wallet is None:
+                wallet = Wallet.objects.create(user=user)
+
+            estimated_units, tariff = self._calculate_units_from_tariff(amount)
             
             if settings.MTN_MOMO_CONFIG.get('ENVIRONMENT', 'sandbox') == 'sandbox':
                 # Generate external ID for tracking
                 external_id = str(uuid.uuid4())
                 
                 # Create pending transaction
-                transaction = Transaction.objects.create(
-                    wallet=user.wallet,
-                    amount=amount,
-                    phone_number=phone_number,
-                    status='PENDING',
-                    transaction_reference=external_id,
-                    message=f"Buy units - {amount} UGX"
-                )
+                try:
+                    transaction = Transaction.objects.create(
+                        wallet=wallet,
+                        amount=amount,
+                        phone_number=phone_number,
+                        status='PENDING',
+                        transaction_reference=external_id,
+                        message=f"Buy units - {amount} UGX"
+                    )
+                except Exception:
+                    return Response({
+                        "error": "Invalid phone number. Use full format e.g. +2567XXXXXXXX."
+                    }, status=status.HTTP_400_BAD_REQUEST)
                 
                 # Return pending response immediately
                 response_data = {
@@ -545,12 +621,14 @@ class BuyUnitsView(GenericAPIView):
                     "message": "Simulating sandbox payment - Please wait...",
                     "external_id": external_id,
                     "transaction_id": transaction.id,
-                    "user_prompt": "Sandbox mode: Payment will auto-complete in 2 seconds"
+                    "user_prompt": "Sandbox mode: Payment will auto-complete in 2 seconds",
+                    "estimated_units": float(estimated_units),
+                    "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500"
                 }
                 
                 threading.Thread(
                     target=self._simulate_sandbox_payment,
-                    args=(user.id, amount, transaction.id, meter.id), 
+                    args=(user.id, str(amount), transaction.id, meter.id),
                     daemon=True
                 ).start()
                 
@@ -560,7 +638,7 @@ class BuyUnitsView(GenericAPIView):
                 pass
                 
         except Exception as e:
-            logger.error(f"Buy units error: {str(e)}")
+            logger.exception(f"Buy units error: {str(e)}")
             return Response({
                 "error": "Failed to process buy units request"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -576,27 +654,34 @@ class BuyUnitsView(GenericAPIView):
             meter = Meter.objects.get(id=meter_id)
 
             with db_transaction.atomic():
-                units_purchased = amount * 0.1
+                amount_decimal = Decimal(str(amount))
+                units_purchased, tariff = self._calculate_units_from_tariff(amount_decimal)
 
                 # Add units to meter
                 meter.units += units_purchased
                 meter.save()
 
                 # Update wallet balance
-                wallet = user.wallet
-                wallet.balance += amount
+                wallet = Wallet.objects.filter(user=user).order_by('-create_date').first()
+                if wallet is None:
+                    wallet = Wallet.objects.create(user=user)
+                wallet.balance += amount_decimal
                 wallet.save()
 
                 # Update transaction status
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'COMPLETED'
+                transaction.message = (
+                    f"Buy units - {amount_decimal} UGX | Units: {units_purchased} | "
+                    f"Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
+                )
                 transaction.save()
 
                 # Create UnitTransaction record
-                unit_transaction = UnitTransaction.objects.create(
+                UnitTransaction.objects.create(
                     sender=user,
                     receiver=user,
-                    units=units_purchased,
+                    units=float(units_purchased),
                     meter=meter,
                     direction="IN",
                     status="COMPLETED",
@@ -655,8 +740,19 @@ class CheckPaymentStatusView(GenericAPIView):
             if transaction.status == 'COMPLETED':
                 meter_token = MeterToken.objects.filter(
                     user=request.user,
-                    source="PURCHASE"
-                ).select_related('meter').latest('created_at')
+                    source="PURCHASE",
+                    create_date__gte=transaction.create_date
+                ).select_related('meter').order_by('-create_date').first()
+                if meter_token is None:
+                    return Response({
+                        "status": "SUCCESS",
+                        "message": "Payment completed successfully, token is still syncing",
+                        "transaction": {
+                            "id": transaction.id,
+                            "amount": float(transaction.amount),
+                            "timestamp": transaction.create_date.isoformat()
+                        }
+                    }, status=status.HTTP_200_OK)
                 
                 return Response({
                     "status": "SUCCESS",
@@ -668,7 +764,7 @@ class CheckPaymentStatusView(GenericAPIView):
                         "id": transaction.id,
                         "amount": float(transaction.amount),
                         "units": meter_token.units,
-                        "timestamp": transaction.created_at.isoformat()
+                        "timestamp": transaction.create_date.isoformat()
                     }
                 }, status=status.HTTP_200_OK)
                 
@@ -688,6 +784,11 @@ class CheckPaymentStatusView(GenericAPIView):
             return Response({
                 "error": "Transaction not found"
             }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Check payment status error: {str(e)}")
+            return Response({
+                "error": "Failed to check payment status"
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
                    
   

@@ -51,6 +51,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
+  const [transactionRef, setTransactionRef] = useState<string | null>(null);
   const [userMeters, setUserMeters] = useState<any[]>([]);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
 
@@ -110,7 +111,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   // Step 1: Submit initial share request
   const handleInitialSubmit = async (data: ShareFormValues) => {
     if (userBalance !== null && data.units > userBalance) {
-      setError("Insufficient units in your wallet");
+      setError("Insufficient units in your meter");
       return;
     }
 
@@ -126,6 +127,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
       if (response.data?.success === true) {
         // Store transaction details for verification step
+        setTransactionRef(response.data.transaction_ref || null);
         setTransactionDetails({
           meter_number: data.meter_number,
           units: data.units,
@@ -171,9 +173,10 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         meter_number: transactionDetails.meter_number,
         units: transactionDetails.units,
         verification_code: verificationCode,
+        transaction_ref: transactionRef,
       });
 
-      if (response.error === null && response.data?.success) {
+      if (response.status >= 200 && response.status < 300 && response.data?.success) {
         setSuccess("Units shared successfully!");
         setVerificationStep(2);
 
@@ -187,6 +190,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           form.reset();
           setVerificationStep(0);
           setVerificationCode("");
+          setTransactionRef(null);
           setTransactionDetails(null);
           if (onSuccess) onSuccess();
           fetchBalance(); // Refresh balance
@@ -210,6 +214,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const handleCancelVerification = () => {
     setVerificationStep(0);
     setVerificationCode("");
+    setTransactionRef(null);
     setTransactionDetails(null);
     setError("");
   };

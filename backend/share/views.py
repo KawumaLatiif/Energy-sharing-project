@@ -3,15 +3,16 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from django.db import transaction as db_transaction
+from django.utils import timezone
 from decimal import Decimal
 import uuid
 from datetime import datetime, timedelta
 import logging
 from transactions.models import TransactionType, TransactionLog
 
-from .serializers import ShareUnitSerializer, VerifyOTPSerializer
+from .serializers import ShareUnitSerializer, VerifyOTPSerializer, TransferUnitsSerializer
 from .models import Share, ShareTransaction
-from accounts.models import User
+from accounts.models import User, Wallet as AccountWallet
 from wallet.models import Wallet, MeterBalance, Transaction
 from meter.models import Meter
 from share.services import VerificationService, VerificationCode
@@ -90,18 +91,29 @@ class ShareUnitsView(APIView):
                     
                     # Generate transaction ref
                     transaction_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
-                    
-                    # Store pending in session
-                    request.session['pending_share'] = {
-                        'receiver_meter_no': receiver_meter_no,
-                        'units_to_share': str(units_to_share),
-                        'receiver_user_id': receiver_user.id,
-                        'sender_meter_no': sender_meter.meter_no,
-                        'sender_meter_id': sender_meter.id,
-                        'transaction_ref': transaction_ref,
-                        'sender_meter_balance': str(sender_meter.units)  
-                    }
-                    request.session.modified = True
+
+                    # Cancel older pending shares for this sender and persist the new pending share in DB.
+                    ShareTransaction.objects.filter(
+                        sender=sender,
+                        status='PENDING'
+                    ).update(
+                        status='CANCELLED',
+                        message='Cancelled due to a newer share request'
+                    )
+
+                    pending_share = ShareTransaction.objects.create(
+                        share_transaction_id=transaction_ref,
+                        sender=sender,
+                        receiver=receiver_user,
+                        units=units_to_share,
+                        meter_send=sender_meter,
+                        meter_receive=receiver_meter,
+                        direction='OUT',
+                        status='PENDING',
+                        message=f"Pending OTP verification for share to meter {receiver_meter_no}",
+                        ip_address=request.META.get('REMOTE_ADDR'),
+                        user_agent=request.META.get('HTTP_USER_AGENT', '')
+                    )
                     
                     # Generate verification code
                     verification = VerificationCode.create_code(
@@ -130,7 +142,7 @@ class ShareUnitsView(APIView):
                     return Response({
                         "success": True,
                         "message": "Verification code sent to your email. Please check and verify.",
-                        "transaction_ref": transaction_ref,
+                        "transaction_ref": pending_share.share_transaction_id,
                         "requires_verification": True
                     }, status=status.HTTP_200_OK)
                     
@@ -147,9 +159,17 @@ class ShareUnitsView(APIView):
                 return Response(otp_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
             verification_code = otp_serializer.validated_data['verification_code']
+            transaction_ref = request.data.get('transaction_ref')
             
-            # Verify OTP
-            pending_share = request.session.get('pending_share')
+            # Fetch pending share from DB (session-less, works with API/server-action calls)
+            pending_share_qs = ShareTransaction.objects.select_for_update().filter(
+                sender=request.user,
+                status='PENDING'
+            )
+            if transaction_ref:
+                pending_share_qs = pending_share_qs.filter(share_transaction_id=transaction_ref)
+            pending_share = pending_share_qs.order_by('-create_date').first()
+
             if not pending_share:
                 return Response({"error": "No pending share found. Please start over."}, status=status.HTTP_400_BAD_REQUEST)
             
@@ -160,12 +180,12 @@ class ShareUnitsView(APIView):
             try:
                 with db_transaction.atomic():
                     # Retrieve pending data
-                    receiver_meter_no = pending_share['receiver_meter_no']
-                    units_to_share = Decimal(pending_share['units_to_share'])
-                    transaction_ref = pending_share['transaction_ref']
+                    receiver_meter_no = pending_share.meter_receive.meter_no
+                    units_to_share = pending_share.units
+                    transaction_ref = pending_share.share_transaction_id
                     
                     # Reload objects with lock
-                    sender_meter = Meter.objects.select_for_update().get(id=pending_share['sender_meter_id'])
+                    sender_meter = Meter.objects.select_for_update().get(id=pending_share.meter_send_id)
                     receiver_meter = Meter.objects.select_for_update().get(meter_no=receiver_meter_no)
                     
                     # Double-check units
@@ -179,34 +199,43 @@ class ShareUnitsView(APIView):
                     receiver_meter.units += units_to_share
                     receiver_meter.save()
                     
-                    # Sync to MeterBalance
-                    MeterBalance.objects.filter(meter_number=sender_meter.meter_no).update(balance=sender_meter.units)
-                    MeterBalance.objects.filter(meter_number=receiver_meter.meter_no).update(balance=receiver_meter.units)
+                    # Sync to MeterBalance (create if missing)
+                    MeterBalance.objects.update_or_create(
+                        user=sender_meter.user,
+                        meter_number=sender_meter.meter_no,
+                        defaults={'meter': sender_meter, 'balance': sender_meter.units, 'is_active': True}
+                    )
+                    MeterBalance.objects.update_or_create(
+                        user=receiver_meter.user,
+                        meter_number=receiver_meter.meter_no,
+                        defaults={'meter': receiver_meter, 'balance': receiver_meter.units, 'is_active': True}
+                    )
                     
-                    # Create share record (assuming Share model is used)
+                    # Create share record using legacy accounts wallet relation used by Share model
+                    sender_account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()
+                    if sender_account_wallet is None:
+                        sender_account_wallet = AccountWallet.objects.create(
+                            user=user,
+                            currency='USD',
+                            balance=Decimal('0.00')
+                        )
                     Share.objects.create(
                         share_transaction_id=transaction_ref,
-                        wallet=user.mainwallet,  # Assuming related_name='mainwallet' in Wallet
+                        wallet=sender_account_wallet,
                         units=units_to_share,
                         status="COMPLETED",
                         meter_number=receiver_meter,
                         share_transaction_reference=transaction_ref
                     )
                     
-                    # Create ShareTransaction
-                    ShareTransaction.objects.create(
-                        share_transaction_id=transaction_ref,
-                        sender=user,
-                        receiver=receiver_meter.user,
-                        units=units_to_share,
-                        meter_send=sender_meter,
-                        meter_receive=receiver_meter,
-                        status="COMPLETED",
-                        message=f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
-                    )
+                    # Mark pending share transaction as completed
+                    pending_share.status = "COMPLETED"
+                    pending_share.verified_at = timezone.now()
+                    pending_share.message = f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
+                    pending_share.save(update_fields=['status', 'verified_at', 'message', 'modify_date'])
 
                     TransactionLog.objects.create(
-                        user=sender,
+                        user=user,
                         transaction_type=TransactionType.UNIT_SHARE,
                         units=units_to_share,
                         status='COMPLETED',
@@ -220,14 +249,9 @@ class ShareUnitsView(APIView):
                         amount=units_to_share,
                         transaction_id=transaction_ref,
                         new_balance=sender_meter.units,
-                        date=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                        date=timezone.now().strftime('%Y-%m-%d %H:%M:%S')
                     )
                     handle_send_wallet_update.delay(user.id, update_details)
-                    
-                    # Clear session
-                    if 'pending_share' in request.session:
-                        del request.session['pending_share']
-                    request.session.modified = True
                     
                     logger.info(f"Share completed: {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}")
                     
@@ -237,7 +261,7 @@ class ShareUnitsView(APIView):
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
                         "new_sender_balance": str(sender_meter.units),
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": timezone.now().isoformat()
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
@@ -267,7 +291,7 @@ class TransferUnitsView(APIView):
                     
                     # Get user
                     user = request.user
-                    user_wallet = Wallet.objects.select_for_update().get(user=user)
+                    user_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=user)
                     
                     # Check if user has units to transfer
                     if user_wallet.balance <= 0:
@@ -363,7 +387,7 @@ class TransferUnitsView(APIView):
             if not otp_serializer.is_valid():
                 return Response(otp_serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
-            verification_code = otp_serializer.validated_data['otp']
+            verification_code = otp_serializer.validated_data['verification_code']
             
             # Verify OTP
             pending_transfer = request.session.get('pending_transfer')
@@ -383,7 +407,7 @@ class TransferUnitsView(APIView):
                     transaction_ref = pending_transfer['transaction_ref']
                     
                     # Reload objects
-                    user_wallet = Wallet.objects.select_for_update().get(user=user)
+                    user_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=user)
                     old_meter = Meter.objects.select_for_update().get(meter_no=old_meter_no)
                     new_meter = Meter.objects.select_for_update().get(meter_no=new_meter_no)
                     

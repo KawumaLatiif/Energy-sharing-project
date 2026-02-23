@@ -22,7 +22,7 @@ export const buyUnits = async (data: z.infer<typeof BuyUnitSchema>) => {
     external_id?: string;
     user_prompt?: string;
     transaction_id?: string;
-  }>("transactions/buy-units/", data);
+  }>("meter/buy-units/", data);
 
   console.log("Buy units: ", res.data);
   return res;
@@ -36,7 +36,7 @@ export const checkPaymentStatus = async (transactionId: string) => {
     units_purchased?: number;
     token?: string;
     transaction?: any;
-  }>("transactions/check-payment-status/", { transaction_id: transactionId });
+  }>("meter/check-payment-status/", { transaction_id: transactionId });
 
   return res;
 };

@@ -11,7 +11,7 @@ def sync_meter_to_balance(sender, instance, **kwargs):
     if instance.pk:  # Skip on create if no units yet
         with transaction.atomic():
             user = instance.user
-            wallet = Wallet.objects.select_for_update().get(user=user)
+            wallet, _ = Wallet.objects.select_for_update().get_or_create(user=user)
             
             # Update/create MeterBalance
             meter_balance, _ = MeterBalance.objects.get_or_create(

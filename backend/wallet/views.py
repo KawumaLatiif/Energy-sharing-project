@@ -125,7 +125,7 @@ class TransactionHistoryView(APIView):
         user = request.user
         
         try:
-            wallet = Wallet.objects.get(user=user)
+            wallet, _ = Wallet.objects.get_or_create(user=user)
             
             # Get query parameters for filtering
             transaction_type = request.GET.get('type')
@@ -155,11 +155,6 @@ class TransactionHistoryView(APIView):
                 "transactions": data,
             }, status=status.HTTP_200_OK)
             
-        except Wallet.DoesNotExist:
-            return Response({
-                "error": "Wallet not found",
-                "success": False
-            }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
             logger.error(f"Error fetching transaction history: {str(e)}")
             return Response({
@@ -176,7 +171,7 @@ class CreateWalletView(APIView):
         
         try:
             # Check if wallet already exists
-            if hasattr(user, 'wallet'):
+            if hasattr(user, 'mainwallet'):
                 return Response({
                     "error": "Wallet already exists for this user",
                     "success": False

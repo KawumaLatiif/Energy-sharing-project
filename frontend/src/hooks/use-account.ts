@@ -1,13 +1,40 @@
 import { getUser } from "@/actions/get-user";
-import {isAuth} from "@/actions/is-auth"
 import { User } from "@/interface/user.interface";
-import { fetcher } from "@/lib/utils";
 import { useEffect, useState } from "react";
-import useSWR from 'swr'
 
 export const useAccount = () => {
-   
-  const { data, error, isLoading } = useSWR<User>(`/mid-api/user-config/`, fetcher)
-  
-  return {user: data, loading: isLoading, error};
-  };
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<Error | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const loadUser = async () => {
+      try {
+        const result = await getUser();
+        if (mounted) {
+          setUser(result);
+          setError(null);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError(err as Error);
+          setUser(null);
+        }
+      } finally {
+        if (mounted) {
+          setLoading(false);
+        }
+      }
+    };
+
+    loadUser();
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  return { user, loading, error };
+};
