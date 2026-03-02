@@ -22,7 +22,7 @@ def create_meter_balance(sender, instance, created, **kwargs):
     if created and instance.user:
         MeterBalance.objects.create(
             user=instance.user,
-            meter_number=instance.meter_number,
+            meter_number=instance.meter_no,
             balance=Decimal('0.00'),
             is_active=instance.is_active
         )

@@ -43,7 +43,7 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/6.0/howto/deployment/checklist/
-load_dotenv(BASE_DIR.parent / ".env")
+load_dotenv(BASE_DIR / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7'
 DEBUG = get_env_variable("DEBUG", "True") == "True"
@@ -142,9 +142,9 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'project',
+        'NAME': 'metering',
         'USER': 'postgres',
-        'PASSWORD': 'postgres',
+        'PASSWORD': '#Phaneroo2',
         'HOST': 'localhost',
         "ATOMIC_REQUESTS": True,
         "CONN_MAX_AGE": 60,  
@@ -211,8 +211,8 @@ EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = get_env_variable("EMAIL_PORT", 587, cast=int)
 EMAIL_USE_TLS = get_env_variable("EMAIL_USE_TLS", "True") == "True"
 EMAIL_USE_SSL = get_env_variable("EMAIL_USE_SSL", "False") == "True"
-EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "kawumalatiif5@gmail.com")
-EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "onlvknccibgjoaly")
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "ssentongojoshua86@gmail.com")
+EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "rbmr myzn icff jkza")
 DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", EMAIL_HOST_USER)
 DEFAULT_EMAIL_SENDER = DEFAULT_FROM_EMAIL
 

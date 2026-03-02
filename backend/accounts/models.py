@@ -88,7 +88,7 @@ class User(TimestampMixin, AbstractUser):
 
     username = None
     email = models.EmailField(_("email_address"), unique=True)
-    phone_number = PhoneNumberField(_("phone_number"), unique=True)
+    phone_number = PhoneNumberField(_("phone_number"), unique=True, blank=True, null=True)
     # country = models.ForeignKey(
     #     Country, on_delete=models.CASCADE, null=True, blank=True
     # )
