@@ -22,6 +22,20 @@ import CardWrapper from "@/components/common/card-wrapper";
 
 import { cn } from "@/lib/utils";
 import forgotPassword from "../forgot-password";
+import { getApiErrorMessage } from "@/lib/api-response";
+
+const getFieldError = (error: unknown, field: string): string | undefined => {
+  if (typeof error !== "object" || error === null) {
+    return undefined;
+  }
+
+  const fieldValue = (error as Record<string, unknown>)[field];
+  if (Array.isArray(fieldValue) && typeof fieldValue[0] === "string") {
+    return fieldValue[0];
+  }
+
+  return undefined;
+};
 
 
 
@@ -55,12 +69,12 @@ export default function ForgotPasswordForm() {
             if (data?.error) {
               console.log("Errorrunning")
               if(typeof data.error === "object"){
-               
-                if(data.error?.email){
-                  form.setError("email", { type: 'custom', message: data.error?.email[0] })
+                const emailError = getFieldError(data.error, "email");
+                if(emailError){
+                  form.setError("email", { type: 'custom', message: emailError })
                 }
               } else {
-                setError(data.error);
+                setError(getApiErrorMessage(data.error, "Failed to send reset email"));
               }
             }
   

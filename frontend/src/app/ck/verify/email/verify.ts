@@ -1,5 +1,6 @@
 // lib/verify-email.ts
 import { get } from "../../../../lib/fetch";
+import { getApiErrorMessage } from "../../../../lib/api-response";
 
 export async function verifyEmail(uid: string, token: string) {
   try {
@@ -13,7 +14,7 @@ export async function verifyEmail(uid: string, token: string) {
     if (response.error) {
       return { 
         success: false, 
-        error: response.error?.message || 'Invalid or expired verification link' 
+        error: getApiErrorMessage(response.error, 'Invalid or expired verification link')
       };
     }
 

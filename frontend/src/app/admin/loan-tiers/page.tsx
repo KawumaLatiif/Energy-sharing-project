@@ -24,6 +24,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { get, put, del, post } from '@/lib/fetch';   // ← using your plain fetch helpers
+import { getApiErrorMessage } from '@/lib/api-response';
 import Link from 'next/link';
 
 interface LoanTier {
@@ -70,7 +71,7 @@ export default function LoanTiersManagementPage() {
           router.push('/login'); // or '/dashboard'
           return;
         }
-        throw new Error(response.error?.message || 'Failed to load tiers');
+        throw new Error(getApiErrorMessage(response.error, 'Failed to load tiers'));
       }
 
       setTiers(response.data || []);
@@ -105,7 +106,7 @@ export default function LoanTiersManagementPage() {
       const response = await put<LoanTier>(`admin/loan-tiers/${id}/`, editForm);
 
       if (response.error) {
-        throw new Error(response.error?.message || 'Failed to update tier');
+        throw new Error(getApiErrorMessage(response.error, 'Failed to update tier'));
       }
 
       toast({ title: 'Success', description: 'Loan tier updated' });
@@ -127,7 +128,7 @@ export default function LoanTiersManagementPage() {
       const response = await del(`admin/loan-tiers/${id}/`);
 
       if (response.error) {
-        throw new Error(response.error?.message || 'Failed to delete');
+        throw new Error(getApiErrorMessage(response.error, 'Failed to delete'));
       }
 
       toast({ title: 'Success', description: 'Tier deleted' });
@@ -181,7 +182,7 @@ export default function LoanTiersManagementPage() {
       const response = await post<LoanTier>('admin/loan-tiers/', newForm);
 
       if (response.error) {
-        throw new Error(response.error?.message || 'Failed to create tier');
+        throw new Error(getApiErrorMessage(response.error, 'Failed to create tier'));
       }
 
       toast({ title: 'Success', description: 'New loan tier created' });

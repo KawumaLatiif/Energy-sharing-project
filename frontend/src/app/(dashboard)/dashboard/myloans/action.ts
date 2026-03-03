@@ -2,6 +2,7 @@
 
 import { getErrorMessage } from "@/lib/errors";
 import { post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 export async function disburseLoan(loanId: number) {
   try {
@@ -15,7 +16,7 @@ export async function disburseLoan(loanId: number) {
       if (response.status === 401) {
         throw new Error('Authentication expired. Please log in again.');
       }
-      throw new Error(response.error.detail || response.error.error || 'Failed to disburse loan');
+      throw new Error(getApiErrorMessage(response.error, 'Failed to disburse loan'));
     }
 
     console.log('Disbursement success:', response.data);
@@ -39,7 +40,7 @@ export async function repayLoan(loanId: number, amount: number) {
       if (response.status === 401) {
         throw new Error('Authentication expired. Please log in again.');
       }
-      throw new Error(response.error.detail || response.error.error || 'Failed to process repayment');
+      throw new Error(getApiErrorMessage(response.error, 'Failed to process repayment'));
     }
 
     console.log('Repayment success:', response.data);
@@ -66,7 +67,7 @@ export async function repayLoanWithMomo(loanId: number, amount: number, phoneNum
       if (response.status === 401) {
         throw new Error('Authentication expired. Please log in again.');
       }
-      throw new Error(response.error.detail || response.error.error || 'Mobile Money payment failed');
+      throw new Error(getApiErrorMessage(response.error, 'Mobile Money payment failed'));
     }
 
     console.log('MoMo repayment success:', response.data);
@@ -90,7 +91,7 @@ export async function checkPaymentStatus(externalId: string) {
       if (response.status === 401) {
         throw new Error('Authentication expired. Please log in again.');
       }
-      throw new Error(response.error.detail || response.error.error || 'Failed to check payment status');
+      throw new Error(getApiErrorMessage(response.error, 'Failed to check payment status'));
     }
 
     console.log('Payment status check success:', response.data);
@@ -114,7 +115,7 @@ export async function getLoanDetails(loanId: number) {
       if (response.status === 401) {
         throw new Error('Authentication expired. Please log in again.');
       }
-      throw new Error(response.error.detail || response.error.error || 'Failed to fetch loan details');
+      throw new Error(getApiErrorMessage(response.error, 'Failed to fetch loan details'));
     }
 
     console.log('Loan details success:', response.data);

@@ -20,6 +20,7 @@ import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
 import { get, post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -37,6 +38,17 @@ const ShareSchema = z.object({
 });
 
 type ShareFormValues = z.infer<typeof ShareSchema>;
+type WalletBalanceResponse = {
+  success: boolean;
+  wallet?: { balance?: string };
+  meters?: Array<{ is_active?: boolean; balance?: string; meter_number?: string }>;
+};
+
+type ShareUnitsResponse = {
+  success?: boolean;
+  error?: string;
+  transaction_ref?: string;
+};
 
 interface ShareFormProps {
   onSuccess?: () => void;
@@ -59,9 +71,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
   const fetchBalance = async () => {
   try {
-    const response = await get<any>("wallet/balance");
+    const response = await get<WalletBalanceResponse>("wallet/balance");
 
-    if (response.error === null && response.data?.success) {
+    if (!response.error && response.data?.success) {
       const apiData = response.data;
       const meters = apiData.meters || [];
       setUserMeters(meters);
@@ -85,7 +97,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         response.error || "Unknown error"
       );
       setError(
-        response.error?.message || "Failed to load balance. Please refresh."
+        getApiErrorMessage(response.error, "Failed to load balance. Please refresh.")
       );
     }
   } catch (error) {
@@ -120,7 +132,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     setSuccess("");
 
     try {
-      const response = await post("share/share-units/", {
+      const response = await post<ShareUnitsResponse>("share/share-units/", {
         meter_number: data.meter_number,
         units: data.units,
       });
@@ -140,8 +152,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         console.error("Initial share failed:", response);
         setError(
           response.data?.error ||
-          response.error?.message ||
-          "Failed to initiate share"
+          getApiErrorMessage(response.error, "Failed to initiate share")
         );
       }
     } catch (error: any) {
@@ -169,7 +180,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     setSuccess("");
 
     try {
-      const response = await post("share/share-units/", {
+      const response = await post<ShareUnitsResponse>("share/share-units/", {
         meter_number: transactionDetails.meter_number,
         units: transactionDetails.units,
         verification_code: verificationCode,
@@ -198,8 +209,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       } else {
         setError(
           response.data?.error ||
-          response.error?.message ||
-          "Failed to verify code"
+          getApiErrorMessage(response.error, "Failed to verify code")
         );
         // Stay on verification step to retry
       }

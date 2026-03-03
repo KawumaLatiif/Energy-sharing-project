@@ -8,6 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, Zap, X, Wifi, Battery, RefreshCw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { post, get } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 import { Label } from "@/components/ui/label";
 import { Edit } from "lucide-react";
 
@@ -108,7 +109,7 @@ export default function MeterManagementModal({
         });
 
         if (response.error) {
-          setMessage({ type: 'error', text: response.error.message || "Failed to update meter" });
+          setMessage({ type: 'error', text: getApiErrorMessage(response.error, "Failed to update meter") });
         } else {
           setMessage({ type: 'success', text: 'Meter updated successfully!' });
           setIsEditing(false);
@@ -125,7 +126,7 @@ export default function MeterManagementModal({
         });
 
         if (response.error) {
-          setMessage({ type: 'error', text: response.error.message || "Failed to register meter" });
+          setMessage({ type: 'error', text: getApiErrorMessage(response.error, "Failed to register meter") });
         } else {
           setMessage({ type: 'success', text: 'Meter registered successfully!' });
           setIsEditing(false);

@@ -2,6 +2,7 @@
 'use server';
 
 import { get } from '@/lib/fetch';
+import { getApiErrorMessage } from '@/lib/api-response';
 
 export async function resendVerificationEmail(email: string) {
   if (!email) {
@@ -13,7 +14,7 @@ export async function resendVerificationEmail(email: string) {
     
     if (response.error) {
       return { 
-        error: response.error?.message || 'Failed to resend verification email' 
+        error: getApiErrorMessage(response.error, 'Failed to resend verification email') 
       };
     }
     

@@ -2,6 +2,7 @@ import { z } from "zod";
 import validator from "validator";
 import dayjs from "dayjs";
 import { get, patch } from "./fetch";
+import { getApiErrorMessage } from "./api-response";
 
 export const createAccountSchema = z
   .object({
@@ -542,7 +543,7 @@ export const getUserProfile = async (): Promise<UserProfile> => {
     }>("auth/get-user-config/");
 
     if (userConfigResponse.error || !userConfigResponse.data) {
-      throw new Error(userConfigResponse.error?.message || "Failed to fetch user config");
+      throw new Error(getApiErrorMessage(userConfigResponse.error, "Failed to fetch user config"));
     }
 
     // Fetch meter information
@@ -650,7 +651,7 @@ export const updateProfileData = async (data: Partial<UserProfile>): Promise<Use
       const response = await patch("auth/update-account-details/", updateData);
 
       if (response.error) {
-        throw new Error(response.error.message || "Failed to update account details");
+        throw new Error(getApiErrorMessage(response.error, "Failed to update account details"));
       }
     }
 

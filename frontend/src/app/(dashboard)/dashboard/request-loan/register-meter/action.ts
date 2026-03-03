@@ -1,6 +1,7 @@
 'use server';
 
 import { post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 export async function registerMeter(formData: { meter_no: string; static_ip: string }) {
     try {
@@ -11,7 +12,7 @@ export async function registerMeter(formData: { meter_no: string; static_ip: str
         if (response.error) {
             console.error('Meter registration API error:', response.error);
             return {
-                error: response.error.message || response.error.detail || "Failed to register meter",
+                error: getApiErrorMessage(response.error, "Failed to register meter"),
             };
         }
 

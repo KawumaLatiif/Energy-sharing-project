@@ -1,16 +1,12 @@
 "use server"
 import { API_URL } from "@/common/constants/api";
-import { getErrorMessage } from "./errors";
 import { cookies } from "next/headers";
 import { AUTHENTICATION_COOKIE } from "@/common/constants/auth-cookie";
-import authenticated from "./authenticated";
+import { ApiResponse, toApiError } from "./api-response";
 
 const getHeaders = async () => {
     const cookieStore = await cookies();
     const authCookie = cookieStore.get(AUTHENTICATION_COOKIE);
-    
-    console.log('Auth cookie value:', authCookie?.value);
-    console.log('All cookies:', cookieStore.getAll().map(c => c.name));
 
     const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -23,149 +19,98 @@ const getHeaders = async () => {
     return headers;
 };
 
-export const post = async <T>(path: string, data: any) => {
-    // console.log("hitting ...", `${API_URL}/${path}`)
-    const res = await fetch(`${API_URL}/${path}`, {
-        method: "POST",
-        headers: {"Content-Type": "application/json", ...(await getHeaders()) },
-        body: JSON.stringify(data)
-    })
+const parseResponseBody = async (res: Response): Promise<unknown> => {
+    const contentType = res.headers.get("content-type");
 
-    const parsedRes = await res.json();
-    console.log("request response: ", parsedRes, "status code: ", res.status)
-    if(res.status === 400){
-        return {error: parsedRes, data: null,  status: res.status}
-    }
-    if(!res.ok){
-        return {error: parsedRes, data: null, status: res.status}
-    }
-    return { error: "", data: parsedRes as T, status: res.status }
-
-}
-
-
-export const get = async <T>(path: string) => {
-    try {
-        const headers = await getHeaders();
-        console.log('Request headers:', headers);
-        console.log('Request URL:', `${API_URL}/${path}`);
-
-        const res = await fetch(`${API_URL}/${path}`, {
-            headers: headers,
-            credentials: 'include',
-            cache: 'no-store'
-        });
-
-        console.log('Response status:', res.status);
-        console.log('Response headers:', Object.fromEntries(res.headers.entries()));
-
-        // Check if response is JSON
-        const contentType = res.headers.get('content-type');
-        if (contentType && contentType.includes('application/json')) {
-            const parsedRes = await res.json() as T;
-            console.log('Response data:', parsedRes);
-            
-            if(res.status === 400){
-                return {error: parsedRes, data: null, status: res.status}
-            }
-            if(!res.ok){
-                return {error: parsedRes, data: null, status: res.status}
-            }
-           
-            return {error: null, data: parsedRes as T, status: res.status};
-        } else {
-            // Handle non-JSON responses
-            const textResponse = await res.text();
-            console.error('Non-JSON response:', textResponse.substring(0, 200));
-            
-            if(!res.ok){
-                return {error: {message: `Server returned status ${res.status}`}, data: null, status: res.status}
-            }
-            
-            return {error: null, data: null, status: res.status};
+    if (contentType?.includes("application/json")) {
+        try {
+            return await res.json();
+        } catch {
+            return undefined;
         }
-    } catch (error) {
-        console.error('Fetch error:', error);
-        return {error: {message: 'Network error occurred'}, data: null, status: 0};
     }
-}
 
-export const patch = async (path: string, data: any) => {
-    // console.log("hitting ...", `${API_URL}/${path}`)
-    const res = await fetch(`${API_URL}/${path}`, {
-        method: "PATCH",
-        headers: {"Content-Type": "application/json", ...(await getHeaders()) },
-        body: JSON.stringify(data)
-    })
-
-    const parsedRes = await res.json();
-    console.log("request response: ", parsedRes, "status code: ", res.status)
-    if(res.status === 400){
-        return {error: parsedRes}
+    const text = await res.text();
+    if (!text) {
+        return undefined;
     }
-    if(!res.ok){
-        return {error: getErrorMessage(parsedRes)}
+
+    return { message: text };
+};
+
+const buildErrorResponse = (body: unknown, status: number): ApiResponse<never> => ({
+    error: toApiError(body, `Request failed with status ${status}`),
+    status
+});
+
+const buildSuccessResponse = <T>(body: unknown, status: number): ApiResponse<T> => ({
+    data: body as T,
+    status
+});
+
+const buildRequestOptions = async (
+    method?: "POST" | "PATCH" | "PUT" | "DELETE",
+    body?: unknown
+): Promise<RequestInit> => {
+    const headers = await getHeaders();
+
+    if (!method) {
+        return {
+            headers,
+            credentials: "include",
+            cache: "no-store",
+        };
     }
-    return { error: "" }
 
-}
+    return {
+        method,
+        headers,
+        body: body === undefined ? undefined : JSON.stringify(body),
+    };
+};
 
-export const put = async <T>(path: string, data: any) => {
+const request = async <T>(
+    path: string,
+    options: RequestInit
+): Promise<ApiResponse<T>> => {
     try {
-        const res = await fetch(`${API_URL}/${path}`, {
-            method: "PUT",
-            headers: {"Content-Type": "application/json", ...(await getHeaders()) },
-            body: JSON.stringify(data)
-        })
+        const res = await fetch(`${API_URL}/${path}`, options);
+        const parsedBody = await parseResponseBody(res);
 
-        // Always try to parse the response as JSON first
-        let parsedRes = null;
-        const contentType = res.headers.get('content-type');
-        
-        if (contentType && contentType.includes('application/json')) {
-            parsedRes = await res.json();
-        } else {
-            parsedRes = { message: await res.text() };
-        }
-
-        console.log("PUT response:", parsedRes, "status:", res.status);
-
-        // Handle error responses
         if (!res.ok) {
-            return {
-                error: parsedRes,
-                data: null,
-                status: res.status
-            };
+            return buildErrorResponse(parsedBody, res.status);
         }
 
-        // Success response
+        return buildSuccessResponse<T>(parsedBody, res.status);
+    } catch {
         return {
-            error: null,
-            data: parsedRes as T,
-            status: res.status
-        };
-
-    } catch (error) {
-        console.error('PUT fetch error:', error);
-        return {
-            error: { message: 'Network error occurred' },
-            data: null,
-            status: 0
+            error: { message: "Network error occurred" },
+            status: 0,
         };
     }
-}
+};
 
-export const del = async (path: string) => {
-    const res = await fetch(`${API_URL}/${path}`, {
-        method: "DELETE",
-        headers: await getHeaders()
-    })
+export const get = async <T>(path: string): Promise<ApiResponse<T>> => {
+    const options = await buildRequestOptions();
+    return request<T>(path, options);
+};
 
-    if (!res.ok) {
-        const parsedRes = await res.json();
-        return {error: parsedRes, status: res.status}
-    }
+export const post = async <T, B = unknown>(path: string, data: B): Promise<ApiResponse<T>> => {
+    const options = await buildRequestOptions("POST", data);
+    return request<T>(path, options);
+};
 
-    return { error: "", status: res.status }
-}
+export const patch = async <T = unknown, B = unknown>(path: string, data: B): Promise<ApiResponse<T>> => {
+    const options = await buildRequestOptions("PATCH", data);
+    return request<T>(path, options);
+};
+
+export const put = async <T, B = unknown>(path: string, data: B): Promise<ApiResponse<T>> => {
+    const options = await buildRequestOptions("PUT", data);
+    return request<T>(path, options);
+};
+
+export const del = async <T = unknown>(path: string): Promise<ApiResponse<T>> => {
+    const options = await buildRequestOptions("DELETE");
+    return request<T>(path, options);
+};

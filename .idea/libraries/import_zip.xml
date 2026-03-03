@@ -1,0 +1,13 @@
+<component name="libraryTable">
+  <library name="import_zip">
+    <CLASSES>
+      <root url="jar://$PROJECT_DIR$/backend/venv/Lib/site-packages/cities_light/tests/fixtures/import_zip/angouleme_region.zip!/" />
+      <root url="jar://$PROJECT_DIR$/backend/venv/Lib/site-packages/cities_light/tests/fixtures/import_zip/angouleme_city.zip!/" />
+      <root url="jar://$PROJECT_DIR$/backend/venv/Lib/site-packages/cities_light/tests/fixtures/import_zip/angouleme_country.zip!/" />
+      <root url="jar://$PROJECT_DIR$/backend/venv/Lib/site-packages/cities_light/tests/fixtures/import_zip/angouleme_translations.zip!/" />
+      <root url="jar://$PROJECT_DIR$/backend/venv/Lib/site-packages/cities_light/tests/fixtures/import_zip/angouleme_subregion.zip!/" />
+    </CLASSES>
+    <JAVADOC />
+    <SOURCES />
+  </library>
+</component>

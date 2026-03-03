@@ -20,6 +20,7 @@ import { validateResetLink, resetPassword } from "../reset";
 import { z } from "zod";
 import { ResetPasswordSchema } from "@/lib/schema";
 import CardWrapper from "@/components/common/card-wrapper";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 type ResetPasswordFormData = z.infer<typeof ResetPasswordSchema>;
 
@@ -47,7 +48,7 @@ export default function ResetPasswordForm({
       .then((data) => {
         setIsValidating(false);
         if (data.error) {
-          setError(data.error);
+          setError(getApiErrorMessage(data.error, "Invalid or expired reset link"));
           setIsValid(false);
         } else {
           setIsValid(true);
@@ -66,9 +67,9 @@ export default function ResetPasswordForm({
     startTransition(async () => {
       const result = await resetPassword(uid, token, values);
       if (result.error) {
-        setError(result.error);
+        setError(getApiErrorMessage(result.error, "Failed to reset password"));
       } else {
-        setSuccess(result.success);
+        setSuccess(result.success || "Password reset successfully!");
         form.reset();
         setTimeout(() => router.replace(result.redirectTo!), 1500);
       }

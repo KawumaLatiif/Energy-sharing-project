@@ -24,6 +24,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { get, put, del, post } from '@/lib/fetch';
+import { getApiErrorMessage } from '@/lib/api-response';
 import Link from 'next/link';
 
 interface TariffBlock {
@@ -80,7 +81,7 @@ export default function TariffsManagementPage() {
           router.push('/login');
           return;
         }
-        throw new Error(response.error?.message || 'Failed to load tariffs');
+        throw new Error(getApiErrorMessage(response.error, 'Failed to load tariffs'));
       }
 
       setTariffs(response.data || []);
@@ -250,25 +251,7 @@ export default function TariffsManagementPage() {
       console.log('Save response:', response);
 
       if (response.error) {
-        // Handle validation errors exactly like loan-tiers page
-        let errorMessage = 'Failed to save tariff';
-        
-        if (typeof response.error === 'object') {
-          // Check for field-specific errors
-          if (response.error.details) {
-            errorMessage = Object.entries(response.error.details)
-              .map(([field, msgs]) => `${field}: ${Array.isArray(msgs) ? msgs.join(', ') : msgs}`)
-              .join('; ');
-          } else if (response.error.message) {
-            errorMessage = response.error.message;
-          } else {
-            errorMessage = JSON.stringify(response.error);
-          }
-        } else if (typeof response.error === 'string') {
-          errorMessage = response.error;
-        }
-        
-        throw new Error(errorMessage);
+        throw new Error(getApiErrorMessage(response.error, 'Failed to save tariff'));
       }
 
       toast({ 
@@ -296,7 +279,7 @@ export default function TariffsManagementPage() {
       const response = await del(`admin/tariffs/${id}/`);
       
       if (response.error) {
-        throw new Error(response.error?.message || 'Delete failed');
+        throw new Error(getApiErrorMessage(response.error, 'Delete failed'));
       }
       
       toast({ title: 'Success', description: 'Tariff deleted successfully' });

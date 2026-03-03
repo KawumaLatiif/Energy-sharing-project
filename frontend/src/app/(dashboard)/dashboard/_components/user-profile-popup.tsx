@@ -12,6 +12,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 // Schema for user profile/loan assessment
 const UserProfileSchema = z.object({
@@ -144,7 +145,7 @@ export default function UserProfilePopup({
             const response = await post<any>('auth/user-profile/', values);
 
             if (response.error) {
-                setMessage({ type: 'error', text: response.error });
+                setMessage({ type: 'error', text: getApiErrorMessage(response.error, "Failed to save profile") });
             } else {
                 setMessage({ type: 'success', text: 'Profile completed successfully!' });
                 setTimeout(() => {

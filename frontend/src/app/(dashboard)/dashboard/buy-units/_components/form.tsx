@@ -33,6 +33,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 export default function BuyUnitsForm() {
   const formatter = formatCurrency("USD");
@@ -142,7 +143,7 @@ export default function BuyUnitsForm() {
                 message: data.error.phone_number[0],
               });
             }
-          } else setError(data.error);
+          } else setError(getApiErrorMessage(data.error, "Failed to process payment"));
           return;
         }
 

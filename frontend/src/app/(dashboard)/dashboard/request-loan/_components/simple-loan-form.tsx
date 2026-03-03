@@ -15,6 +15,7 @@ import { useRouter } from 'next/navigation';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { get } from "@/lib/fetch";
 import { submitLoanApplication } from "../action";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 const SimpleLoanSchema = z.object({
   purpose: z.string().min(10, "Please describe the purpose of the loan"),
@@ -104,7 +105,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: SimpleLoanFormPr
           }, 2000);
         }
       } else if (result.error) {
-        setError(result.error);
+        setError(getApiErrorMessage(result.error, "Failed to submit loan application"));
       }
     } catch (err: any) {
       setError(err.message || 'An error occurred while submitting your application.');
