@@ -1,8 +1,9 @@
 // lib/verify-email.ts
 import { get } from "../../../../lib/fetch";
 import { getApiErrorMessage } from "../../../../lib/api-response";
+import { VerifyResponse } from "../../../../lib/verify-response";
 
-export async function verifyEmail(uid: string, token: string) {
+export async function verifyEmail(uid: string, token: string): Promise<VerifyResponse> {
   try {
     // Decode the uid first to handle any double encoding
     const decodedUid = decodeURIComponent(uid);
