@@ -169,13 +169,14 @@ export default function UserDetailPage() {
       });
 
       if (res.error) throw new Error('Failed to update user status');
-      if(res.data.user)  {
+      if(res.data && typeof res.data === 'object' && 'user' in res.data && (res.data as any).user)  {
         // const data = await res.json();
-        setUser({ ...user, account_active: res.data.user.account_active });
+        const userData = (res.data as any).user;
+        setUser({ ...user, account_active: userData.account_active });
         
         toast({
           title: 'Success',
-          description: `User ${res.data.user.account_active ? 'activated' : 'deactivated'} successfully`,
+          description: `User ${userData.account_active ? 'activated' : 'deactivated'} successfully`,
         });
       } else {
         throw new Error('Failed to update user status');

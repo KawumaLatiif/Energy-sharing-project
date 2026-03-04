@@ -129,7 +129,7 @@ export default function UsersManagementPage() {
     try {
       console.log('Toggling user status for ID:', userId);
 
-      const res = await post(`admin/toggle-user-status/`, {
+      const res = await post<{ user: { account_active: boolean } }>(`admin/toggle-user-status/`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -137,14 +137,12 @@ export default function UsersManagementPage() {
         body: JSON.stringify({ user_id: userId }),
       });
 
-      if (res.error) {
-        // const data = await res.json();
-        if(res.data && res.data.users){
+      if (!res.error && res.data?.user) {
         setUsers(users.map(user => 
           user.id === userId 
-            ? { ...user, account_active: res.data.user.account_active }
+            ? { ...user, account_active: res.data!.user.account_active }
             : user
-        ));}
+        ));
         
         toast({
           title: 'Success',

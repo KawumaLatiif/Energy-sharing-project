@@ -49,22 +49,34 @@ const AccountPage = () => {
     setSuccessMessage(null);
   };
 
-  const handleSave = async (updatedData: Partial<UserProfile>) => {
-    try {
-      setError(null);
-      setSuccessMessage(null);
-      
-      const data = await updateProfileData(updatedData);
-      setProfile(data);
-      setIsEditing(false);
-      setSuccessMessage('Profile updated successfully!');
-      
-      // Clear success message after 5 seconds
-      setTimeout(() => setSuccessMessage(null), 5000);
-    } catch (error) {
-      console.error('Failed to update profile:', error);
-      setError('Failed to update profile information. Please try again.');
-    }
+  const handleSave = (updatedData: any) => {
+    const profileUpdateData: Partial<UserProfile> = {
+      firstName: updatedData.firstName,
+      lastName: updatedData.lastName,
+      phoneNumber: updatedData.phoneNumber,
+      email: updatedData.email,
+      address: updatedData.address,
+      energyPreference: updatedData.energyPreference,
+      paymentMethod: updatedData.paymentMethod,
+    };
+
+    (async () => {
+      try {
+        setError(null);
+        setSuccessMessage(null);
+        
+        const data = await updateProfileData(profileUpdateData);
+        setProfile(data);
+        setIsEditing(false);
+        setSuccessMessage('Profile updated successfully!');
+        
+        // Clear success message after 5 seconds
+        setTimeout(() => setSuccessMessage(null), 5000);
+      } catch (error) {
+        console.error('Failed to update profile:', error);
+        setError('Failed to update profile information. Please try again.');
+      }
+    })();
   };
 
   const handleViewLoans = () => {

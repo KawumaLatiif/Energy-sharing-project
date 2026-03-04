@@ -65,7 +65,7 @@ interface Loan {
   repayments: LoanRepayment[];
   disbursement_token: string | null;
   disbursement_units: number | null;
-  total_amount_due?: number;
+  total_amount_due: number;
   outstanding_balance: number;
   due_date: string | null;
 }
@@ -178,10 +178,9 @@ export default function LoanList({ loans }: LoanListProps) {
 
   const fetchLoans = async () => {
     try {
-      const response = await get<any>('loans/my-loans/');
-      const data = await response.json();
+      const response = await get('loans/my-loans/');
       // Update loans state if you're managing it locally
-      // setLoans(data.data || data.results || []);
+      // setLoans(response.data || response.results || []);
     } catch (error) {
       console.error('Error refreshing loans:', error);
     }

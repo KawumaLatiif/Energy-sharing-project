@@ -226,7 +226,7 @@ export default function TariffsModal({ tariff, onSave }: TariffsModalProps) {
               <Switch
                 id="is_active"
                 checked={form.is_active}
-                onCheckedChange={(checked) => setForm((prev) => ({ ...prev, is_active: checked }))}
+                onChange={(checked) => setForm((prev) => ({ ...prev, is_active: checked }))}
               />
               <Label htmlFor="is_active" className="ml-2">Active</Label>
             </div>
