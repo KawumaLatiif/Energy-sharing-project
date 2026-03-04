@@ -30,7 +30,7 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
   useEffect(() => {
     // Only auto-verify if we have both uid and token
     if (uid && token) {
-      handleVerifyEmail();
+      void handleVerifyEmail();
     } else if (email) {
       // If we only have email, show message to check inbox
       setStatus('idle');
@@ -51,17 +51,17 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.message);
+        setMessage(result.message || 'Email verified successfully');
         // Redirect after a delay
         setTimeout(() => {
           window.location.href = '/auth/login';
         }, 3000);
       } else {
         setStatus('error');
-        setMessage(result.error);
+        setMessage(result.error || 'Invalid or expired verification link');
         setShowResend(true);
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setMessage('An unexpected error occurred during verification');
       setShowResend(true);
@@ -80,12 +80,12 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.message);
+        setMessage(result.message || 'Verification email sent successfully');
       } else {
         setStatus('error');
-        setMessage(result.error);
+        setMessage(result.error || 'Failed to resend verification email');
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setMessage('Failed to resend verification email');
     }
