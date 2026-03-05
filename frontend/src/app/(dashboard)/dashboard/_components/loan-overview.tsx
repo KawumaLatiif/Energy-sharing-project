@@ -31,6 +31,7 @@ interface LoanStats {
 }
 
 export default function LoanOverview() {
+  const [walletUnitsBalance, setWalletUnitsBalance] = useState<number>(0);
   const [stats, setStats] = useState<LoanStats>({
     active_loans: 0,
     pending_applications: 0,
@@ -46,6 +47,7 @@ export default function LoanOverview() {
     async function fetchLoanStats() {
       try {
         const response = await get<any>("loans/stats/");
+        const walletResponse = await get<any>("wallet/balance/");
 
         if (response.error) {
           console.warn("Failed to fetch loan stats:", response.error);
@@ -53,6 +55,11 @@ export default function LoanOverview() {
         }
 
         setStats(response.data);
+
+        if (!walletResponse.error && walletResponse.data?.success) {
+          const units = Number(walletResponse.data.wallet?.balance || 0);
+          setWalletUnitsBalance(units);
+        }
       } catch (error) {
         console.error("Error fetching loan stats:", error);
       } finally {
@@ -105,6 +112,24 @@ export default function LoanOverview() {
         <CardContent>
           <div className="text-xs text-muted-foreground">
             Currently active electricity loans
+          </div>
+        </CardContent>
+      </Card>
+
+      {/* Wallet Units Balance */}
+      <Card>
+        <CardHeader className="pb-2">
+          <div className="flex items-center justify-between">
+            <CardDescription>Wallet Unit Balance</CardDescription>
+            <DollarSignIcon className="h-4 w-4 text-indigo-500" />
+          </div>
+          <CardTitle className="text-3xl">
+            {walletUnitsBalance.toFixed(2)} units
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-xs text-muted-foreground">
+            Units available to share to your meter or another meter
           </div>
         </CardContent>
       </Card>

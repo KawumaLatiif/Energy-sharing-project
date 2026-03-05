@@ -55,6 +55,7 @@ from django.db.models import Sum
 from meter.api.serializers import MeterSerializer
 from loan.models import LoanApplication
 from loan.api.serializers import LoanApplicationSerializer
+from loan.scoring import get_or_create_dummy_credit_signal
 
 logger = logging.getLogger(__name__)
 
@@ -1118,6 +1119,7 @@ class LoginAPIView(TokenObtainPairView):
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)  # This will raise if invalid
             user = serializer.user
+            get_or_create_dummy_credit_signal(user)
 
             # Add custom user data to the response
             response.data.update({

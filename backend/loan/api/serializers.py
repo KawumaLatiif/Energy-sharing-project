@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from django.db.utils import OperationalError, ProgrammingError
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, TariffBlock, LoanTier
 
 # class TariffBlockSerializer(serializers.ModelSerializer):
@@ -112,8 +113,13 @@ class LoanApplicationSerializer(serializers.ModelSerializer):
         read_only_fields = ('user', 'status', 'credit_score', 'amount_approved', 'loan_id', 'rejection_reason', 'user_notified', 'loan_tier', 'interest_rate', 'outstanding_balance', 'total_amount_due')
     
     def get_user_profile_data(self, obj):
-        """Include user profile data in the loan response"""
+        """Include legacy profile fields and third-party credit signals in response."""
         user = obj.user
+        try:
+            credit_signal = getattr(user, 'credit_signal', None)
+        except (OperationalError, ProgrammingError):
+            # Migration not applied yet; avoid crashing serializer responses.
+            credit_signal = None
         return {
             'monthly_expenditure': user.monthly_expenditure,
             'purchase_frequency': user.purchase_frequency,
@@ -123,6 +129,12 @@ class LoanApplicationSerializer(serializers.ModelSerializer):
             'monthly_income': user.monthly_income,
             'income_stability': user.income_stability,
             'consumption_level': user.consumption_level,
+            'credit_signal': {
+                'payment_history': credit_signal.payment_history if credit_signal else None,
+                'energy_consumption': credit_signal.energy_consumption if credit_signal else None,
+                'financial_capacity': credit_signal.financial_capacity if credit_signal else None,
+                'source': credit_signal.source if credit_signal else None,
+            }
         }
 
     def get_outstanding_balance(self, obj):
@@ -217,12 +229,6 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Maximum loan amount is 200,000 UGX")
         return value
     
-    def validate_monthly_expenditure(self, value):
-        valid_choices = [choice[0] for choice in LoanApplication._meta.get_field('monthly_expenditure').choices]
-        if value not in valid_choices:
-            raise serializers.ValidationError("Invalid choice for monthly expenditure")
-        return value
-
 class LoanTierSerializer(serializers.ModelSerializer):
     class Meta:
         model = LoanTier

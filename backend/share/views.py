@@ -61,10 +61,11 @@ class ShareUnitsView(APIView):
                         )
                     sender_meter = sender_meters.first()
                     
-                    # Check if sender's METER has sufficient units (not wallet)
-                    if sender_meter.units < units_to_share:
+                    # Check if sender's WALLET has sufficient units
+                    sender_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=sender)
+                    if sender_wallet.balance < units_to_share:
                         return Response({
-                            "error": f"Insufficient units in your meter. Your balance: {format_currency(sender_meter.units)} units"
+                            "error": f"Insufficient units in your wallet. Your balance: {format_currency(sender_wallet.balance)} units"
                         }, status=status.HTTP_400_BAD_REQUEST)
                     
                     # Validate receiver meter exists and is active
@@ -81,13 +82,6 @@ class ShareUnitsView(APIView):
                     
                     # Get receiver user
                     receiver_user = receiver_meter.user
-                    
-                    # Prevent self-sharing
-                    if sender == receiver_user:
-                        return Response(
-                            {"error": "Cannot share units to yourself"},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
                     
                     # Generate transaction ref
                     transaction_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
@@ -188,23 +182,19 @@ class ShareUnitsView(APIView):
                     sender_meter = Meter.objects.select_for_update().get(id=pending_share.meter_send_id)
                     receiver_meter = Meter.objects.select_for_update().get(meter_no=receiver_meter_no)
                     
-                    # Double-check units
-                    if sender_meter.units < units_to_share:
+                    # Double-check wallet units
+                    sender_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=user)
+                    if sender_wallet.balance < units_to_share:
                         return Response({"error": "Insufficient units. Transaction cancelled."}, status=status.HTTP_400_BAD_REQUEST)
-                    
-                    # Perform share
-                    sender_meter.units -= units_to_share
-                    sender_meter.save()
+
+                    # Deduct from wallet and add to receiver meter
+                    sender_wallet.balance -= units_to_share
+                    sender_wallet.save()
                     
                     receiver_meter.units += units_to_share
                     receiver_meter.save()
-                    
-                    # Sync to MeterBalance (create if missing)
-                    MeterBalance.objects.update_or_create(
-                        user=sender_meter.user,
-                        meter_number=sender_meter.meter_no,
-                        defaults={'meter': sender_meter, 'balance': sender_meter.units, 'is_active': True}
-                    )
+
+                    # Sync receiver meter balance (wallet remains source for sender)
                     MeterBalance.objects.update_or_create(
                         user=receiver_meter.user,
                         meter_number=receiver_meter.meter_no,
@@ -248,19 +238,19 @@ class ShareUnitsView(APIView):
                         'wallet_update',
                         amount=units_to_share,
                         transaction_id=transaction_ref,
-                        new_balance=sender_meter.units,
+                        new_balance=sender_wallet.balance,
                         date=timezone.now().strftime('%Y-%m-%d %H:%M:%S')
                     )
                     handle_send_wallet_update.delay(user.id, update_details)
                     
-                    logger.info(f"Share completed: {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}")
+                    logger.info(f"Share completed: {units_to_share} units from wallet to {receiver_meter_no}")
                     
                     return Response({
                         "success": True,
                         "message": "Units shared successfully",
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
-                        "new_sender_balance": str(sender_meter.units),
+                        "new_sender_wallet_balance": str(sender_wallet.balance),
                         "timestamp": timezone.now().isoformat()
                     }, status=status.HTTP_200_OK)
                     

@@ -24,7 +24,13 @@ import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { FileTextIcon } from "@radix-ui/react-icons";
-import Link from "next/link";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import BuyUnitsSuggestion from "../../request-loan/_components/buy-units-suggestion";
 import TokenPopup from "../../request-loan/_components/token-popup";
 import RepaymentForm from "../../request-loan/_components/repayment-form";
@@ -76,6 +82,7 @@ interface LoanListProps {
 
 export default function LoanList({ loans }: LoanListProps) {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
+  const [detailLoan, setDetailLoan] = useState<Loan | null>(null);
   const [showRepaymentForm, setShowRepaymentForm] = useState(false);
   const [showTokenPopup, setShowTokenPopup] = useState(false);
   const [showBuySuggestion, setShowBuySuggestion] = useState(false);
@@ -396,14 +403,14 @@ export default function LoanList({ loans }: LoanListProps) {
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end" className="w-48">
-                        <DropdownMenuItem asChild>
-                          <Link
-                            href={`/dashboard/myloans/${loan.id}`}
-                            className="w-full cursor-pointer flex items-center"
-                          >
+                        <DropdownMenuItem
+                          onClick={() => setDetailLoan(loan)}
+                          className="cursor-pointer"
+                        >
+                          <span className="flex items-center">
                             <FileTextIcon className="h-4 w-4 mr-2" />
                             View Details
-                          </Link>
+                          </span>
                         </DropdownMenuItem>
 
                         {canRepay(loan) && (
@@ -476,6 +483,49 @@ export default function LoanList({ loans }: LoanListProps) {
           }}
         />
       )}
+
+      <Dialog
+        open={Boolean(detailLoan)}
+        onOpenChange={(open) => {
+          if (!open) setDetailLoan(null);
+        }}
+      >
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Loan Details</DialogTitle>
+            <DialogDescription>
+              Details for {detailLoan?.loan_id ?? "selected loan"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {detailLoan && (
+            <div className="space-y-2 text-sm">
+              <p><strong>Loan ID:</strong> {detailLoan.loan_id}</p>
+              <p><strong>Purpose:</strong> {detailLoan.purpose || "-"}</p>
+              <p><strong>Status:</strong> {getLoanStatus(detailLoan)}</p>
+              <p><strong>Requested Amount:</strong> {formatAmount(detailLoan.amount_requested)} UGX</p>
+              <p><strong>Approved Amount:</strong> {formatAmount(detailLoan.amount_approved)} UGX</p>
+              <p><strong>Outstanding Balance:</strong> {calculateOutstandingBalance(detailLoan).toLocaleString()} UGX</p>
+              <p><strong>Interest Rate:</strong> {detailLoan.interest_rate ?? "-"}%</p>
+              <p><strong>Tenure (months):</strong> {detailLoan.tenure_months ?? "-"}</p>
+              <p><strong>Credit Score:</strong> {detailLoan.credit_score ?? "-"}</p>
+              <p><strong>Disbursement Token:</strong> {detailLoan.disbursement_token || "-"}</p>
+              <p><strong>Disbursement Units:</strong> {detailLoan.disbursement_units ?? "-"}</p>
+              <p>
+                <strong>Applied At:</strong>{" "}
+                {detailLoan.created_at ? new Date(detailLoan.created_at).toLocaleString() : "N/A"}
+              </p>
+              <p>
+                <strong>Due Date:</strong>{" "}
+                {detailLoan.due_date ? new Date(detailLoan.due_date).toLocaleDateString() : "-"}
+              </p>
+              {detailLoan.rejection_reason && (
+                <p><strong>Rejection Reason:</strong> {detailLoan.rejection_reason}</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

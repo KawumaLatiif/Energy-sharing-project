@@ -13,14 +13,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import Link from "next/link";
 import {
-  ArrowUpRight,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   CheckCheck,
   Clock10Icon,
   EllipsisVertical,
-  PlusCircle,
-  XIcon,
   Zap,
   ShoppingCart,
   CreditCard,
@@ -28,12 +31,15 @@ import {
 import TransactionButton from "../../_components/txn-button";
 import { Token } from "@/interface/token.interface";
 import { cn } from "@/lib/utils";
+import { useState } from "react";
 
 interface TokenListProps {
   tokens: Token[];
 }
 
 const TokenList = ({ tokens }: TokenListProps) => {
+  const [selectedToken, setSelectedToken] = useState<Token | null>(null);
+
   if (!tokens || tokens.length === 0) {
     return (
       <div className="text-center py-8 text-muted-foreground">
@@ -164,8 +170,8 @@ const TokenList = ({ tokens }: TokenListProps) => {
                         <EllipsisVertical className="h-4 w-4" />
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem asChild>
-                          <Link href={`/tokens/${token.id}`}>View Details</Link>
+                        <DropdownMenuItem onClick={() => setSelectedToken(token)}>
+                          View Details
                         </DropdownMenuItem>
                         <DropdownMenuItem
                           onClick={() =>
@@ -222,6 +228,41 @@ const TokenList = ({ tokens }: TokenListProps) => {
           </div>
         </div> */}
       </div>
+
+      <Dialog
+        open={Boolean(selectedToken)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedToken(null);
+        }}
+      >
+        <DialogContent className="max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Token Details</DialogTitle>
+            <DialogDescription>
+              Details for token #{selectedToken?.id ?? "-"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedToken && (
+            <div className="space-y-2 text-sm">
+              <p><strong>Token ID:</strong> {selectedToken.id}</p>
+              <p><strong>Token:</strong> {selectedToken.token}</p>
+              <p><strong>Source:</strong> {selectedToken.source_display || selectedToken.source}</p>
+              <p><strong>Units:</strong> {Number(selectedToken.units).toFixed(2)} units</p>
+              <p><strong>Status:</strong> {selectedToken.is_used ? "Used" : "Active"}</p>
+              <p>
+                <strong>Date:</strong>{" "}
+                {selectedToken.created_at
+                  ? new Date(selectedToken.created_at).toLocaleString()
+                  : "N/A"}
+              </p>
+              {selectedToken.loan_id && (
+                <p><strong>Loan ID:</strong> {selectedToken.loan_id}</p>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

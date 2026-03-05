@@ -3,16 +3,14 @@ import { User } from '@/interface/user.interface';
 
 export interface SetupStatus {
   hasMeter: boolean;
-  hasCompleteProfile: boolean;
   completedSetup: boolean;
-  currentStep: 'meter' | 'profile' | 'complete';
+  currentStep: 'meter' | 'complete';
 }
 
 export async function checkUserSetupStatus(user: User | null): Promise<SetupStatus> {
   if (!user) {
     return {
       hasMeter: false,
-      hasCompleteProfile: false,
       completedSetup: false,
       currentStep: 'meter'
     };
@@ -22,7 +20,6 @@ export async function checkUserSetupStatus(user: User | null): Promise<SetupStat
   if (user.is_admin || user.user_role === 'ADMIN') {
     return {
       hasMeter: true,
-      hasCompleteProfile: true,
       completedSetup: true,
       currentStep: 'complete'
     };
@@ -35,35 +32,20 @@ export async function checkUserSetupStatus(user: User | null): Promise<SetupStat
                      meterResponse.data?.success && 
                      meterResponse.data.data?.has_meter;
     
-    // Check profile completion
-    let hasCompleteProfile = false;
-    try {
-      const profileResponse = await get<any>('auth/user-profile/');
-      hasCompleteProfile = !profileResponse.error && !!profileResponse.data?.completed;
-    } catch (error) {
-      console.error('Profile check failed:', error);
-      hasCompleteProfile = false;
-    }
-
-    // Determine current step
-    let currentStep: 'meter' | 'profile' | 'complete' = 'complete';
+    let currentStep: 'meter' | 'complete' = 'complete';
     if (!hasMeter) {
       currentStep = 'meter';
-    } else if (!hasCompleteProfile) {
-      currentStep = 'profile';
     }
 
     return {
       hasMeter,
-      hasCompleteProfile,
-      completedSetup: hasMeter && hasCompleteProfile,
+      completedSetup: hasMeter,
       currentStep
     };
   } catch (error) {
     console.error('Failed to check setup status:', error);
     return {
       hasMeter: false,
-      hasCompleteProfile: false,
       completedSetup: false,
       currentStep: 'meter'
     };

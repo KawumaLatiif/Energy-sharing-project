@@ -189,7 +189,7 @@ const AccountDetails = ({ accountData, onEdit, onViewLoans, onViewMeter }: Accou
           {accountData.profileCompletion && (
             <div className="bg-white rounded-xl shadow-sm overflow-hidden">
               <div className="px-6 py-4 bg-gray-50 border-b">
-                <h3 className="text-lg font-semibold text-gray-900">Profile Status</h3>
+                <h3 className="text-lg font-semibold text-gray-900">Account Status</h3>
               </div>
               <div className="p-6">
                 <div className="space-y-4">
@@ -200,7 +200,7 @@ const AccountDetails = ({ accountData, onEdit, onViewLoans, onViewMeter }: Accou
                           ? "bg-green-500" 
                           : "bg-yellow-500"
                       }`} />
-                      <span className="text-sm font-medium">Profile Complete</span>
+                      <span className="text-sm font-medium">Account Setup</span>
                     </div>
                     <span className={`text-sm font-medium ${
                       accountData.profileCompletion.hasCompleteProfile 
@@ -254,7 +254,7 @@ const AccountDetails = ({ accountData, onEdit, onViewLoans, onViewMeter }: Accou
                       onClick={onEdit}
                       className="w-full px-4 py-2 bg-blue-50 text-blue-700 rounded-lg hover:bg-blue-100 font-medium transition-colors"
                     >
-                      Complete Your Profile
+                      Update Account Details
                     </button>
                   </div>
                 )}
@@ -339,3 +339,4 @@ const AccountDetails = ({ accountData, onEdit, onViewLoans, onViewMeter }: Accou
 };
 
 export default AccountDetails;
+

@@ -78,20 +78,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: SimpleLoanFormPr
     setSuccess("");
 
     try {
-      // Use default values for other required fields
-      const fullApplicationData = {
-        ...values,
-        monthly_expenditure: "100,001–200,000 UGX",
-        purchase_frequency: "Monthly",
-        payment_consistency: "Often on time",
-        disconnection_history: "1–2 disconnections",
-        meter_sharing: "No sharing",
-        monthly_income: "200,000–499,999 UGX",
-        income_stability: "Regular but variable",
-        consumption_level: "Moderate (100–200 kWh)"
-      };
-
-      const result = await submitLoanApplication(fullApplicationData);
+      const result = await submitLoanApplication(values);
 
       if (result.data) {
         setSuccess(result.data.message || "Loan application submitted successfully!");
@@ -230,3 +217,4 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: SimpleLoanFormPr
     </CardWrapper>
   );
 }
+

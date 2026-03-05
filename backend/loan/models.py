@@ -98,6 +98,34 @@ class TimeStampedModel(models.Model):
         abstract = True
 
 
+class UserCreditSignal(TimeStampedModel):
+    """Third-party credit indicators used for loan eligibility scoring."""
+    PAYMENT_HISTORY_CHOICES = (
+        ('GOOD', 'Good'),
+        ('FAIR', 'Fair'),
+        ('POOR', 'Poor'),
+    )
+    ENERGY_CONSUMPTION_CHOICES = (
+        ('STABLE', 'Stable'),
+        ('MODERATE', 'Moderate'),
+        ('ERRATIC', 'Erratic'),
+    )
+    FINANCIAL_CAPACITY_CHOICES = (
+        ('STRONG', 'Strong'),
+        ('AVERAGE', 'Average'),
+        ('WEAK', 'Weak'),
+    )
+
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='credit_signal')
+    payment_history = models.CharField(max_length=10, choices=PAYMENT_HISTORY_CHOICES)
+    energy_consumption = models.CharField(max_length=10, choices=ENERGY_CONSUMPTION_CHOICES)
+    financial_capacity = models.CharField(max_length=10, choices=FINANCIAL_CAPACITY_CHOICES)
+    source = models.CharField(max_length=100, default='DUMMY_THIRD_PARTY')
+
+    def __str__(self):
+        return f"CreditSignal<{self.user.email}>"
+
+
 class LoanApplication(TimeStampedModel):
     LOAN_STATUS = (
         ('PENDING', 'Pending'),

@@ -557,17 +557,27 @@ export const getUserProfile = async (): Promise<UserProfile> => {
     }>("meter/my-meter/");
 
     // Fetch loans
-    const loansResponse = await get<LoanApplication[]>("loan/my-loans/");
+    const loansResponse = await get<any>("loans/my-loans/");
 
     // Fetch loan stats
-    const loanStatsResponse = await get<{
-      active_loans: number;
-      total_loans: number;
-      total_borrowed: number;
-      total_repayments: number;
-      outstanding_balance: number;
-      credit_score?: number;
-    }>("loan/stats/");
+    const loanStatsResponse = await get<any>("loans/stats/");
+    
+    const loansData = Array.isArray(loansResponse.data)
+      ? loansResponse.data
+      : loansResponse.data?.results || loansResponse.data?.data || [];
+
+    const statsData = loanStatsResponse.data?.data || loanStatsResponse.data || undefined;
+    
+    const loanStats = statsData
+      ? {
+          active_loans: Number(statsData.active_loans || 0),
+          total_loans: Number(statsData.total_loans || 0),
+          total_borrowed: Number(statsData.total_borrowed || 0),
+          total_repayments: Number(statsData.total_repayments || 0),
+          outstanding_balance: Number(statsData.outstanding_balance || 0),
+          credit_score: statsData.credit_score ? Number(statsData.credit_score) : undefined,
+        }
+      : undefined;
 
     const userConfig = userConfigResponse.data;
     
@@ -619,13 +629,13 @@ export const getUserProfile = async (): Promise<UserProfile> => {
       paymentMethod: userConfig.account_details?.payment_method,
       
       meter: meterDetails,
-      loans: loansResponse.data || [],
-      loanStats: loanStatsResponse.data || undefined,
+      loans: loansData,
+      loanStats,
       
       profileCompletion: {
         hasCompleteProfile: !!hasCompleteProfile,
         hasMeter: !!meterDetails?.has_meter,
-        isLoanEligible: (loanStatsResponse.data?.credit_score || 0) >= 75,
+        isLoanEligible: (loanStats?.credit_score || 0) >= 75,
         completionPercentage,
         missingFields
       }

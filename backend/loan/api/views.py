@@ -1,5 +1,6 @@
 import logging
 import random
+from decimal import Decimal
 from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
@@ -18,6 +19,8 @@ from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from meter.models import MeterToken
 from loan.models import get_tier_by_score
+from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
 
@@ -64,13 +67,6 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            #check if user has completed profile
-            if not request.user.has_complete_profile:
-                return Response(
-                    {"error" : "Please complete your profile before applying for a loan."},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
 
@@ -80,8 +76,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 # Fallback to first active tariff or None
                 tariff = ElectricityTariff.objects.filter(is_active=True).first()
 
-            # Calculate credit score
-            credit_score = self.calculate_credit_score(request.user, data)
+            # Collect third-party credit signals (dummy for now) and score user
+            credit_signal = get_or_create_dummy_credit_signal(request.user)
+            credit_score = self.calculate_credit_score(credit_signal)
 
             # Determine approved amount and tier
             amount_requested = float(data.get("amount_requested", 0))
@@ -143,6 +140,17 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 "tariff_applied": tariff.tariff_code if tariff else None,
                 "units_calculated": units_calculated,
                 "cost_breakdown": cost_breakdown,
+                "credit_factors": {
+                    "payment_history": credit_signal.payment_history,
+                    "energy_consumption": credit_signal.energy_consumption,
+                    "financial_capacity": credit_signal.financial_capacity,
+                    "source": credit_signal.source,
+                    "weights": {
+                        "payment_history": 1,
+                        "energy_consumption": 2,
+                        "financial_capacity": 3
+                    }
+                },
             }
 
             if loan.status == "APPROVED":
@@ -163,95 +171,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-    def calculate_credit_score(self, user, loan_data):
-        """Compute credit score from all frontend fields with new weightings"""
-        score = 0
-
-        # 1. Payment consistency (30 points)
-        payment_map = {
-            "Always on time": 30,
-            "Often on time": 22,
-            "Sometimes late": 12,
-            "Mostly late": 5,
-            "Never paid": 0
-        }
-        score += payment_map.get(user.payment_consistency, 12)  # Default: 12 ("Sometimes late")
-
-        # 2. Disconnection history (20 points)
-        disconnection_map = {
-            "No disconnections": 20,
-            "1–2 disconnections": 15,
-            "3–4 disconnections": 8,
-            ">4 disconnections": 3,
-            "Frequently disconnected": 0
-        }
-        score += disconnection_map.get(user.disconnection_history, 8)  # Default: 8 ("3–4 disconnections")
-
-        # 3. Monthly expenditure (15 points) - Lower expenditure gets higher score
-        expenditure_map = {
-            "<50,000 UGX": 15,
-            "50,000–100,000 UGX": 12,
-            "100,001–200,000 UGX": 8,
-            "200,001–300,000 UGX": 5,
-            ">300,000 UGX": 2
-        }
-        score += expenditure_map.get(user.monthly_expenditure, 8)  # Default: 8 ("100,001–200,000 UGX")
-
-        # 4. Purchase frequency (10 points) - More frequent purchases get higher score
-        frequency_map = {
-            "Daily": 10,
-            "Weekly": 8,
-            "Bi-weekly": 6,
-            "Monthly": 4,
-            "Rarely": 2
-        }
-        score += frequency_map.get(user.purchase_frequency, 4)  # Default: 4 ("Monthly")
-
-        # 5. Consumption level (10 points) - Moderate consumption gets highest score
-        consumption_map = {
-            "Moderate (100–200 kWh)": 10,
-            "Low (50–99 kWh)": 8,
-            "High (>200 kWh)": 6,
-            "Very low (<50 kWh)": 4,
-            "Extremely high (>300 kWh)": 2
-        }
-        score += consumption_map.get(user.consumption_level, 8)  # Default: 8 ("Low (50–99 kWh)")
-
-        # 6. Monthly income (7 points) - Higher income gets higher score
-        income_map = {
-            ">1,000,000 UGX": 7,
-            "500,000–999,999 UGX": 6,
-            "200,000–499,999 UGX": 5,
-            "100,000–199,999 UGX": 3,
-            "<100,000 UGX": 1
-        }
-        score += income_map.get(user.monthly_income, 5)  # Default: 5 ("200,000–499,999 UGX")
-
-        # 7. Income stability (5 points) - Stable income gets higher score
-        stability_map = {
-            "Fixed and stable": 5,
-            "Regular but variable": 4,
-            "Seasonal income": 3,
-            "Irregular but frequent": 2,
-            "Unstable income": 1
-        }
-        score += stability_map.get(user.income_stability, 4)  # Default: 4 ("Regular but variable")
-
-        # 8. Meter sharing (3 points) - No sharing gets full points
-        sharing_map = {
-            "No sharing": 3,
-            "Shared with 1 household": 2,
-            "Shared with 2+ households": 1,
-            "Commercial sharing": 0
-        }
-        score += sharing_map.get(user.meter_sharing, 3)  # Default: 3 ("No sharing")
-
-        # 9. Loan amount factor (bonus/penalty based on requested amount)
-        amount_requested = float(loan_data.get("amount_requested", 0))
-        amount_factor = self.calculate_amount_factor(amount_requested, user.monthly_income)
-        score += amount_factor
-
-        return max(0, min(score, 100))
+    def calculate_credit_score(self, credit_signal):
+        """Compute 0-100 score from weighted third-party factors."""
+        return max(0, min(calculate_weighted_credit_score(credit_signal), 100))
 
     def get_cost_breakdown(self, loan, amount):
         """Calculate detailed cost breakdown for block tariff"""
@@ -295,29 +217,6 @@ class LoanApplicationView(generics.ListCreateAPIView):
             })
     
         return breakdown
-
-    def calculate_amount_factor(self, amount_requested, monthly_income):
-        """Calculate bonus/penalty based on loan amount vs income"""
-        # Define income ranges and their maximum recommended loan amounts
-        income_ranges = {
-            "<100,000 UGX": 20000,
-            "100,000–199,999 UGX": 50000,
-            "200,000–499,999 UGX": 100000,
-            "500,000–999,999 UGX": 150000,
-            ">1,000,000 UGX": 200000
-        }
-        
-        max_recommended = income_ranges.get(monthly_income, 50000)
-        
-        if amount_requested <= max_recommended * 0.5:
-            return 5  
-        elif amount_requested <= max_recommended:
-            return 2  
-        elif amount_requested <= max_recommended * 1.5:
-            return -5  
-        else:
-            return -10  
-    
     # def determine_loan_tier(self, score):
     #     """Determine loan tier, maximum amount, and interest rate based on credit score"""
     #     tiers = [
@@ -762,10 +661,11 @@ class LoanDisbursementView(APIView):
                         'token_expiry': token_expiry.isoformat()
                     }
                 )
-                
-                # Add units to meter
-                meter.units += units_to_disburse
-                meter.save()
+
+                # Add units to unit wallet (not meter)
+                unit_wallet, _ = UnitWallet.objects.get_or_create(user=request.user)
+                unit_wallet.balance += Decimal(str(units_to_disburse))
+                unit_wallet.save()
                 
                 try:
                     # Try minimal fields based on your model structure
@@ -773,10 +673,10 @@ class LoanDisbursementView(APIView):
                         'sender': request.user,
                         'receiver': request.user,
                         'units': units_to_disburse,
-                        'meter': meter,
+                        'meter': None,
                         'direction': 'IN',
                         'status': 'COMPLETED',
-                        'message': f'Loan disbursement - {loan.loan_id}'
+                        'message': f'Loan disbursement to wallet - {loan.loan_id}'
                     }
                     
                     # Remove any None values
@@ -789,9 +689,9 @@ class LoanDisbursementView(APIView):
                     # Don't fail the whole disbursement if transaction recording fails
             
             return Response({
-                "message": "Loan disbursed successfully!",
+                "message": "Loan disbursed successfully to your unit wallet!",
                 "token": disbursement.token,
-                "units_added": round(units_to_disburse, 2),
+                "units_added_to_wallet": round(units_to_disburse, 2),
                 "tariff_info": tariff_info,
                 "token_expiry": token_expiry.isoformat()
             })
@@ -896,3 +796,4 @@ class LoanStatsView(APIView):
         except Exception as e:
             logger.exception("Loan stats failed")
             return Response({"error": "Failed to fetch stats"}, status=500)
+

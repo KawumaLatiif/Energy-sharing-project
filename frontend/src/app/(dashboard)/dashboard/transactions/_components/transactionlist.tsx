@@ -14,14 +14,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu"
-import Link from "next/link"
 import {
-  ArrowUpRight,
-  CheckCheck,
-  Clock10Icon,
   EllipsisVertical,
-  PlusCircle,
-  XIcon
 } from "lucide-react";
 import { get } from "@/lib/fetch";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +23,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useState, useEffect } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 
 interface Transaction {
   id: number;
@@ -44,6 +45,7 @@ interface Transaction {
 
 const TransList = () => {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [selectedTransaction, setSelectedTransaction] = useState<Transaction | null>(null);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
@@ -92,6 +94,15 @@ const TransList = () => {
     setPage(1);  // Reset to first page on filter change
   };
 
+  const handleResetFilters = () => {
+    setFilters({
+      type: "",
+      start_date: "",
+      end_date: "",
+    });
+    setPage(1);
+  };
+
   const getTypeBadge = (type: string) => {
     const colors: { [key: string]: string } = {
       LOAN_APPLICATION: 'bg-blue-500',
@@ -114,12 +125,15 @@ const TransList = () => {
 
       {/* Filters */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-        <Select onValueChange={(v) => handleFilterChange('type', v)}>
+        <Select
+          value={filters.type || "ALL"}
+          onValueChange={(v) => handleFilterChange('type', v === "ALL" ? "" : v)}
+        >
           <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Filter by Type" />
           </SelectTrigger>
           <SelectContent>
-            {/* <SelectItem value="">All Types</SelectItem> */}
+            <SelectItem value="ALL">All Types</SelectItem>
             <SelectItem value="LOAN_APPLICATION">Loan Application</SelectItem>
             <SelectItem value="LOAN_REPAYMENT">Loan Repayment</SelectItem>
             <SelectItem value="UNIT_PURCHASE">Unit Purchase</SelectItem>
@@ -144,6 +158,13 @@ const TransList = () => {
         />
         <Button onClick={() => fetchTransactions(1)} className="w-full sm:w-auto">
           Apply Filters
+        </Button>
+        <Button
+          variant="outline"
+          onClick={handleResetFilters}
+          className="w-full sm:w-auto"
+        >
+          Reset
         </Button>
       </div>
 
@@ -178,14 +199,9 @@ const TransList = () => {
                   <DropdownMenu>
                     <DropdownMenuTrigger><EllipsisVertical /></DropdownMenuTrigger>
                     <DropdownMenuContent>
-                      <DropdownMenuItem>
-                        <Button asChild variant="link"><Link href={`/transactions/${txn.id}`}>View Transaction</Link></Button>
+                      <DropdownMenuItem onClick={() => setSelectedTransaction(txn)}>
+                        View Details
                       </DropdownMenuItem>
-                      {txn.reference_id && (
-                        <DropdownMenuItem asChild>
-                          <Link href={`/details/${txn.transaction_type.toLowerCase()}/${txn.reference_id}`}>View Details</Link>
-                        </DropdownMenuItem>
-                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -218,6 +234,45 @@ const TransList = () => {
           Next
         </Button>
       </div>
+
+      <Dialog
+        open={Boolean(selectedTransaction)}
+        onOpenChange={(open) => {
+          if (!open) setSelectedTransaction(null);
+        }}
+      >
+        <DialogContent className="max-w-xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Transaction Details</DialogTitle>
+            <DialogDescription>
+              Details for transaction #{selectedTransaction?.id ?? "-"}.
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedTransaction && (
+            <div className="space-y-2 text-sm">
+              <p><strong>ID:</strong> {selectedTransaction.id}</p>
+              <p><strong>Type:</strong> {selectedTransaction.transaction_type_display || selectedTransaction.transaction_type}</p>
+              <p><strong>Status:</strong> {selectedTransaction.status}</p>
+              <p><strong>Amount:</strong> {selectedTransaction.amount ?? "-"}</p>
+              <p><strong>Units:</strong> {selectedTransaction.units ?? "-"}</p>
+              <p><strong>Reference ID:</strong> {selectedTransaction.reference_id || "-"}</p>
+              <p>
+                <strong>Date:</strong>{" "}
+                {selectedTransaction.created_at ? new Date(selectedTransaction.created_at).toLocaleString() : "N/A"}
+              </p>
+              {selectedTransaction.details && (
+                <div>
+                  <p><strong>Extra Details:</strong></p>
+                  <pre className="mt-1 rounded-md bg-muted p-3 text-xs overflow-x-auto">
+                    {JSON.stringify(selectedTransaction.details, null, 2)}
+                  </pre>
+                </div>
+              )}
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

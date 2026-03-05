@@ -66,19 +66,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       const meters = apiData.meters || [];
       setUserMeters(meters);
 
-      // Use METER balance for sharing, not wallet balance
-      let finalBalance = 0;
-      if (meters.length > 0 && meters[0].is_active) {
-        // Use the active meter's balance
-        finalBalance = parseFloat(meters[0].balance || "0");
-        console.log("Using meter balance:", finalBalance, "from meter:", meters[0].meter_number);
-      } else {
-        // Fallback to wallet balance if no active meter
-        finalBalance = parseFloat(apiData.wallet?.balance || "0");
-        console.log("Using wallet balance (no active meter):", finalBalance);
-      }
-
-      setUserBalance(finalBalance);
+      const walletBalance = parseFloat(apiData.wallet?.balance || "0");
+      setUserBalance(walletBalance);
     } else {
       console.error(
         "Balance fetch failed:",
@@ -111,7 +100,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   // Step 1: Submit initial share request
   const handleInitialSubmit = async (data: ShareFormValues) => {
     if (userBalance !== null && data.units > userBalance) {
-      setError("Insufficient units in your meter");
+      setError("Insufficient units in your wallet");
       return;
     }
 

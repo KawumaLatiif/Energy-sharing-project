@@ -118,7 +118,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
             {profile.emailVerified ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
             ) : (
-              <Link href="/verify-email" className="text-blue-600 text-sm hover:underline">
+              <Link href="/dashboard/myaccount" className="text-blue-600 text-sm hover:underline">
                 Verify Now
               </Link>
             )}
@@ -148,7 +148,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
             {profile.profileCompletion.hasMeter ? (
               <span className="text-green-600 text-sm">✓ Complete</span>
             ) : (
-              <Link href="/meter/register" className="text-blue-600 text-sm hover:underline">
+              <Link href="/dashboard/request-loan/register-meter" className="text-blue-600 text-sm hover:underline">
                 Register Meter
               </Link>
             )}
@@ -262,21 +262,21 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-blue-50 p-3 rounded-lg">
                   <p className="text-sm text-blue-600">Active Loans</p>
-                  <p className="text-xl font-bold">{profile.loanStats.active_loans}</p>
+                  <p className="text-xl font-bold text-blue-900">{profile.loanStats.active_loans}</p>
                 </div>
                 <div className="bg-green-50 p-3 rounded-lg">
                   <p className="text-sm text-green-600">Total Borrowed</p>
-                  <p className="text-xl font-bold">UGX {profile.loanStats.total_borrowed.toLocaleString()}</p>
+                  <p className="text-xl font-bold text-green-900">UGX {profile.loanStats.total_borrowed.toLocaleString()}</p>
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-purple-50 p-3 rounded-lg">
                   <p className="text-sm text-purple-600">Outstanding</p>
-                  <p className="text-xl font-bold">UGX {profile.loanStats.outstanding_balance.toLocaleString()}</p>
+                  <p className="text-xl font-bold text-purple-900">UGX {profile.loanStats.outstanding_balance.toLocaleString()}</p>
                 </div>
                 <div className="bg-yellow-50 p-3 rounded-lg">
                   <p className="text-sm text-yellow-600">Credit Score</p>
-                  <p className="text-xl font-bold">{profile.loanStats.credit_score || 0}/100</p>
+                  <p className="text-xl font-bold text-yellow-900">{profile.loanStats.credit_score || 0}/100</p>
                 </div>
               </div>
             </div>
@@ -284,7 +284,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
             <div className="text-center py-8">
               <p className="text-gray-500">No loan statistics available</p>
               <Link 
-                href="/loan/apply" 
+                href="/dashboard/request-loan" 
                 className="mt-2 inline-block text-blue-600 hover:underline"
               >
                 Apply for your first loan
@@ -299,7 +299,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
         <div className="bg-white rounded-xl shadow-sm p-6">
           <div className="flex items-center justify-between mb-6">
             <h3 className="text-lg font-semibold text-gray-900">Recent Loan Applications</h3>
-            <Link href="/loan/my-loans" className="text-blue-600 text-sm hover:underline">
+            <Link href="/dashboard/myloans" className="text-blue-600 text-sm hover:underline">
               View All
             </Link>
           </div>
@@ -329,7 +329,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
                   <tr key={loan.id} className="hover:bg-gray-50">
                     <td className="px-4 py-3">
                       <Link 
-                        href={`/loan/${loan.id}`}
+                        href="/dashboard/myloans"
                         className="text-blue-600 hover:underline font-mono"
                       >
                         {loan.loan_id}
@@ -373,7 +373,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
         <h3 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h3>
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
           <Link
-            href="/account/edit"
+            href="/dashboard/myaccount"
             className="bg-blue-50 hover:bg-blue-100 p-4 rounded-lg text-center transition-colors"
           >
             <UserCircleIcon className="h-8 w-8 text-blue-600 mx-auto mb-2" />
@@ -382,7 +382,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
           
           {!profile.meter && (
             <Link
-              href="/meter/register"
+              href="/dashboard/request-loan/register-meter"
               className="bg-green-50 hover:bg-green-100 p-4 rounded-lg text-center transition-colors"
             >
               <WifiIcon className="h-8 w-8 text-green-600 mx-auto mb-2" />
@@ -391,7 +391,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
           )}
           
           <Link
-            href="/buy-units"
+            href="/dashboard/buy-units"
             className="bg-purple-50 hover:bg-purple-100 p-4 rounded-lg text-center transition-colors"
           >
             <Battery100Icon className="h-8 w-8 text-purple-600 mx-auto mb-2" />
@@ -399,7 +399,7 @@ const ProfileDashboard = ({ profile }: ProfileDashboardProps) => {
           </Link>
           
           <Link
-            href="/loan/apply"
+            href="/dashboard/request-loan"
             className="bg-yellow-50 hover:bg-yellow-100 p-4 rounded-lg text-center transition-colors"
           >
             <CurrencyDollarIcon className="h-8 w-8 text-yellow-600 mx-auto mb-2" />

@@ -4,13 +4,12 @@ import { get } from '@/lib/fetch';
 import DashboardClient from './dashboard-client';
 import { User } from '@/interface/user.interface';
 
-type SetupStep = 'loading' | 'meter' | 'profile' | 'complete';
+type SetupStep = 'loading' | 'meter' | 'complete';
 
 async function getInitialData(): Promise<{
   userConfig: User | null;
   currentStep: SetupStep;
   userHasMeter: boolean;
-  userHasProfile: boolean;
 }> {
   try {
     const config = await getUserConfig<User>();
@@ -19,8 +18,7 @@ async function getInitialData(): Promise<{
       return { 
         userConfig: null, 
         currentStep: 'loading',
-        userHasMeter: false,
-        userHasProfile: false
+        userHasMeter: false
       };
     }
 
@@ -29,8 +27,7 @@ async function getInitialData(): Promise<{
       return {
         userConfig: config,
         currentStep: 'complete',
-        userHasMeter: true, // Assume admins don't need meter
-        userHasProfile: true // Assume admins don't need profile
+        userHasMeter: true
       };
     }
 
@@ -45,42 +42,22 @@ async function getInitialData(): Promise<{
       userHasMeter = false;
     }
     
-    // Check profile completion
-    let userHasProfile = false;
-    try {
-      const profileResponse = await get<any>('auth/user-profile/');
-      console.log('Profile response:', profileResponse);
-      userHasProfile = !profileResponse.error && profileResponse.data?.completed === true;
-    } catch (error) {
-      console.error('Profile check failed:', error);
-      userHasProfile = false;
-    }
-
-    console.log('Setup status:', { userHasMeter, userHasProfile });
-
-    // Determine current step - ONLY for new users who haven't completed setup
-    let currentStep: SetupStep = 'complete'; // Default to complete
-    
-    // If user hasn't completed both steps, show setup
+    let currentStep: SetupStep = 'complete';
     if (!userHasMeter) {
       currentStep = 'meter';
-    } else if (!userHasProfile) {
-      currentStep = 'profile';
     }
 
     return { 
       userConfig: config, 
       currentStep,
-      userHasMeter,
-      userHasProfile
+      userHasMeter
     };
   } catch (error) {
     console.error('Initial data load failed:', error);
     return { 
-      userConfig: null, 
-      currentStep: 'loading',
-      userHasMeter: false,
-      userHasProfile: false
+        userConfig: null, 
+        currentStep: 'loading',
+        userHasMeter: false
     };
   }
 }
@@ -142,14 +119,13 @@ export default async function DashboardPage() {
 }
 
 async function DashboardContent() {
-  const { userConfig, currentStep, userHasMeter, userHasProfile } = await getInitialData();
+  const { userConfig, currentStep, userHasMeter } = await getInitialData();
   
   return (
     <DashboardClient 
       initialStep={currentStep} 
       userConfig={userConfig}
       userHasMeter={userHasMeter}
-      userHasProfile={userHasProfile}
     />
   );
 }

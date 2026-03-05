@@ -31,11 +31,12 @@ from rest_framework import status
 import time
 import threading
 from transactions.models import Transaction, UnitTransaction
-from accounts.models import Wallet
+from accounts.models import Wallet as AccountWallet
+from wallet.models import Wallet as UnitWallet
 import time
 import threading
 from django.db import transaction as db_transaction
-from loan.models import ElectricityTariff
+from loan.models import ElectricityTariff, LoanApplication, LoanRepayment
 
 base_url = settings.BASE_URL
 
@@ -559,6 +560,49 @@ class BuyUnitsView(GenericAPIView):
                 break
 
         return total_units.quantize(Decimal("0.01")), tariff
+
+    def _get_active_loan_balances(self, user):
+        loans_with_balance = []
+        total_outstanding = Decimal("0")
+        for loan in LoanApplication.objects.filter(user=user, status='DISBURSED').order_by('created_at'):
+            balance = Decimal(str(loan.outstanding_balance))
+            if balance > 0:
+                loans_with_balance.append((loan, balance))
+                total_outstanding += balance
+        return loans_with_balance, total_outstanding
+
+    def _apply_auto_loan_repayment(self, user, payment_amount):
+        """
+        Use incoming purchase payment to clear disbursed loan balances first.
+        Returns (remaining_amount_for_units, total_repaid).
+        """
+        remaining = Decimal(str(payment_amount))
+        total_repaid = Decimal("0")
+        loans_with_balance, _ = self._get_active_loan_balances(user)
+
+        for loan, outstanding in loans_with_balance:
+            if remaining <= 0:
+                break
+
+            paid = min(remaining, outstanding)
+            LoanRepayment.objects.create(
+                loan=loan,
+                amount_paid=paid,
+                units_paid=0,
+                payment_reference=generate_random_string(12),
+                is_on_time=True,
+                payment_method='MOBILE_MONEY',
+                payment_status='SUCCESS'
+            )
+            remaining -= paid
+            total_repaid += paid
+
+            loan.refresh_from_db()
+            if loan.outstanding_balance <= 0:
+                loan.status = 'COMPLETED'
+                loan.save()
+
+        return remaining, total_repaid
     
     def post(self, request, *args, **kwargs):
         amount = request.data.get("amount")
@@ -590,11 +634,13 @@ class BuyUnitsView(GenericAPIView):
                     "error": "No meter found. Please register your meter before purchasing units."
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            wallet = Wallet.objects.filter(user=user).order_by('-create_date').first()
-            if wallet is None:
-                wallet = Wallet.objects.create(user=user)
+            account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()
+            if account_wallet is None:
+                account_wallet = AccountWallet.objects.create(user=user)
 
-            estimated_units, tariff = self._calculate_units_from_tariff(amount)
+            _, total_outstanding = self._get_active_loan_balances(user)
+            estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
+            estimated_units, tariff = self._calculate_units_from_tariff(estimated_buy_amount)
             
             if settings.MTN_MOMO_CONFIG.get('ENVIRONMENT', 'sandbox') == 'sandbox':
                 # Generate external ID for tracking
@@ -603,7 +649,7 @@ class BuyUnitsView(GenericAPIView):
                 # Create pending transaction
                 try:
                     transaction = Transaction.objects.create(
-                        wallet=wallet,
+                        wallet=account_wallet,
                         amount=amount,
                         phone_number=phone_number,
                         status='PENDING',
@@ -623,7 +669,8 @@ class BuyUnitsView(GenericAPIView):
                     "transaction_id": transaction.id,
                     "user_prompt": "Sandbox mode: Payment will auto-complete in 2 seconds",
                     "estimated_units": float(estimated_units),
-                    "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500"
+                    "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500",
+                    "loan_outstanding_deduction": float(total_outstanding) if total_outstanding > 0 else 0
                 }
                 
                 threading.Thread(
@@ -655,51 +702,50 @@ class BuyUnitsView(GenericAPIView):
 
             with db_transaction.atomic():
                 amount_decimal = Decimal(str(amount))
-                units_purchased, tariff = self._calculate_units_from_tariff(amount_decimal)
+                amount_for_units, repaid_to_loans = self._apply_auto_loan_repayment(user, amount_decimal)
+                units_purchased, tariff = self._calculate_units_from_tariff(amount_for_units)
 
-                # Add units to meter
-                meter.units += units_purchased
-                meter.save()
-
-                # Update wallet balance
-                wallet = Wallet.objects.filter(user=user).order_by('-create_date').first()
-                if wallet is None:
-                    wallet = Wallet.objects.create(user=user)
-                wallet.balance += amount_decimal
-                wallet.save()
+                # Add purchased/credited units to unit wallet (not meter)
+                unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
+                unit_wallet.balance += units_purchased
+                unit_wallet.save()
 
                 # Update transaction status
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'COMPLETED'
                 transaction.message = (
-                    f"Buy units - {amount_decimal} UGX | Units: {units_purchased} | "
-                    f"Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
+                    f"Buy units - {amount_decimal} UGX | Loan repaid: {repaid_to_loans} UGX | "
+                    f"Units to wallet: {units_purchased} | Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
                 )
                 transaction.save()
 
                 # Create UnitTransaction record
-                UnitTransaction.objects.create(
-                    sender=user,
-                    receiver=user,
-                    units=float(units_purchased),
-                    meter=meter,
-                    direction="IN",
-                    status="COMPLETED",
-                    message=f"Purchased {units_purchased} units via sandbox payment"
-                )
-        
-                meter_token = MeterToken.objects.create(
-                    meter=meter, 
-                    user=user,   
-                    token=str(random.randint(1000000000, 9999999999)),
-                    units=units_purchased,
-                    source="PURCHASE",
-                    is_used=False
-                )
-        
-                logger.info(f"Created MeterToken: {meter_token.id} for meter: {meter.meter_no}")
+                if units_purchased > 0:
+                    UnitTransaction.objects.create(
+                        sender=user,
+                        receiver=user,
+                        units=float(units_purchased),
+                        meter=None,
+                        direction="IN",
+                        status="COMPLETED",
+                        message=f"Purchased {units_purchased} units to wallet via sandbox payment"
+                    )
 
-            logger.info(f"Sandbox: Successfully added {units_purchased} units to user {user_id}")
+                    meter_token = MeterToken.objects.create(
+                        meter=meter,
+                        user=user,
+                        token=str(random.randint(1000000000, 9999999999)),
+                        units=units_purchased,
+                        source="PURCHASE",
+                        is_used=False
+                    )
+
+                    logger.info(f"Created MeterToken: {meter_token.id} for meter: {meter.meter_no}")
+
+            logger.info(
+                f"Sandbox: Payment complete for user {user_id}. "
+                f"Loan repaid={repaid_to_loans}, units_to_wallet={units_purchased}"
+            )
 
         except Meter.DoesNotExist:
             logger.error(f"No meter found with ID {meter_id} for user {user_id}")
@@ -746,7 +792,9 @@ class CheckPaymentStatusView(GenericAPIView):
                 if meter_token is None:
                     return Response({
                         "status": "SUCCESS",
-                        "message": "Payment completed successfully, token is still syncing",
+                        "message": "Payment completed successfully",
+                        "units_purchased": 0,
+                        "token": None,
                         "transaction": {
                             "id": transaction.id,
                             "amount": float(transaction.amount),

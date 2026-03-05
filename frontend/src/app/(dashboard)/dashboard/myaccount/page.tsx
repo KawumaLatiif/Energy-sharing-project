@@ -68,11 +68,11 @@ const AccountPage = () => {
   };
 
   const handleViewLoans = () => {
-    window.location.href = '/loan/my-loans';
+    window.location.href = '/dashboard/myloans';
   };
 
   const handleViewMeter = () => {
-    window.location.href = '/meter';
+    window.location.href = '/dashboard/request-loan/register-meter';
   };
 
   const handleRefresh = async () => {
