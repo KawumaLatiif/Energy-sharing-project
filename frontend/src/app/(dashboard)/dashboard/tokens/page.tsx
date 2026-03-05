@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from "react";
 import TokenList from "./_components/tokenslist";
 import DesktopSidebar from "../_components/desktop-sidebar";
@@ -91,3 +93,4 @@ const TokensPage = async () => {
 };
 
 export default TokensPage;
+
