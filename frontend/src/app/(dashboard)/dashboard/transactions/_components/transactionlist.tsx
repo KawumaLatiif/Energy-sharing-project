@@ -56,7 +56,7 @@ const TransList = () => {
     end_date: '',
   });
 
-  const pageSize = 20;
+  const pageSize = 5;
 
   const fetchTransactions = async (currentPage: number) => {
     setLoading(true);

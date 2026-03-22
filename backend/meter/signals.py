@@ -8,11 +8,18 @@ from accounts.models import User
 
 @receiver(post_save, sender=Meter)
 def sync_meter_to_balance(sender, instance, **kwargs):
+    """
+    Keep MeterBalance in sync with Meter.units without mutating the user's
+    wallet balance. The wallet balance represents available units/credits
+    and is managed by wallet transactions (purchases, loans, sharing).
+    Overwriting it here with the sum of meter balances caused double
+    deductions when units were shared to a meter.
+    """
     if instance.pk:  # Skip on create if no units yet
         with transaction.atomic():
             user = instance.user
-            wallet, _ = Wallet.objects.select_for_update().get_or_create(user=user)
-            
+            Wallet.objects.select_for_update().get_or_create(user=user)
+
             # Update/create MeterBalance
             meter_balance, _ = MeterBalance.objects.get_or_create(
                 user=user,
@@ -22,9 +29,3 @@ def sync_meter_to_balance(sender, instance, **kwargs):
             if meter_balance.balance != Decimal(str(instance.units)):
                 meter_balance.balance = Decimal(str(instance.units))
                 meter_balance.save()
-            
-            # Update wallet total (re-sum if needed; optimize with signal on units change)
-            total = sum(mb.balance for mb in MeterBalance.objects.filter(user=user))
-            if wallet.balance != total:
-                wallet.balance = total
-                wallet.save()

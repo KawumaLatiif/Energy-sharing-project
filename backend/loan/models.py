@@ -158,7 +158,6 @@ class LoanApplication(TimeStampedModel):
     def check_eligibility(self):
         return self.credit_score >= 75 if self.credit_score else False
     
-    # In loan/models.py - Update the save method
 
     def save(self, *args, **kwargs):
         if self.credit_score:

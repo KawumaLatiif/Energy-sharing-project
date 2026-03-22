@@ -153,25 +153,32 @@ def handle_send_share_verification(user_id, code, transaction_details):
         logger.info(f"[SHARE VERIFICATION] Found user: {user.email}")
         
         subject = "Verify Your Energy Units Sharing"
-        
-        message = (
-        f"Hi {user.first_name, user.last_name},"
-        
-        f"You are about to share energy units. Please use the verification code below:"
-        
-        f"Verification Code: {code}"
-        
-        f"Transaction Details:"
-        f"{transaction_details}."
-        
-        f"This code will expire in 10 minutes."
-        
-        f"If you did not initiate this transaction, please contact support immediately."
-        
-        f"Best regards,"
-        f"Energy Sharing Team"
-        
-        )
+
+        # Simple, clear HTML layout to highlight the OTP
+        message = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+            <div style="border: 1px solid #e6e6e6; border-radius: 10px; padding: 24px;">
+                <h2 style="margin: 0 0 12px 0; color: #0f172a;">Share Verification</h2>
+                <p style="margin: 0 0 16px 0;">Hi {user.first_name or user.email},</p>
+                <p style="margin: 0 0 12px 0;">You're about to share energy units. Use the code below to confirm:</p>
+
+                <div style="background:#0f172a; color:#ffffff; text-align:center; padding:14px 18px; border-radius: 8px; letter-spacing: 6px; font-size: 28px; font-weight: 700; margin: 12px 0;">
+                    {code}
+                </div>
+
+                <p style="margin: 0 0 10px 0; font-weight: 600;">Transaction Details</p>
+                <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5; border:1px solid #e2e8f0;">
+                    {transaction_details.replace('\n', '<br/>')}
+                </div>
+
+                <p style="margin: 14px 0 6px 0;">This code expires in <strong>10 minutes</strong>.</p>
+                <p style="margin: 0 0 14px 0; color:#dc2626;">If you didn't initiate this transaction, contact support immediately.</p>
+
+                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+            </div>
+            <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share this code with anyone.</p>
+        </div>
+        """
         logger.info(f"[SHARE VERIFICATION] About to send email to {user.email}")
         
         sent, email_message = send_email(
@@ -267,16 +274,21 @@ def handle_send_wallet_update(user_id, transaction_details):
         subject = "Wallet Transaction Update"
         
         message = f"""
-        Hi {user.first_name},
-        
-        Your wallet has been updated:
-        
-        {transaction_details}
-        
-        If you didn't authorize this transaction, please contact support immediately.
-        
-        Best regards,
-        Energy Sharing Team
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+            <div style="border: 1px solid #e6e6e6; border-radius: 10px; padding: 24px;">
+                <h2 style="margin: 0 0 12px 0; color: #0f172a;">Wallet Update</h2>
+                <p style="margin: 0 0 12px 0;">Hi {user.first_name or user.email},</p>
+                <p style="margin: 0 0 10px 0;">Your wallet was updated. Here are the details:</p>
+
+                <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5; border:1px solid #e2e8f0;">
+                    {transaction_details.replace('\n', '<br/>')}
+                </div>
+
+                <p style="margin: 14px 0 6px 0; color:#dc2626;">If you didn't authorize this transaction, contact support immediately.</p>
+                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+            </div>
+            <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share sensitive information from this email.</p>
+        </div>
         """
         
         sent, email_message = send_email(

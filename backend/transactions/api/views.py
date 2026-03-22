@@ -38,7 +38,7 @@ class TransactionHistoryView(APIView):
             start_date = request.query_params.get('start_date')  # YYYY-MM-DD
             end_date = request.query_params.get('end_date')      # YYYY-MM-DD
             page = int(request.query_params.get('page', 1))
-            page_size = int(request.query_params.get('page_size', 20))
+            page_size = int(request.query_params.get('page_size', 5))
 
             queryset = TransactionLog.objects.filter(user=user).order_by('-created_at')
 
