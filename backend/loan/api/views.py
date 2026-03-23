@@ -19,7 +19,12 @@ from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from meter.models import MeterToken
 from loan.models import get_tier_by_score
-from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+from loan.scoring import (
+    calculate_weighted_credit_score,
+    get_or_create_dummy_credit_signal,
+    get_factor_breakdown,
+    FACTOR_WEIGHTS,
+)
 from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
@@ -79,6 +84,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
             # Collect third-party credit signals (dummy for now) and score user
             credit_signal = get_or_create_dummy_credit_signal(request.user)
             credit_score = self.calculate_credit_score(credit_signal)
+            credit_breakdown = get_factor_breakdown(credit_signal)
 
             # Determine approved amount and tier
             amount_requested = float(data.get("amount_requested", 0))
@@ -144,12 +150,11 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     "payment_history": credit_signal.payment_history,
                     "energy_consumption": credit_signal.energy_consumption,
                     "financial_capacity": credit_signal.financial_capacity,
+                    "major_weights": FACTOR_WEIGHTS,
+                    "factor_scores": credit_breakdown["factor_scores"],
+                    "subfactor_scores": credit_breakdown["subfactor_scores"],
+                    "threshold": 75,
                     "source": credit_signal.source,
-                    "weights": {
-                        "payment_history": 1,
-                        "energy_consumption": 2,
-                        "financial_capacity": 3
-                    }
                 },
             }
 
