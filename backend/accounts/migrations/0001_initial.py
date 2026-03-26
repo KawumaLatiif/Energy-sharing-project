@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
                 ('create_date', models.DateTimeField(auto_now_add=True, verbose_name='date created')),
                 ('modify_date', models.DateTimeField(auto_now=True, verbose_name='date modified')),
                 ('email', models.EmailField(max_length=254, unique=True, verbose_name='email_address')),
-                ('phone_number', phonenumber_field.modelfields.PhoneNumberField(max_length=128, region=None, unique=True, verbose_name='phone_number')),
+                ('phone_number', phonenumber_field.modelfields.PhoneNumberField(max_length=12, region=None, unique=True, verbose_name='phone_number')),
                 ('account_is_active', models.BooleanField(default=False)),
                 ('user_role', models.CharField(choices=[('ADMIN', 'admin'), ('STUDENT', 'student'), ('LECTURER', 'lecturer')], default='STUDENT', max_length=8)),
                 ('groups', models.ManyToManyField(blank=True, help_text='The groups this user belongs to. A user will get all permissions granted to each of their groups.', related_name='user_set', related_query_name='user', to='auth.Group', verbose_name='groups')),

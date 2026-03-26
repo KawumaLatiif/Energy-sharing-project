@@ -14,6 +14,7 @@ export default function VerifyEmailPage() {
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error' | 'resending'>('idle');
   const [message, setMessage] = useState('');
   const [showResend, setShowResend] = useState(false);
+  const isResending = status === 'resending';
 
   useEffect(() => {
     // Only auto-verify if we have both uid and token
@@ -39,14 +40,14 @@ export default function VerifyEmailPage() {
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.success);
+        setMessage(result.message);
         // Redirect after a delay
         setTimeout(() => {
           window.location.href = '/auth/login';
         }, 3000);
       } else {
         setStatus('error');
-        setMessage(result.error || 'Verification failed');
+        setMessage(result.error);
         setShowResend(true);
       }
     } catch (error) {
@@ -68,10 +69,10 @@ export default function VerifyEmailPage() {
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.success);
+        setMessage(result.message);
       } else {
         setStatus('error');
-        setMessage(result.error || 'Failed to resend verification email');
+        setMessage(result.error);
       }
     } catch (error) {
       setStatus('error');
@@ -92,6 +93,12 @@ export default function VerifyEmailPage() {
               <p>Verifying your email address...</p>
             </div>
           )}
+
+          {status === 'resending' && (
+            <div className="text-center">
+              <p>Resending verification email...</p>
+            </div>
+          )}
           
           {status === 'success' && (
             <div className="text-center text-green-600">
@@ -106,10 +113,10 @@ export default function VerifyEmailPage() {
               {showResend && email && (
                 <button
                   onClick={handleResendEmail}
-                  disabled={status === 'resending'}
+                  disabled={isResending}
                   className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
                 >
-                  {status === 'resending' ? 'Sending...' : 'Resend Verification Email'}
+                  {isResending ? 'Sending...' : 'Resend Verification Email'}
                 </button>
               )}
             </div>
@@ -123,10 +130,10 @@ export default function VerifyEmailPage() {
                   <p className="mt-2">Sent to: {email}</p>
                   <button
                     onClick={handleResendEmail}
-                    disabled={status === 'resending'}
+                    disabled={isResending}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
                   >
-                    {status === 'resending' ? 'Sending...' : 'Resend Verification Email'}
+                    {isResending ? 'Sending...' : 'Resend Verification Email'}
                   </button>
                 </>
               )}

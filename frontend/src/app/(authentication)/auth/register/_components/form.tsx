@@ -36,6 +36,7 @@ import Link from "next/link";
 import CountrySelect from "@/components/common/country-select";
 import { cn } from "@/lib/utils";
 import { useRouter } from 'next/navigation';
+import { getApiErrorMessage } from "@/lib/api-response";
 
 
 
@@ -75,37 +76,7 @@ export default function RegisterForm() {
     startTransition(async () => {
       createAccount(values).then((data) => {
         if (data?.error) {
-
-          if (typeof data.error === "object") {
-            if (data.error?.email) {
-              form.setError("email", { type: 'custom', message: data.error?.email[0] })
-            }
-
-            if (data.error?.first_name) {
-              form.setError("first_name", { type: 'custom', message: data.error?.first_name[0] })
-            }
-
-            if (data.error?.last_name) {
-              form.setError("last_name", { type: 'custom', message: data.error?.last_name[0] })
-            }
-
-
-            if (data.error?.phone_number) {
-              console.log("GOT PHONE ERROR: ", data.error?.phone_number)
-              form.setError("phone_number", { type: 'custom', message: data.error?.phone_number[0] })
-            }
-
-            if (data.error?.password) {
-              form.setError("password", { type: 'custom', message: data.error?.password[0] })
-            }
-
-            if (data.error?.confirm_password) {
-              form.setError("confirm_password", { type: 'custom', message: data.error?.confirm_password[0] })
-            }
-
-          } else {
-            setError(data.error);
-          }
+          setError(getApiErrorMessage(data.error, "Registration failed"));
         }
 
         // if (data?.success) {

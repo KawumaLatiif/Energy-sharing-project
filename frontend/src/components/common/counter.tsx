@@ -1,3 +1,7 @@
+export default function MeterPage() {
+  return <h1>to view the meter details page selected by the admin</h1>;
+}
+
 // "use client"
 // import React from "react";
 // import { increment, decrement } from "@/redux/slices/counterSlice";

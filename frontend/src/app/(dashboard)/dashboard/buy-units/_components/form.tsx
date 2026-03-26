@@ -35,6 +35,7 @@ import {
 } from "@/components/ui/dialog";
 import Link from "next/link";
 import { get } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 export default function BuyUnitsForm() {
   const formatter = formatCurrency("USD");
@@ -59,7 +60,7 @@ export default function BuyUnitsForm() {
   const form = useForm<z.infer<typeof BuyUnitSchema>>({
     resolver: zodResolver(BuyUnitSchema),
     defaultValues: { amount: 0, phone_number: "" },
-  });
+  } as any);
 
   useEffect(() => {
     if (paymentStatus === "success") {
@@ -169,21 +170,22 @@ export default function BuyUnitsForm() {
             if (data.error?.amount) {
               form.setError("amount", {
                 type: "custom",
-                message: data.error.amount[0],
+                message: Array.isArray(data.error.amount) ? data.error.amount[0] : "Invalid amount",
               });
             }
             if (data.error?.phone_number) {
               form.setError("phone_number", {
                 type: "custom",
-                message: data.error.phone_number[0],
+                message: Array.isArray(data.error.phone_number) ? data.error.phone_number[0] : "Invalid phone number",
               });
             }
-          } else setError(data.error);
+          } else setError(getApiErrorMessage(data.error, "Failed to process payment"));
           return;
         }
 
-        if (data?.data?.status === "PENDING") {
-          setTransactionId(data.data.transaction_id);
+        const pendingStatus = data?.data?.status || data?.data?.payment_status;
+        if (pendingStatus === "PENDING") {
+          setTransactionId(data.data.transaction_id || null);
           setSuccess(
             data.data.user_prompt || "Simulating payment... Please wait"
           );
@@ -191,7 +193,7 @@ export default function BuyUnitsForm() {
           setPaymentStatus("success");
           setUnitsPurchased(parseFloat(data.data["Units purchased"]) || 0);
           setToken(data.data.token || "");
-          setTransactionDetails(data.data.transaction || null);
+          setTransactionDetails(data.data.transaction || data.data || null);
           // setSuccess(data.data.message || "Payment initiated successfully!, check your phone to complete the payment");
           setSuccess(
             "Payment initiated successfully!, check your phone to complete the payment"

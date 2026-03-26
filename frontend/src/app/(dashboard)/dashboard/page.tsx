@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from 'react';
 import { getUserConfig } from '@/lib/account';
 import { get } from '@/lib/fetch';
@@ -129,3 +131,4 @@ async function DashboardContent() {
     />
   );
 }
+

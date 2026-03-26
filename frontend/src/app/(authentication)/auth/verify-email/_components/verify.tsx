@@ -10,23 +10,27 @@ interface VerifyEmailProps {
   token?: string;
 }
 
+const asString = (value: string | string[] | undefined): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
 export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEmailProps = {}) {
   const searchParams = useSearchParams();
   const params = useParams();
   
   // Get uid and token from props, URL params, or search params
-  const uid = propUid || params?.uid || searchParams.get('uid');
-  const token = propToken || params?.token || searchParams.get('token');
+  const uid = propUid || asString(params?.uid) || searchParams.get('uid');
+  const token = propToken || asString(params?.token) || searchParams.get('token');
   const email = searchParams.get('email');
   
   const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error' | 'resending'>('idle');
   const [message, setMessage] = useState('');
   const [showResend, setShowResend] = useState(false);
+  const isResending = status === 'resending';
 
   useEffect(() => {
     // Only auto-verify if we have both uid and token
     if (uid && token) {
-      handleVerifyEmail();
+      void handleVerifyEmail();
     } else if (email) {
       // If we only have email, show message to check inbox
       setStatus('idle');
@@ -47,17 +51,17 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.success);
+        setMessage(result.message || 'Email verified successfully');
         // Redirect after a delay
         setTimeout(() => {
-          window.location.href = result.redirectTo || '/auth/login';
+          window.location.href = '/auth/login';
         }, 3000);
       } else {
         setStatus('error');
-        setMessage(result.error || 'Verification failed');
+        setMessage(result.error || 'Invalid or expired verification link');
         setShowResend(true);
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setMessage('An unexpected error occurred during verification');
       setShowResend(true);
@@ -76,12 +80,12 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
       
       if (result.success) {
         setStatus('success');
-        setMessage(result.success);
+        setMessage(result.message || 'Verification email sent successfully');
       } else {
         setStatus('error');
         setMessage(result.error || 'Failed to resend verification email');
       }
-    } catch (error) {
+    } catch {
       setStatus('error');
       setMessage('Failed to resend verification email');
     }
@@ -102,6 +106,12 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
               <p>Verifying your email address...</p>
             </div>
           )}
+
+          {status === 'resending' && (
+            <div className="text-center">
+              <p>Resending verification email...</p>
+            </div>
+          )}
           
           {status === 'success' && (
             <div className="text-center text-green-600">
@@ -116,10 +126,10 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
               {showResend && email && (
                 <button
                   onClick={handleResendEmail}
-                  disabled={status === 'resending'}
+                  disabled={isResending}
                   className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
                 >
-                  {status === 'resending' ? 'Sending...' : 'Resend Verification Email'}
+                  {isResending ? 'Sending...' : 'Resend Verification Email'}
                 </button>
               )}
             </div>
@@ -133,10 +143,10 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
                   <p className="mt-2">Sent to: {email}</p>
                   <button
                     onClick={handleResendEmail}
-                    disabled={status === 'resending'}
+                    disabled={isResending}
                     className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
                   >
-                    {status === 'resending' ? 'Sending...' : 'Resend Verification Email'}
+                    {isResending ? 'Sending...' : 'Resend Verification Email'}
                   </button>
                 </>
               )}

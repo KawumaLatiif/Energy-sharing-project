@@ -1,20 +1,21 @@
 "use server";
 
 import { post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 
 export async function submitLoanApplication(formData: any) {
   try {
     const response = await post<any>("loans/apply/", formData);
 
     if (response.error) {
+      const errorMessage = getApiErrorMessage(
+        response.error,
+        "Failed to submit loan application"
+      );
+
       return {
-        error:
-          response.error.message ||
-          response.error.detail ||
-          "Failed to submit loan application",
-        requiresMeter:
-          response.error.message?.toLowerCase().includes("meter") ||
-          response.error.detail?.toLowerCase().includes("meter"),
+        error: errorMessage,
+        requiresMeter: errorMessage.toLowerCase().includes("meter"),
       };
     }
 

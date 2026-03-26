@@ -20,6 +20,7 @@ import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
 import { post, get } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -43,6 +44,16 @@ const TransferSchema = z
   });
 
 type TransferFormValues = z.infer<typeof TransferSchema>;
+type WalletBalanceResponse = {
+  success: boolean;
+  wallet?: { balance?: string };
+  total_balance?: string;
+  meters?: Array<{ balance?: string }>;
+};
+
+type TransferUnitsResponse = {
+  success?: boolean;
+};
 
 interface TransferFormProps {
   onSuccess?: () => void;
@@ -67,9 +78,9 @@ export default function TransferForm({
    useEffect(() => {
      const fetchBalance = async () => {
        try {
-         const response = await get<any>("wallet/balance");
+         const response = await get<WalletBalanceResponse>("wallet/balance");
   
-         if (response.error === null && response.data?.success) {
+         if (!response.error && response.data?.success) {
            const apiData = response.data;
            const walletBal = parseFloat(
              apiData.wallet?.balance || apiData.total_balance || "0"
@@ -92,7 +103,7 @@ export default function TransferForm({
              response.error || "Unknown error"
            );
            setError(
-             response.error?.message || "Failed to load balance. Please refresh."
+             getApiErrorMessage(response.error, "Failed to load balance. Please refresh.")
            );
          }
        } catch (error) {
@@ -137,13 +148,13 @@ export default function TransferForm({
       setSuccess("");
 
       try {
-        const response = await post("/transfer-units/", {
+        const response = await post<TransferUnitsResponse>("/transfer-units/", {
           meter_no_old: data.meter_no_old,
           meter_no_new: data.meter_no_new,
           verification_code: verificationCode,
         });
 
-        if (response.success) {
+        if (response.data?.success) {
           setSuccess("Units transferred successfully!");
           setVerificationStep(2);
 
@@ -155,7 +166,7 @@ export default function TransferForm({
             if (onSuccess) onSuccess();
           }, 3000);
         } else {
-          setError(response.error || "Failed to transfer units");
+          setError(getApiErrorMessage(response.error, "Failed to transfer units"));
           setVerificationStep(0);
         }
       } catch (error: any) {

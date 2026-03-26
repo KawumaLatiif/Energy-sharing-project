@@ -337,7 +337,7 @@ export const PieChart: React.FC<
                 borderRadius: "6px",
                 boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
               }}
-              formatter={(value: number | undefined, name: string) => [value ?? 0, name]}
+              formatter={(value: number | undefined, name: string | undefined) => [value ?? 0, name ?? ""]}
             />
           )}
           {showLegend && <Legend />}

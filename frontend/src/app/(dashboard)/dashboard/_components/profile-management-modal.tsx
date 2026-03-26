@@ -13,6 +13,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { post, get } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
 import { User as UserType } from "@/interface/user.interface";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
@@ -139,7 +140,7 @@ export default function ProfileManagementModal({
             const response = await post<any>('auth/user-profile/', values);
 
             if (response.error) {
-                setMessage({ type: 'error', text: response.error });
+                setMessage({ type: 'error', text: getApiErrorMessage(response.error, "Failed to save profile") });
             } else {
                 setMessage({ type: 'success', text: 'Profile updated successfully!' });
                 setIsEditing(false);

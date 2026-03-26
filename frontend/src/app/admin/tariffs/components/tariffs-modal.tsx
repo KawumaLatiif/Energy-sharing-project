@@ -18,6 +18,7 @@ import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
 import { post, put } from '@/lib/fetch';  // Use plain post/put
 import { Switch } from '@headlessui/react';
+import { getApiErrorMessage } from '@/lib/api-response';
 
 interface TariffBlock {
   id?: number;
@@ -112,7 +113,7 @@ export default function TariffsModal({ tariff, onSave }: TariffsModalProps) {
       const res = await method<Tariff>(endpoint, form);
       
       if (res.error) {
-        throw new Error(res.error.message || 'Failed to save tariff');
+        throw new Error(getApiErrorMessage(res.error, 'Failed to save tariff'));
       }
       
       toast({ title: 'Success', description: 'Tariff saved successfully' });
@@ -225,7 +226,7 @@ export default function TariffsModal({ tariff, onSave }: TariffsModalProps) {
               <Switch
                 id="is_active"
                 checked={form.is_active}
-                onCheckedChange={(checked) => setForm((prev) => ({ ...prev, is_active: checked }))}
+                onChange={(checked) => setForm((prev) => ({ ...prev, is_active: checked }))}
               />
               <Label htmlFor="is_active" className="ml-2">Active</Label>
             </div>

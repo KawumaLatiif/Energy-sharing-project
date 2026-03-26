@@ -1,3 +1,5 @@
+export const dynamic = "force-dynamic";
+
 import { Suspense } from 'react';
 import DesktopSidebar from '../_components/desktop-sidebar';
 import RightHeader from '../_components/right-header';
@@ -48,3 +50,4 @@ export default async function MyloansPage() {
     </div>
   );
 }
+
