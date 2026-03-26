@@ -3,6 +3,7 @@ import "@/styles/globals.css";
 import { Inter as FontSans } from "next/font/google";
 import PublicHeader from "@/components/common/public-header";
 import authenticated from "@/lib/authenticated";
+import { get } from "@/lib/fetch";
 import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -23,7 +24,9 @@ export default async function RootLayout({
   const isAuth = await authenticated();
 
   if (isAuth) {
-    redirect("/dashboard");
+    const config = await get<any>("auth/get-user-config/");
+    const isAdmin = !config.error && (config.data?.is_admin || config.data?.user_role === "ADMIN");
+    redirect(isAdmin ? "/admin/dashboard" : "/dashboard");
   }
 
   return (
