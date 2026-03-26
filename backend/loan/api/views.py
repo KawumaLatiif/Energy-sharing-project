@@ -1,7 +1,5 @@
 import logging
-import random
 from decimal import Decimal
-from datetime import timedelta
 from django.utils import timezone
 from django.db import transaction
 from django.db.models import Sum
@@ -17,7 +15,6 @@ from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
-from meter.models import MeterToken
 from loan.models import get_tier_by_score
 from loan.scoring import (
     calculate_weighted_credit_score,
@@ -620,34 +617,13 @@ class LoanDisbursementView(APIView):
                         'tariff_name': 'Default Rate'
                     }
 
-                # Generate token and set expiry (30 days from now)
-                token = ''.join(random.choices('0123456789', k=10))
-                token_expiry = timezone.now() + timedelta(days=30)
-                
                 # Create disbursement record
                 disbursement = LoanDisbursement.objects.create(
                     loan_application=loan,
                     disbursed_amount=loan.amount_approved,
                     units_disbursed=units_to_disburse,
-                    token=token,
-                    token_expiry=token_expiry,
                     meter=meter
                 )
-                
-                # Create MeterToken record
-                try:
-                    meter_token = MeterToken.objects.create(
-                        token=token,
-                        units=units_to_disburse,
-                        meter=meter,
-                        user=meter.user,
-                        is_used=False,
-                        source='LOAN',
-                        loan_application=loan
-                    )
-                except Exception as e:
-                    logger.error(f"Error creating MeterToken: {str(e)}")
-                    # Continue even if MeterToken creation fails
                 
                 # Update loan status to DISBURSED
                 loan.status = 'DISBURSED'
@@ -661,9 +637,7 @@ class LoanDisbursementView(APIView):
                     status='COMPLETED',
                     reference_id=loan.loan_id,
                     details={
-                        'units_disbursed': float(units_to_disburse),
-                        'token': token,
-                        'token_expiry': token_expiry.isoformat()
+                        'units_disbursed': float(units_to_disburse)
                     }
                 )
 
@@ -695,10 +669,9 @@ class LoanDisbursementView(APIView):
             
             return Response({
                 "message": "Loan disbursed successfully to your unit wallet!",
-                "token": disbursement.token,
                 "units_added_to_wallet": round(units_to_disburse, 2),
-                "tariff_info": tariff_info,
-                "token_expiry": token_expiry.isoformat()
+                "units_disbursed": round(units_to_disburse, 2),
+                "tariff_info": tariff_info
             })
             
         except LoanApplication.DoesNotExist:
@@ -743,57 +716,41 @@ class LoanStatsView(APIView):
     
     def get(self, request):
         try:
-            user_loans = LoanApplication.objects.filter(user=request.user)
-            
-            active_loans = user_loans.filter(status__in=['DISBURSED']).count()
-            pending_applications = user_loans.filter(status='PENDING').count()
-            approved_loans = user_loans.filter(status='APPROVED').count()
-            
-            total_repayments = LoanRepayment.objects.filter(
-                loan__user=request.user
-            ).aggregate(Sum('amount_paid'))['amount_paid__sum'] or 0
-            
-            total_borrowed = user_loans.filter(status__in=['APPROVED', 'DISBURSED', 'COMPLETED']).aggregate(
-                total = Sum('amount_approved')
-            )['total'] or 0
-            disbursed_loans = user_loans.filter(status='DISBURSED')
-            outstanding_balance = 0
-            for loan in disbursed_loans:
-                outstanding_balance += float(loan.outstanding_balance)
-            
-            return Response({
-                'active_loans': active_loans,
-                'pending_applications': pending_applications,
-                'approved_loans': approved_loans,
-                'total_repayments': float(total_repayments),
-                'total_borrowed': float(total_borrowed),
-                'outstanding_balance': outstanding_balance,
-                'total_loans': user_loans.count()
-            })
-            
-        except Exception as e:
-            logger.error(f"Error fetching loan stats: {str(e)}")
-            return Response(
-                {"error": "Failed to fetch loan statistics"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-
-    permission_classes = (IsAuthenticated,)
-
-    def get(self, request):
-        try:
             loans = LoanApplication.objects.filter(user=request.user)
 
+            pending_applications = loans.filter(status="PENDING").count()
+            active_loans = loans.filter(status__in=["APPROVED", "DISBURSED", "DEFAULTED"]).count()
+            approved_loans = loans.filter(status="APPROVED").count()
+            total_loans = loans.count()
+
+            total_borrowed = float(
+                loans.filter(status__in=["APPROVED", "DISBURSED", "COMPLETED", "DEFAULTED"])
+                .aggregate(total=Sum("amount_approved"))["total"] or 0
+            )
+
+            total_repayments = float(
+                LoanRepayment.objects.filter(loan__user=request.user)
+                .aggregate(total=Sum("amount_paid"))["total"] or 0
+            )
+
+            outstanding_balance = sum(
+                float(l.outstanding_balance)
+                for l in loans.exclude(status__in=["COMPLETED", "REJECTED"])
+            )
+
+            credit_signal = get_or_create_dummy_credit_signal(request.user)
+            credit_score = calculate_weighted_credit_score(credit_signal)
+
             stats = {
-                'active_loans': loans.filter(status='DISBURSED').count(),
-                'pending_applications': loans.filter(status='PENDING').count(),
-                'approved_loans': loans.filter(status='APPROVED').count(),
-                'total_loans': loans.count(),
-                'total_borrowed': float(loans.filter(status__in=['APPROVED', 'DISBURSED', 'COMPLETED'])
-                                       .aggregate(total=Sum('amount_approved'))['total'] or 0),
-                'total_repayments': float(LoanRepayment.objects.filter(loan__user=request.user)
-                                        .aggregate(total=Sum('amount_paid'))['total'] or 0),
-                'outstanding_balance': sum(float(l.outstanding_balance) for l in loans.filter(status='DISBURSED'))
+                "active_loans": active_loans,
+                "pending_applications": pending_applications,
+                "approved_loans": approved_loans,
+                "total_loans": total_loans,
+                "total_borrowed": total_borrowed,
+                "total_repayments": total_repayments,
+                "outstanding_balance": outstanding_balance,
+                "credit_score": credit_score,
+                "has_blocking_loan": active_loans > 0 or pending_applications > 0 or outstanding_balance > 0,
             }
 
             return Response(stats, status=200)

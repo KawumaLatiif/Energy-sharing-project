@@ -6,7 +6,7 @@ export type Token = {
   token: string;
   units: string;
   is_used: boolean;
-  source: "LOAN" | "PURCHASE";
+  source: "LOAN" | "PURCHASE" | "SHARE";
   loan_id?: string;
   created_at: string;
   source_display: string;

@@ -1,4 +1,5 @@
 from decimal import Decimal
+from django.db import IntegrityError
 from django.db.models.signals import post_save
 from django.dispatch import receiver
 from django.contrib.auth import get_user_model
@@ -20,12 +21,20 @@ User = get_user_model()
 def create_meter_balance(sender, instance, created, **kwargs):
     """Create meter balance record when a meter is created"""
     if created and instance.user:
-        MeterBalance.objects.create(
-            user=instance.user,
-            meter_number=instance.meter_number,
-            balance=Decimal('0.00'),
-            is_active=instance.is_active
-        )
+        try:
+            # Idempotent creation in case a stale balance exists for the meter number
+            MeterBalance.objects.update_or_create(
+                meter_number=instance.meter_no,
+                defaults={
+                    "user": instance.user,
+                    "meter": instance,
+                    "balance": Decimal("0.00"),
+                    "is_active": getattr(instance, "is_active", True),
+                },
+            )
+        except IntegrityError:
+            # Log and continue so the API can return a clean duplicate-meter message
+            logger.exception("MeterBalance unique constraint hit for meter %s", instance.meter_no)
 
 @receiver(post_save, sender=User)
 def create_user_wallet(sender, instance, created, **kwargs):

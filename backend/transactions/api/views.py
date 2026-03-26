@@ -1,11 +1,12 @@
 import requests
 import logging
 from datetime import date
+from decimal import Decimal
 from django.utils.timezone import now
 from django.conf import settings
 from django.http import JsonResponse
-from meter.models import Meter, MeterToken
-from transactions.models import UnitTransaction, TransactionLog
+from meter.models import Meter
+from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from .serializers import BuyUnitSerializer
 from rest_framework.generics import (
     GenericAPIView,
@@ -13,7 +14,8 @@ from rest_framework.generics import (
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from .generate_token import generate_numeric_token
+from wallet.models import Wallet as UnitWallet
+import uuid
 
 from rest_framework.views import APIView
 # from rest_framework.response import Response
@@ -123,16 +125,10 @@ class BuyUnitsView(GenericAPIView):
                 additional_units = (amount-amount_first_8_units) / additional_unit_rate
                 units_purchased += additional_units
 
-            token = generate_numeric_token()
-            MeterToken.objects.create(
-                user=user,
-                meter=meter,  
-                token=token,
-                units=units_purchased
-            )
-            
-            meter.units += units_purchased
-            meter.save()
+            # Credit units to user's unit wallet (no token issued on purchase)
+            unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
+            unit_wallet.balance += Decimal(str(units_purchased))
+            unit_wallet.save()
 
             TransactionLog.objects.create(
                 user=user,
@@ -140,29 +136,23 @@ class BuyUnitsView(GenericAPIView):
                 amount=amount,
                 units=units_purchased,
                 status='COMPLETED',
-                reference_id=token,  
+                reference_id=f"PUR-{uuid.uuid4().hex[:8].upper()}",
                 details={'meter_no': meter.meter_no, 'phone_number': phone_number, 'discounted': True}
             )
             
             response_data = {
                 "Units purchased": "{:.2f}".format(units_purchased),
-                "token": token,
-                "message": "You have successfully purchased units"
+                "message": "You have successfully purchased units",
+                "wallet_balance": str(unit_wallet.balance)
             }
             return Response(response_data, status=status.HTTP_200_OK)
 
         # If the user has already purchased the first 8 units in the month
         units_purchased = amount / additional_unit_rate
-        token = generate_numeric_token()
-        MeterToken.objects.create(
-            user=user,
-            meter=meter, 
-            token=token,
-            units=units_purchased
-        )
-        
-        meter.units += units_purchased
-        meter.save()
+        # Credit units to user's unit wallet (no token issued on purchase)
+        unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
+        unit_wallet.balance += Decimal(str(units_purchased))
+        unit_wallet.save()
 
         TransactionLog.objects.create(
             user=user,
@@ -170,14 +160,14 @@ class BuyUnitsView(GenericAPIView):
             amount=amount,
             units=units_purchased,
             status='COMPLETED',
-            reference_id=token,  
+            reference_id=f"PUR-{uuid.uuid4().hex[:8].upper()}",
             details={'meter_no': meter.meter_no, 'phone_number': phone_number}
         )
         
         response_data = {
             "Units purchased": "{:.2f}".format(units_purchased),
-            "token": token,
-            "message": "You have successfully purchased units"
+            "message": "You have successfully purchased units",
+            "wallet_balance": str(unit_wallet.balance)
         }
         return Response(response_data, status=status.HTTP_200_OK)
     

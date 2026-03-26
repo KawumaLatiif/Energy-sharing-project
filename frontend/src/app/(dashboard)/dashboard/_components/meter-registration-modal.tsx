@@ -28,6 +28,7 @@ export default function MeterManagementModal({
   const [isEditing, setIsEditing] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFetching, setIsFetching] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   
   const [formData, setFormData] = useState({
@@ -65,11 +66,15 @@ export default function MeterManagementModal({
       setMessage({ type: 'error', text: 'Failed to load meter data' });
     } finally {
       setIsRefreshing(false);
+      setIsFetching(false);
     }
   };
 
   useEffect(() => {
     if (isOpen) {
+      setMeterData(null);
+      setIsEditing(false);
+      setIsFetching(true);
       fetchMeterData();
     }
   }, [isOpen]);
@@ -167,15 +172,19 @@ export default function MeterManagementModal({
             <Zap className="h-6 w-6 text-blue-600" />
           </div>
           <CardTitle className="text-lg">
-            {meterData?.success && meterData.data.has_meter 
-              ? "Manage Your Electricity Meter" 
-              : "Register Your Electricity Meter"
+            {isFetching && !meterData
+              ? "Loading Meter Details"
+              : meterData?.success && meterData.data.has_meter 
+                ? "Manage Your Electricity Meter" 
+                : "Register Your Electricity Meter"
             }
           </CardTitle>
           <CardDescription>
-            {meterData?.success && meterData.data.has_meter
-              ? "View and update your meter information"
-              : "Complete your profile to access electricity loans and services"
+            {isFetching && !meterData
+              ? "Please wait while we load your meter details"
+              : meterData?.success && meterData.data.has_meter
+                ? "View and update your meter information"
+                : "Complete your profile to access electricity loans and services"
             }
           </CardDescription>
         </CardHeader>
@@ -203,8 +212,14 @@ export default function MeterManagementModal({
             </Alert>
           )}
 
+          {isFetching && !meterData && (
+            <div className="py-8 text-center text-gray-600">
+              Loading meter information...
+            </div>
+          )}
+
           {/* Meter Status Summary */}
-          {meterData && !isEditing && (
+          {!isFetching && meterData && !isEditing && (
             <div className="mb-6 p-4 bg-gray-50 rounded-lg border">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-medium text-gray-900">Current Meter Status</h3>
@@ -289,7 +304,7 @@ export default function MeterManagementModal({
           )}
 
           {/* Edit/Register Form */}
-          {(isEditing || !meterData?.success || !meterData.data.has_meter) && (
+          {!isFetching && (isEditing || (meterData?.success && !meterData.data.has_meter)) && (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="meter_no">

@@ -33,6 +33,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import Link from "next/link";
+import { get } from "@/lib/fetch";
 
 export default function BuyUnitsForm() {
   const formatter = formatCurrency("USD");
@@ -43,6 +45,9 @@ export default function BuyUnitsForm() {
   const [paymentStatus, setPaymentStatus] = useState<
     "idle" | "pending" | "success" | "failed"
   >("idle");
+  const [loanBlocked, setLoanBlocked] = useState(false);
+  const [loanBlockMessage, setLoanBlockMessage] = useState<string | null>(null);
+  const [loadingLoans, setLoadingLoans] = useState(true);
   const [transactionId, setTransactionId] = useState<string | null>(null);
   const [unitsPurchased, setUnitsPurchased] = useState<number | null>(null);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
@@ -62,6 +67,37 @@ export default function BuyUnitsForm() {
       return () => clearTimeout(timer);
     }
   }, [paymentStatus]);
+
+  // Block buying units when there is any pending/active/incomplete loan
+  useEffect(() => {
+    const checkLoans = async () => {
+      try {
+        setLoadingLoans(true);
+        const response = await get<any>("loans/stats/");
+        if (!response.error && response.data) {
+          const hasPending = (response.data.pending_applications ?? 0) > 0;
+          const hasActive = (response.data.active_loans ?? 0) > 0;
+          const hasOutstanding = Number(response.data.outstanding_balance ?? 0) > 0;
+          const hasBlocking = response.data.has_blocking_loan ?? (hasPending || hasActive || hasOutstanding);
+          if (hasBlocking) {
+            setLoanBlocked(true);
+            setLoanBlockMessage(
+              "You have a pending or unpaid loan. Please clear your loan before purchasing units."
+            );
+          } else {
+            setLoanBlocked(false);
+            setLoanBlockMessage(null);
+          }
+        }
+      } catch (err) {
+        console.error("Error checking loan status:", err);
+      } finally {
+        setLoadingLoans(false);
+      }
+    };
+
+    checkLoans();
+  }, []);
 
   const checkStatus = useCallback(async (id: string) => {
     try {
@@ -168,7 +204,7 @@ export default function BuyUnitsForm() {
     });
   }
 
-  if (loading) return null;
+  if (loading || loadingLoans) return null;
 
   return (
     <>
@@ -332,83 +368,106 @@ export default function BuyUnitsForm() {
           </div>
         )}
 
+        {loanBlocked && (
+          <Alert className="mb-4 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
+            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
+            <AlertTitle className="text-red-800 dark:text-red-300">
+              Loan Payment Required
+            </AlertTitle>
+            <AlertDescription className="text-red-700 dark:text-red-400">
+              {loanBlockMessage}
+              <div className="mt-3">
+                <Button asChild size="sm" variant="outline">
+                  <Link href="/dashboard/myloans">Go to Loans</Link>
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        )}
+
         {/* --- FORM --- */}
-        <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
-            <div className="space-y-4">
-              <FormField
-                control={form.control}
-                name="amount"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="text-foreground">
-                      Amount (UGX)
-                    </FormLabel>
-                    <FormControl>
-                      <Input
-                        disabled={isPending || paymentStatus === "pending"}
-                        type="number"
-                        placeholder="5000"
-                        {...field}
-                        onChange={(e) =>
-                          field.onChange(parseInt(e.target.value) || 0)
-                        }
-                        className="bg-background border-input text-foreground placeholder:text-muted-foreground"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+        <div className={loanBlocked ? "opacity-50 pointer-events-none" : ""}>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="amount"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-foreground">
+                        Amount (UGX)
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          disabled={
+                            isPending || paymentStatus === "pending"
+                          }
+                          type="number"
+                          placeholder="5000"
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(parseInt(e.target.value) || 0)
+                          }
+                          className="bg-background border-input text-foreground placeholder:text-muted-foreground"
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="phone_number"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="font-semibold text-foreground">
+                        Phone Number
+                      </FormLabel>
+                      <FormControl>
+                        <PhoneInput
+                          disabled={
+                            isPending || paymentStatus === "pending"
+                          }
+                          {...field}
+                          international
+                          defaultCountry="UG"
+                          className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                          inputComponent={ShadInput}
+                        />
+                      </FormControl>
+                      <div className="text-sm text-muted-foreground">
+                        Enter your MTN mobile money number
+                      </div>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormError message={error} />
+              <FormSuccess message={success} />
+
+              <Button
+                type="submit"
+                disabled={isPending || paymentStatus === "pending"}
+                className="w-full text-white bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-800 dark:text-white transition-colors duration-200"
+              >
+                {paymentStatus === "pending" ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing
+                    Payment...
+                  </>
+                ) : (
+                  <>
+                    <Terminal className="mr-2 h-4 w-4" /> Purchase Units
+                  </>
                 )}
-              />
-
-              <FormField
-                control={form.control}
-                name="phone_number"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="font-semibold text-foreground">
-                      Phone Number
-                    </FormLabel>
-                    <FormControl>
-                      <PhoneInput
-                        disabled={isPending || paymentStatus === "pending"}
-                        {...field}
-                        international
-                        defaultCountry="UG"
-                        className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                        inputComponent={ShadInput}
-                      />
-                    </FormControl>
-                    <div className="text-sm text-muted-foreground">
-                      Enter your MTN mobile money number
-                    </div>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <FormError message={error} />
-            <FormSuccess message={success} />
-
-            <Button
-              type="submit"
-              disabled={isPending || paymentStatus === "pending"}
-              className="w-full text-white bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-800 dark:text-white transition-colors duration-200"
-            >
-              {paymentStatus === "pending" ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing
-                  Payment...
-                </>
-              ) : (
-                <>
-                  <Terminal className="mr-2 h-4 w-4" /> Purchase Units
-                </>
-              )}
-            </Button>
-          </form>
-        </Form>
+              </Button>
+            </form>
+          </Form>
+        </div>
       </CardWrapper>
     </>
   );

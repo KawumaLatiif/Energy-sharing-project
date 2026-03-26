@@ -17,6 +17,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import TokenPopup from "./token-popup";
 import BuyUnitsSuggestion from "./buy-units-suggestion";
 import { get } from "@/lib/fetch";
+import Link from "next/link";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -118,6 +119,9 @@ export default function LoanApplicationForm() {
     const [showMeterAlert, setShowMeterAlert] = useState(false);
     const [hasMeter, setHasMeter] = useState<boolean | null>(null);
     const [isCheckingMeter, setIsCheckingMeter] = useState(true);
+    const [isCheckingLoans, setIsCheckingLoans] = useState(true);
+    const [hasBlockingLoan, setHasBlockingLoan] = useState(false);
+    const [loanBlockMessage, setLoanBlockMessage] = useState<string | null>(null);
     const [loanResult, setLoanResult] = useState<{
         status: string;
         token?: string;
@@ -165,6 +169,36 @@ export default function LoanApplicationForm() {
         };
 
         checkUserMeter();
+    }, []);
+
+    useEffect(() => {
+        const checkLoanStatus = async () => {
+            try {
+                setIsCheckingLoans(true);
+                const response = await get<any>('loans/stats/');
+
+                if (!response.error && response.data) {
+                    const hasBlocking = response.data.has_blocking_loan ??
+                        ((response.data.pending_applications ?? 0) > 0 ||
+                         (response.data.active_loans ?? 0) > 0 ||
+                         Number(response.data.outstanding_balance ?? 0) > 0);
+
+                    if (hasBlocking) {
+                        setHasBlockingLoan(true);
+                        setLoanBlockMessage("You already have a pending or unpaid loan. Please clear it before requesting another.");
+                    } else {
+                        setHasBlockingLoan(false);
+                        setLoanBlockMessage(null);
+                    }
+                }
+            } catch (error) {
+                console.error("Error checking loan status:", error);
+            } finally {
+                setIsCheckingLoans(false);
+            }
+        };
+
+        checkLoanStatus();
     }, []);
 
     const form = useForm<LoanFormValues>({
@@ -232,12 +266,12 @@ export default function LoanApplicationForm() {
         router.push('/dashboard/request-loan/register-meter');
     };
 
-    if (isCheckingMeter) {
+    if (isCheckingMeter || isCheckingLoans) {
         return (
             <CardWrapper title="Apply for Electricity Loan">
                 <div className="flex items-center justify-center p-8">
                     <Loader2 className="h-8 w-8 animate-spin text-blue-600 mr-3" />
-                    <span>Checking your meter registration...</span>
+                    <span>Checking your meter registration and loan status...</span>
                 </div>
             </CardWrapper>
         );
@@ -246,31 +280,40 @@ export default function LoanApplicationForm() {
     return (
         <>
             <CardWrapper title="Apply for Electricity Loan">
-                {/* Meter Registration Alert */}
-                {showMeterAlert && (
-                    <div className="mb-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+                {/* Alerts */}
+                {(showMeterAlert || hasBlockingLoan) && (
+                    <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
                         <div className="flex items-start space-x-3">
-                            <AlertTriangle className="h-5 w-5 text-yellow-600 mt-0.5 flex-shrink-0" />
+                            <AlertTriangle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
                             <div className="flex-1">
-                                <h3 className="font-medium text-yellow-800 mb-1">Meter Registration Required</h3>
-                                <p className="text-sm text-yellow-700 mb-3">
-                                    You need to register your electricity meter before applying for a loan.
+                                <h3 className="font-medium text-red-800 mb-1">Action Required</h3>
+                                <p className="text-sm text-red-700 mb-3">
+                                    {loanBlockMessage ? loanBlockMessage : "You need to register your electricity meter before applying for a loan."}
                                 </p>
                                 <div className="flex flex-col sm:flex-row gap-2">
-                                    <Button
-                                        onClick={handleRegisterMeter}
-                                        size="sm"
-                                        className="bg-yellow-600 hover:bg-yellow-700 flex-1"
-                                    >
-                                        <Zap className="h-4 w-4 mr-2" />
-                                        Register Meter Now
-                                    </Button>
+                                    {showMeterAlert && (
+                                        <Button
+                                            onClick={handleRegisterMeter}
+                                            size="sm"
+                                            className="bg-yellow-600 hover:bg-yellow-700 flex-1"
+                                        >
+                                            <Zap className="h-4 w-4 mr-2" />
+                                            Register Meter Now
+                                        </Button>
+                                    )}
+                                    {hasBlockingLoan && (
+                                        <Button asChild size="sm" variant="outline" className="flex-1">
+                                            <Link href="/dashboard/myloans">
+                                                View / Pay Loan
+                                            </Link>
+                                        </Button>
+                                    )}
                                 </div>
                             </div>
                         </div>
                     </div>
                 )}
-                <div className={!hasMeter ? "opacity-50 pointer-events-none" : ""}>
+                <div className={(!hasMeter || hasBlockingLoan) ? "opacity-50 pointer-events-none" : ""}>
                     <Form {...form}>
                         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

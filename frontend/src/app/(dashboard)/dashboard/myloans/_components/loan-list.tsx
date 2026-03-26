@@ -233,7 +233,7 @@ export default function LoanList({ loans }: LoanListProps) {
       console.log('Acceptment response:', data);
 
       handleDisbursementSuccess(data);
-      setSuccessMessage('Loan accepted successfully! Units have been added to your meter.');
+      setSuccessMessage('Loan accepted successfully! Units have been added to your wallet.');
 
       setTimeout(() => {
         window.location.reload();
@@ -253,13 +253,18 @@ export default function LoanList({ loans }: LoanListProps) {
     }
   };
 
-  const handleDisbursementSuccess = (data: { token: string; units_added: number } | any) => {
+  const handleDisbursementSuccess = (data: { token?: string; units_added?: number } | any) => {
     console.log('Disbursement success data:', data);
-    setDisbursementData({
-      token: data.token || data.disbursement_token || '',
-      units: data.units_added || data.units_disbursed || 0
-    });
-    setShowTokenPopup(true);
+    const token = data.token || data.disbursement_token || '';
+    const units = data.units_added || data.units_disbursed || data.units_added_to_wallet || 0;
+
+    if (token) {
+      setDisbursementData({ token, units });
+      setShowTokenPopup(true);
+    } else {
+      setDisbursementData(null);
+      setShowTokenPopup(false);
+    }
   };
 
   // Clear messages after 5 seconds

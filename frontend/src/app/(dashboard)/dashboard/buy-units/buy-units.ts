@@ -15,7 +15,7 @@ import {
 
 export const buyUnits = async (data: z.infer<typeof BuyUnitSchema>) => {
   const res = await post<{
-    token: string;
+    token?: string;
     message: string;
     "Units purchased": string;
     payment_status?: string;

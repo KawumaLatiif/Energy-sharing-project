@@ -69,7 +69,7 @@ const TokensPage = async () => {
                 Token History
               </h1>
               <p className="text-sm text-muted-foreground mt-1">
-                View all your loan and purchased units tokens
+                View your unit tokens (shared units and other sources)
               </p>
             </div>
           </div>

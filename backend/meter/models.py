@@ -39,6 +39,7 @@ class MeterToken(TimestampMixin):
     TOKEN_SOURCE_CHOICES = [
         ('PURCHASE', 'Purchase'),
         ('LOAN', 'Loan'),
+        ('SHARE', 'Share'),
         ('TRANSFER', 'Transfer'),
     ]
     user = models.ForeignKey(User, on_delete=models.CASCADE)
@@ -52,6 +53,14 @@ class MeterToken(TimestampMixin):
     is_used = models.BooleanField(default=False)
     source = models.CharField(max_length=10, choices=TOKEN_SOURCE_CHOICES, default='PURCHASE')
     loan_application = models.ForeignKey('loan.LoanApplication', on_delete=models.SET_NULL, null=True, blank=True, related_name='tokens')
+    share_transaction_id = models.CharField(max_length=20, null=True, blank=True)
+    share_sender = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='share_tokens_sent'
+    )
 
     def __str__(self):
         return f"Token: {self.token} | Units: {self.units}"

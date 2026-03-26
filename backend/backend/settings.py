@@ -149,7 +149,8 @@ DATABASES = {
         "ATOMIC_REQUESTS": True,
         "CONN_MAX_AGE": 60,  
         'OPTIONS': {
-            'options': '-c search_path=custom,public'
+            'options': '-c search_path=custom,public',
+            'connect_timeout': 10,
         },
     }
 }

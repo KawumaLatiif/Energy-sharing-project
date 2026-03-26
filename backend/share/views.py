@@ -9,18 +9,20 @@ import uuid
 from datetime import datetime, timedelta
 import logging
 from transactions.models import TransactionType, TransactionLog
+from transactions.api.generate_token import generate_numeric_token
 
 from .serializers import ShareUnitSerializer, VerifyOTPSerializer, TransferUnitsSerializer
 from .models import Share, ShareTransaction
 from accounts.models import User, Wallet as AccountWallet
-from wallet.models import Wallet, MeterBalance, Transaction
-from meter.models import Meter
+from wallet.models import Wallet
+from meter.models import Meter, MeterToken
 from share.services import VerificationService, VerificationCode
 from utils.general import format_currency
 from accounts.tasks import (
     handle_send_share_verification,
     handle_send_transfer_verification,
     handle_send_wallet_update,
+    handle_send_share_token,
 )
 
 logger = logging.getLogger(__name__)
@@ -187,19 +189,34 @@ class ShareUnitsView(APIView):
                     if sender_wallet.balance < units_to_share:
                         return Response({"error": "Insufficient units. Transaction cancelled."}, status=status.HTTP_400_BAD_REQUEST)
 
-                    # Deduct from wallet and add to receiver meter
+                    # Deduct from sender wallet
                     sender_wallet.balance -= units_to_share
                     sender_wallet.save()
-                    
-                    receiver_meter.units += units_to_share
-                    receiver_meter.save()
 
-                    # Sync receiver meter balance (wallet remains source for sender)
-                    MeterBalance.objects.update_or_create(
-                        user=receiver_meter.user,
-                        meter_number=receiver_meter.meter_no,
-                        defaults={'meter': receiver_meter, 'balance': receiver_meter.units, 'is_active': True}
-                    )
+                    is_self_share = sender_meter.meter_no == receiver_meter_no
+                    share_token = None
+
+                    if is_self_share:
+                        # Self-share: issue token to load units to sender's meter
+                        share_token = generate_numeric_token()
+                        MeterToken.objects.create(
+                            token=share_token,
+                            units=units_to_share,
+                            meter=receiver_meter,
+                            user=receiver_meter.user,
+                            is_used=False,
+                            source='SHARE',
+                            share_transaction_id=transaction_ref,
+                            share_sender=user
+                        )
+                    else:
+                        # Share to another meter: credit receiver wallet directly (no token)
+                        receiver_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=receiver_meter.user)
+                        receiver_wallet.add(
+                            units_to_share,
+                            description=f"Units received from {sender_meter.meter_no}",
+                            transaction_ref=transaction_ref
+                        )
                     
                     # Create share record using legacy accounts wallet relation used by Share model
                     sender_account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()
@@ -221,7 +238,10 @@ class ShareUnitsView(APIView):
                     # Mark pending share transaction as completed
                     pending_share.status = "COMPLETED"
                     pending_share.verified_at = timezone.now()
-                    pending_share.message = f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
+                    pending_share.message = (
+                        f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
+                        + (" (token issued)" if is_self_share else " (wallet credited)")
+                    )
                     pending_share.save(update_fields=['status', 'verified_at', 'message', 'modify_date'])
 
                     TransactionLog.objects.create(
@@ -233,7 +253,7 @@ class ShareUnitsView(APIView):
                         details={'receiver_meter': receiver_meter_no, 'sender_meter': sender_meter.meter_no}
                     )
                     
-                    # Send update email (adapt as needed)
+                    # Send update email to sender (wallet deducted)
                     update_details = VerificationService.format_transaction_details(
                         'wallet_update',
                         amount=units_to_share,
@@ -242,15 +262,37 @@ class ShareUnitsView(APIView):
                         date=timezone.now().strftime('%Y-%m-%d %H:%M:%S')
                     )
                     handle_send_wallet_update.delay(user.id, update_details)
+
+                    if is_self_share and share_token:
+                        # Send token to sender (same meter)
+                        handle_send_share_token.delay(
+                            user.id,
+                            share_token,
+                            str(units_to_share),
+                            receiver_meter_no,
+                            sender_meter=sender_meter.meter_no,
+                            sender_email=user.email
+                        )
+                    else:
+                        # Notify receiver wallet credit (no token)
+                        receiver_update = (
+                            f"Wallet balance increased by {units_to_share} units\n"
+                            f"Transaction ID: {transaction_ref}\n"
+                            f"New Balance: {receiver_wallet.balance} units\n"
+                            f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
+                        handle_send_wallet_update.delay(receiver_meter.user.id, receiver_update)
                     
                     logger.info(f"Share completed: {units_to_share} units from wallet to {receiver_meter_no}")
                     
                     return Response({
                         "success": True,
-                        "message": "Units shared successfully",
+                        "message": "Units shared successfully.",
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
                         "new_sender_wallet_balance": str(sender_wallet.balance),
+                        "token_sent": True if is_self_share else False,
+                        "receiver_wallet_credited": False if is_self_share else True,
                         "timestamp": timezone.now().isoformat()
                     }, status=status.HTTP_200_OK)
                     

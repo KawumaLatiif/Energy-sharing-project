@@ -61,6 +61,8 @@ const TokenList = ({ tokens }: TokenListProps) => {
         return <Zap className="h-4 w-4 text-yellow-600" />;
       case "PURCHASE":
         return <ShoppingCart className="h-4 w-4 text-green-600" />;
+      case "SHARE":
+        return <CreditCard className="h-4 w-4 text-blue-600" />;
       default:
         return <CreditCard className="h-4 w-4 text-blue-600" />;
     }
@@ -72,6 +74,8 @@ const TokenList = ({ tokens }: TokenListProps) => {
         return "text-yellow-600";
       case "PURCHASE":
         return "text-green-600";
+      case "SHARE":
+        return "text-blue-600";
       default:
         return "text-blue-600";
     }
@@ -83,6 +87,9 @@ const TokenList = ({ tokens }: TokenListProps) => {
     }
     if (token.source === "PURCHASE") {
       return "Units Purchase";
+    }
+    if (token.source === "SHARE") {
+      return "Shared Units";
     }
     return token.source_display || token.source;
   };
@@ -147,6 +154,7 @@ const TokenList = ({ tokens }: TokenListProps) => {
                       className={cn({
                         "text-green-600": token.source === "PURCHASE",
                         "text-yellow-600": token.source === "LOAN",
+                        "text-blue-600": token.source === "SHARE",
                       })}
                     >
                       {Number(token.units).toFixed(2)} units

@@ -304,8 +304,73 @@ def handle_send_wallet_update(user_id, transaction_details):
             return True
         else:
             logger.error(f"[WALLET UPDATE] Failed to send email to {user.email}: {email_message}")
-            return False
+        return False
             
     except Exception as e:
         logger.exception(f"[WALLET UPDATE] Error in handle_send_wallet_update: {str(e)}")
+        return False
+
+
+@app.task()
+def handle_send_share_token(user_id, token, units, meter_number, sender_meter=None, sender_email=None):
+    """
+    Task that sends a share token to the receiver's email
+    """
+    logger.info(f"[SHARE TOKEN] Sending share token to user {user_id}")
+    
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user:
+            logger.error(f"[SHARE TOKEN] User with ID {user_id} not found")
+            return False
+            
+        subject = "Your Shared Energy Units Token"
+        
+        sender_line = ""
+        if sender_email or sender_meter:
+            sender_parts = []
+            if sender_email:
+                sender_parts.append(sender_email)
+            if sender_meter:
+                sender_parts.append(f"Meter {sender_meter}")
+            sender_line = f"Shared by: {', '.join(sender_parts)}"
+
+        message = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
+            <div style="border: 1px solid #e6e6e6; border-radius: 10px; padding: 24px;">
+                <h2 style="margin: 0 0 12px 0; color: #0f172a;">Shared Units Token</h2>
+                <p style="margin: 0 0 12px 0;">Hi {user.first_name or user.email},</p>
+                <p style="margin: 0 0 10px 0;">You have received <strong>{units}</strong> energy units for meter <strong>{meter_number}</strong>.</p>
+                {f'<p style="margin: 0 0 10px 0; color:#475569;">{sender_line}</p>' if sender_line else ''}
+
+                <div style="background:#0f172a; color:#ffffff; text-align:center; padding:14px 18px; border-radius: 8px; letter-spacing: 4px; font-size: 24px; font-weight: 700; margin: 12px 0;">
+                    {token}
+                </div>
+
+                <p style="margin: 0 0 12px 0;">Use this token to load the units onto your meter.</p>
+                <p style="margin: 0 0 14px 0; color:#dc2626;">If you did not expect this token, contact support immediately.</p>
+
+                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+            </div>
+            <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share this token with anyone else.</p>
+        </div>
+        """
+        
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        
+        if sent:
+            logger.info(f"[SHARE TOKEN] Email sent successfully to {user.email}")
+            return True
+        else:
+            logger.error(f"[SHARE TOKEN] Failed to send email to {user.email}: {email_message}")
+            return False
+            
+    except Exception as e:
+        logger.exception(f"[SHARE TOKEN] Error in handle_send_share_token: {str(e)}")
         return False

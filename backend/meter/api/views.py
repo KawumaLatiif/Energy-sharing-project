@@ -4,6 +4,7 @@ from decimal import Decimal, InvalidOperation
 from django.forms import ValidationError
 import requests
 import logging
+import traceback
 from django.conf import settings
 from django.http import JsonResponse
 from meter.models import Meter, MeterToken
@@ -615,6 +616,17 @@ class BuyUnitsView(GenericAPIView):
         
         try:
             user = request.user
+
+            # Block purchases when there is any pending or incomplete loan
+            active_loans = LoanApplication.objects.filter(
+                user=user
+            ).exclude(status__in=["COMPLETED", "REJECTED"])
+            # Pending/approved/disbursed/defaulted are all considered blocking
+            if active_loans.exists():
+                return Response({
+                    "error": "Loan in progress",
+                    "message": "You cannot buy units while you have a pending or incomplete loan. Please clear your loan first."
+                }, status=status.HTTP_400_BAD_REQUEST)
             try:
                 amount = Decimal(str(amount))
             except (InvalidOperation, TypeError, ValueError):
@@ -731,16 +743,9 @@ class BuyUnitsView(GenericAPIView):
                         message=f"Purchased {units_purchased} units to wallet via sandbox payment"
                     )
 
-                    meter_token = MeterToken.objects.create(
-                        meter=meter,
-                        user=user,
-                        token=str(random.randint(1000000000, 9999999999)),
-                        units=units_purchased,
-                        source="PURCHASE",
-                        is_used=False
+                    logger.info(
+                        f"Units credited to wallet for user {user_id}: {units_purchased} (no token issued)"
                     )
-
-                    logger.info(f"Created MeterToken: {meter_token.id} for meter: {meter.meter_no}")
 
             logger.info(
                 f"Sandbox: Payment complete for user {user_id}. "
@@ -784,34 +789,25 @@ class CheckPaymentStatusView(GenericAPIView):
             )
             
             if transaction.status == 'COMPLETED':
-                meter_token = MeterToken.objects.filter(
-                    user=request.user,
-                    source="PURCHASE",
+                unit_tx = UnitTransaction.objects.filter(
+                    sender=request.user,
+                    receiver=request.user,
+                    direction="IN",
+                    status="COMPLETED",
                     create_date__gte=transaction.create_date
-                ).select_related('meter').order_by('-create_date').first()
-                if meter_token is None:
-                    return Response({
-                        "status": "SUCCESS",
-                        "message": "Payment completed successfully",
-                        "units_purchased": 0,
-                        "token": None,
-                        "transaction": {
-                            "id": transaction.id,
-                            "amount": float(transaction.amount),
-                            "timestamp": transaction.create_date.isoformat()
-                        }
-                    }, status=status.HTTP_200_OK)
-                
+                ).order_by('-create_date').first()
+
+                units_purchased = float(unit_tx.units) if unit_tx else 0
+
                 return Response({
                     "status": "SUCCESS",
                     "message": "Payment completed successfully",
-                    "units_purchased": meter_token.units,
-                    "meter_number": meter_token.meter.meter_no,  
-                    "token": meter_token.token,
+                    "units_purchased": units_purchased,
+                    "token": None,
                     "transaction": {
                         "id": transaction.id,
                         "amount": float(transaction.amount),
-                        "units": meter_token.units,
+                        "units": units_purchased,
                         "timestamp": transaction.create_date.isoformat()
                     }
                 }, status=status.HTTP_200_OK)
