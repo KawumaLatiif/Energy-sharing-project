@@ -14,6 +14,7 @@ import {
   PlusCircleIcon,
   Search,
   ShoppingCart,
+  Smartphone,
   Users,
   User,
 } from "lucide-react";
@@ -182,6 +183,16 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
               <Forward className="h-4 w-4" />
               My Account
             </Link>
+            <Link
+              href="/ussd-simulator"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/ussd-simulator" }
+              )}
+            >
+              <Smartphone className="h-4 w-4" />
+              USSD Simulator
+            </Link>
           </nav>
         </SheetContent>
       </Sheet>
@@ -249,6 +260,13 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
               <Link href="/dashboard/myloans">
                 <IconMoneybag className="h-4 w-4 mr-2" />
                 My Loans
+              </Link>
+            </DropdownMenuItem>
+
+            <DropdownMenuItem asChild>
+              <Link href="/ussd-simulator">
+                <Smartphone className="h-4 w-4 mr-2" />
+                USSD Simulator
               </Link>
             </DropdownMenuItem>
             

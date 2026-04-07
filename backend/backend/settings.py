@@ -94,7 +94,8 @@ INSTALLED_APPS = [
     'corsheaders',
     'share',
     'transfer',
-    'wallet'
+    'wallet',
+    'ussd',
 ]
 
 MIDDLEWARE = [
@@ -142,10 +143,11 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'project',
-        'USER': 'postgres',
-        'PASSWORD': 'postgres',
-        'HOST': 'localhost',
+        'NAME': get_env_variable('DB_NAME', 'project'),
+        'USER': get_env_variable('DB_USER', 'postgres'),
+        'PASSWORD': get_env_variable('DB_PASSWORD', 'postgres'),
+        'HOST': get_env_variable('DB_HOST', 'localhost'),
+        'PORT': get_env_variable('DB_PORT', 5432, cast=int),
         "ATOMIC_REQUESTS": True,
         "CONN_MAX_AGE": 60,  
         'OPTIONS': {
@@ -185,6 +187,8 @@ TIME_ZONE = 'UTC'
 USE_I18N = True
 
 USE_TZ = True
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Rate limiting settings
