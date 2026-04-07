@@ -41,4 +41,10 @@ urlpatterns = [
             ("share.urls", "share"), namespace="share"
         ),
     ),
+    path(
+        "ussd/",
+        include(
+            ("ussd.urls", "ussd"), namespace="ussd"
+        ),
+    ),
 ]
