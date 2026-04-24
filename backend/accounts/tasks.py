@@ -153,6 +153,7 @@ def handle_send_share_verification(user_id, code, transaction_details):
         logger.info(f"[SHARE VERIFICATION] Found user: {user.email}")
         
         subject = "Verify Your Energy Units Sharing"
+        transaction_details_html = str(transaction_details).replace("\n", "<br/>")
 
         # Simple, clear HTML layout to highlight the OTP
         message = f"""
@@ -168,7 +169,7 @@ def handle_send_share_verification(user_id, code, transaction_details):
 
                 <p style="margin: 0 0 10px 0; font-weight: 600;">Transaction Details</p>
                 <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5; border:1px solid #e2e8f0;">
-                    {transaction_details.replace('\n', '<br/>')}
+                    {transaction_details_html}
                 </div>
 
                 <p style="margin: 14px 0 6px 0;">This code expires in <strong>10 minutes</strong>.</p>
@@ -272,6 +273,7 @@ def handle_send_wallet_update(user_id, transaction_details):
             return False
             
         subject = "Wallet Transaction Update"
+        transaction_details_html = str(transaction_details).replace("\n", "<br/>")
         
         message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
@@ -281,7 +283,7 @@ def handle_send_wallet_update(user_id, transaction_details):
                 <p style="margin: 0 0 10px 0;">Your wallet was updated. Here are the details:</p>
 
                 <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5; border:1px solid #e2e8f0;">
-                    {transaction_details.replace('\n', '<br/>')}
+                    {transaction_details_html}
                 </div>
 
                 <p style="margin: 14px 0 6px 0; color:#dc2626;">If you didn't authorize this transaction, contact support immediately.</p>
