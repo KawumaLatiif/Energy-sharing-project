@@ -37,7 +37,8 @@ from wallet.models import Wallet as UnitWallet
 import time
 import threading
 from django.db import transaction as db_transaction
-from loan.models import ElectricityTariff, LoanApplication, LoanRepayment
+from loan.models import ElectricityTariff
+import traceback
 
 base_url = settings.BASE_URL
 
