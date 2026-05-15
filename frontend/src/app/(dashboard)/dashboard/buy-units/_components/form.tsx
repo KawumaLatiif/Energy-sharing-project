@@ -24,7 +24,7 @@ import { Input as ShadInput } from "@/components/ui/input";
 import { BuyUnitSchema } from "@/lib/schema";
 import { formatCurrency } from "@/lib/utils";
 import { useForm } from "react-hook-form";
-import { buyUnits, checkPaymentStatus } from "../buy-units";
+import { buyUnits, checkPaymentStatus, type BuyUnitsResponse } from "../buy-units";
 import { useAccount } from "@/hooks/use-account";
 import {
   Dialog,
@@ -56,6 +56,14 @@ export default function BuyUnitsForm() {
   const [pollingCount, setPollingCount] = useState(0);
 
   const { user, loading } = useAccount();
+
+  const isPendingBuyUnitsResponse = (
+    response: BuyUnitsResponse | undefined
+  ): response is Extract<BuyUnitsResponse, { status: "PENDING" }> =>
+    typeof response === "object" &&
+    response !== null &&
+    "status" in response &&
+    response.status === "PENDING";
 
   const form = useForm<z.infer<typeof BuyUnitSchema>>({
     resolver: zodResolver(BuyUnitSchema),
@@ -183,17 +191,22 @@ export default function BuyUnitsForm() {
           return;
         }
 
-        const pendingStatus = data?.data?.status || data?.data?.payment_status;
-        if (pendingStatus === "PENDING") {
-          setTransactionId(data.data.transaction_id || null);
-          setSuccess(
-            data.data.user_prompt || "Simulating payment... Please wait"
+        const responseData = data.data;
+
+        if (isPendingBuyUnitsResponse(responseData)) {
+          setTransactionId(
+            responseData.transaction_id !== undefined
+              ? String(responseData.transaction_id)
+              : null
           );
-        } else if (data?.data?.token) {
+          setSuccess(
+            responseData.user_prompt || "Simulating payment... Please wait"
+          );
+        } else if (responseData?.token) {
           setPaymentStatus("success");
-          setUnitsPurchased(parseFloat(data.data["Units purchased"]) || 0);
-          setToken(data.data.token || "");
-          setTransactionDetails(data.data.transaction || data.data || null);
+          setUnitsPurchased(parseFloat(responseData["Units purchased"]) || 0);
+          setToken(responseData.token || "");
+          setTransactionDetails(responseData.transaction || responseData || null);
           // setSuccess(data.data.message || "Payment initiated successfully!, check your phone to complete the payment");
           setSuccess(
             "Payment initiated successfully!, check your phone to complete the payment"
