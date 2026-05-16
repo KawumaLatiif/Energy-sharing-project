@@ -3,7 +3,7 @@
 ## 1. Overview
 
 ### Project Purpose
-The Energy Sharing Platform (branded as "Power Cred") is a comprehensive web application designed to facilitate energy sharing, trading, and financing in developing markets, with a particular focus on Uganda. The platform enables users to share electricity units between meters, purchase energy units, apply for energy loans based on credit scoring, and manage their energy consumption.
+The Energy Sharing Platform (branded as "Energy Share") is a comprehensive web application designed to facilitate energy sharing, trading, and financing in developing markets, with a particular focus on Uganda. The platform enables users to share electricity units between meters, purchase energy units, apply for energy loans based on credit scoring, and manage their energy consumption.
 
 ### Primary Purpose
 The system addresses energy access challenges in developing regions by creating a peer-to-peer energy sharing ecosystem with integrated financial services. It allows users with excess electricity to share it with those in need, while providing financing options for energy purchases through a sophisticated credit scoring system.
@@ -453,7 +453,7 @@ The frontend follows a modern Next.js application structure:
 
 ## 10. Simplified Explanation
 
-The Power Cred platform is an innovative solution that helps people in developing countries like Uganda share and finance electricity. Think of it as a combination of Venmo and a micro-loan service, but specifically for electricity.
+The Energy Share platform is an innovative solution that helps people in developing countries like Uganda share and finance electricity. Think of it as a combination of Venmo and a micro-loan service, but specifically for electricity.
 
 Here's how it works:
 

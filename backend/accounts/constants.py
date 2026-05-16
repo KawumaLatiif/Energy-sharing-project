@@ -1,3 +1,3 @@
-ACCOUNT_VERIFICATION_SUBJECT = "Power Cred Account Verification"
-SECURITY_CODE = "Power Cred Security Code"
+ACCOUNT_VERIFICATION_SUBJECT = "Energy Share Account Verification"
+SECURITY_CODE = "Energy Share Security Code"
 
