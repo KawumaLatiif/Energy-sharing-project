@@ -14,7 +14,7 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "EnergyShare",
+  title: "gPawa",
   description: "Energy sharing platform",
 };
 
