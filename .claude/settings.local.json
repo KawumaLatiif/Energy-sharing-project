@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"calculate.*rate\\\\|calculate.*tariff\\\\|calculate.*band\")",
+      "WebFetch(domain:www.era.go.ug)",
+      "WebFetch(domain:www.uedcl.co.ug)",
+      "WebSearch",
+      "WebFetch(domain:www.watchdoguganda.com)",
+      "WebFetch(domain:ugbusiness.com)",
+      "WebFetch(domain:thenilewires.com)",
+      "PowerShell(python \"D:\\\\Energy-sharing-project\\\\gen_tariff_doc.py\")"
+    ]
+  }
+}

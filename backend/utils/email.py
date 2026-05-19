@@ -20,17 +20,23 @@ def send_email(
     :returns: Tuple containing success boolean and a message string
     :rtype: Tuple
     """
-    msg = EmailMessage(
-        subject,
-        body=message,
-        from_email=sender,
-        to=recipients,
-        reply_to=reply_to,
-    )
-    msg.content_subtype = "html"
-    success = msg.send()
+    try:
+        msg = EmailMessage(
+            subject,
+            body=message,
+            from_email=sender,
+            to=recipients,
+            reply_to=reply_to,
+        )
+        msg.content_subtype = "html"
+        success = msg.send()
+    except Exception as e:
+        logger.exception(
+            f"[EMAILS] SMTP error sending email with subject '{subject}' "
+            f"to {recipients}: {str(e)}"
+        )
+        return (False, f"SMTP error: {str(e)}")
 
-    # TODO Barna let us add tests for this
     if not success:
         users = User.objects.filter(email__in=recipients)
         failed_ids = [text_type(user.id) for user in users]

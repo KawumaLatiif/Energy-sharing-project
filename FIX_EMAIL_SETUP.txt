@@ -1,0 +1,82 @@
+HOW TO FIX EMAIL SENDING (Forgot Password & Signup Verification)
+=================================================================
+
+PROBLEM
+-------
+Emails are not being sent because the Gmail App Password in the code
+is expired or revoked. You need to generate a new one and add it to
+your .env file.
+
+STEP 1 — Generate a new Gmail App Password
+-------------------------------------------
+1. Open your browser and go to: https://myaccount.google.com
+2. Sign in with: ssentongojoshua86@gmail.com
+3. Click "Security" in the left sidebar.
+4. Scroll down to "How you sign in to Google" and click "2-Step Verification".
+   NOTE: If 2-Step Verification is OFF, you must turn it on first —
+   App Passwords only work when 2-Step Verification is enabled.
+5. Scroll to the bottom of the 2-Step Verification page and click "App passwords".
+6. Under "App name", type something like: EnergyShareApp
+7. Click "Create".
+8. Google will show you a 16-character password like: xxxx xxxx xxxx xxxx
+   COPY THIS PASSWORD — you will not see it again.
+
+
+STEP 2 — Add the credentials to your .env file
+-----------------------------------------------
+1. Open the file:  D:\Energy-sharing-project\backend\.env
+2. Add these three lines at the bottom (replace the x's with your real app password):
+
+   EMAIL_HOST_USER=ssentongojoshua86@gmail.com
+   EMAIL_HOST_PASSWORD=xxxx xxxx xxxx xxxx
+   DEFAULT_EMAIL_SENDER=ssentongojoshua86@gmail.com
+
+   IMPORTANT: Keep spaces in the password exactly as Google shows them.
+   Example of what it should look like:
+   EMAIL_HOST_PASSWORD=abcd efgh ijkl mnop
+
+3. Save the file.
+
+
+STEP 3 — Restart the Django backend server
+-------------------------------------------
+Stop the currently running backend server (Ctrl+C in the terminal),
+then start it again:
+
+   python manage.py runserver
+
+This forces Django to reload the .env file with your new password.
+
+
+STEP 4 — Test that it works
+----------------------------
+1. Go to the signup page and register a new account.
+   -> You should receive a verification email within a minute.
+
+2. Go to the forgot password page and enter a registered email.
+   -> You should receive a password reset email within a minute.
+
+3. Check your spam/junk folder if the emails don't appear in your inbox.
+
+
+TROUBLESHOOTING
+---------------
+If emails still don't arrive after following the steps above:
+
+- Double-check the .env file has no extra spaces around the = sign.
+  CORRECT:   EMAIL_HOST_PASSWORD=abcd efgh ijkl mnop
+  WRONG:     EMAIL_HOST_PASSWORD = abcd efgh ijkl mnop
+
+- Make sure you restarted the server after editing .env.
+
+- Check the backend logs for SMTP errors:
+  File: D:\Energy-sharing-project\backend\logs\meteringapi.log
+  Look for lines containing "[EMAILS] SMTP error" — they will show
+  exactly what is going wrong.
+
+- If Google says "App passwords" is not available, it means 2-Step
+  Verification is not enabled. Enable it first, then repeat Step 1.
+
+- If you want to use a different Gmail account, update EMAIL_HOST_USER
+  and DEFAULT_EMAIL_SENDER to that account's address, and generate the
+  App Password from that account instead.
