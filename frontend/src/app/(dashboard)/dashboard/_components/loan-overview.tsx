@@ -138,15 +138,15 @@ export default function LoanOverview() {
       <Card>
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardDescription>Pending Applications</CardDescription>
+            <CardDescription>Wallet Balance</CardDescription>
             <AlertCircleIcon className="h-4 w-4 text-yellow-500" />
           </div>
           <CardTitle className="text-4xl">
-            {stats.pending_applications}
+            Ush 0.00
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="text-xs text-muted-foreground">Awaiting approval</div>
+          <div className="text-xs text-muted-foreground">Your wallet Balance</div>
         </CardContent>
       </Card>
 
