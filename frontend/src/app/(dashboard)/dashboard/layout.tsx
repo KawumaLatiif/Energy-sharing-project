@@ -9,8 +9,8 @@ const fontSans = FontSans({
 })
 
 export const metadata: Metadata = {
-  title: "Energy Share | Dashboard",
-  description: "",
+  title: "gPawa | Dashboard",
+  description: "gPawa energy sharing platform",
 };
 
 export default async function RootLayout({

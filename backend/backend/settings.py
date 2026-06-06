@@ -83,7 +83,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # 'admin.apps.AdminConfig',
+    'admin.apps.AdminConfig',
     'accounts',
     'loan',
     'transactions',
@@ -107,7 +107,14 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'accounts.middleware.StaffInactivityMiddleware',
 ]
+
+# Staff admin session: 30 minutes of inactivity expires access (spec Section 1.3)
+STAFF_SESSION_INACTIVITY_MINUTES = 30
+# 2FA settings
+TOTP_ISSUER_NAME = 'Gpawa Admin'
+TOTP_CHALLENGE_MAX_AGE_SECONDS = 300
 
 ROOT_URLCONF = 'backend.urls'
 
@@ -143,9 +150,9 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': get_env_variable('DB_NAME', 'project'),
+        'NAME': get_env_variable('DB_NAME', 'metering'),
         'USER': get_env_variable('DB_USER', 'postgres'),
-        'PASSWORD': get_env_variable('DB_PASSWORD', 'postgres'),
+        'PASSWORD': get_env_variable('DB_PASSWORD', 'Phaneroo1'),
         'HOST': get_env_variable('DB_HOST', 'localhost'),
         'PORT': get_env_variable('DB_PORT', 5432, cast=int),
         "ATOMIC_REQUESTS": True,
@@ -167,6 +174,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 12},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -257,7 +265,7 @@ SIMPLE_JWT = {
     'AUTH_COOKIE_HTTP_ONLY': True,
     'AUTH_COOKIE_SECURE': False, 
     'AUTH_COOKIE_SAMESITE': 'Lax',
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=240),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,

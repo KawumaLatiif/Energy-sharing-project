@@ -19,16 +19,21 @@ export default async function AdminLayout({
     redirect("/auth/login");
   }
 
-  if (userData.user_role !== "ADMIN" && !userData.is_admin) {
-    redirect("/dashboard"); 
+  const staffRoles = ["ADMIN", "CUSTOMER_SERVICE", "OPERATOR"];
+  if (!staffRoles.includes(userData.user_role) && !userData.is_admin) {
+    redirect("/dashboard");
   }
 
   return (
-    <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
-      <AdminDesktopSidebar />
-      <div className="flex min-w-0 flex-col">
+    <div className="flex min-h-screen w-full">
+      {/* Sidebar */}
+      <div className="hidden md:flex md:w-[220px] lg:w-[260px] shrink-0 flex-col sticky top-0 h-screen overflow-hidden">
+        <AdminDesktopSidebar />
+      </div>
+      {/* Main */}
+      <div className="flex min-w-0 flex-1 flex-col">
         <AdminRightHeader />
-        <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+        <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6 bg-background">
           {children}
         </main>
       </div>

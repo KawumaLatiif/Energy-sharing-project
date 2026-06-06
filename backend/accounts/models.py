@@ -68,12 +68,14 @@ class User(TimestampMixin, AbstractUser):
     # Roles
     ADMIN = "ADMIN"
     CLIENT = "CLIENT"
-   
+    CUSTOMER_SERVICE = "CUSTOMER_SERVICE"
+    OPERATOR = "OPERATOR"
 
     USER_ROLES = [
         (ADMIN, _("admin")),
-        (CLIENT, _("client"))
-        
+        (CLIENT, _("client")),
+        (CUSTOMER_SERVICE, _("customer_service")),
+        (OPERATOR, _("operator")),
     ]
 
     MALE = "MALE"
@@ -93,7 +95,7 @@ class User(TimestampMixin, AbstractUser):
     #     Country, on_delete=models.CASCADE, null=True, blank=True
     # )
     account_is_active = models.BooleanField(default=False)
-    user_role = models.CharField(default=CLIENT, choices=USER_ROLES, max_length=8)
+    user_role = models.CharField(default=CLIENT, choices=USER_ROLES, max_length=20)
     gender = models.CharField(max_length=6, choices=USER_GENDER, default=MALE)
     monthly_unit_balance = models.FloatField(default=0)  # Units bought in the current month
     last_purchase_date = models.DateField(null=True, blank=True)
@@ -192,18 +194,45 @@ class User(TimestampMixin, AbstractUser):
     )
     
     consumption_level = models.CharField(
-        max_length=30, 
+        max_length=30,
         choices=[
             ("Very low (<50 kWh)", "Very low (<50 kWh)"),
             ("Low (50–99 kWh)", "Low (50–99 kWh)"),
             ("Moderate (100–200 kWh)", "Moderate (100–200 kWh)"),
             ("High (>200 kWh)", "High (>200 kWh)"),
             ("Extremely high (>300 kWh)", "Extremely high (>300 kWh)")
-        ], 
-        null=True, 
+        ],
+        null=True,
         blank=True
     )
-    
+
+    # KYC status — per Section 3.7
+    KYC_UNVERIFIED = "UNVERIFIED"
+    KYC_VERIFIED = "VERIFIED"
+    KYC_FLAGGED = "FLAGGED"
+    KYC_STATUS_CHOICES = [
+        (KYC_UNVERIFIED, "Unverified"),
+        (KYC_VERIFIED, "Verified"),
+        (KYC_FLAGGED, "Flagged"),
+    ]
+    kyc_status = models.CharField(max_length=12, choices=KYC_STATUS_CHOICES, default=KYC_UNVERIFIED)
+
+    # Account suspension tracking
+    is_suspended = models.BooleanField(default=False)
+    suspension_reason = models.CharField(max_length=50, null=True, blank=True)
+    suspension_note = models.TextField(null=True, blank=True)
+    suspended_at = models.DateTimeField(null=True, blank=True)
+    national_id = models.CharField(max_length=30, null=True, blank=True)
+
+    # Credit limit override (Admin only, hard cap 20 kWh per spec Section 5.4)
+    credit_limit_override_kwh = models.DecimalField(
+        max_digits=6, decimal_places=2, null=True, blank=True
+    )
+    credit_limit_override_reason = models.TextField(null=True, blank=True)
+
+    # 2FA (TOTP / Google Authenticator) — mandatory for staff per spec Section 1.3
+    totp_secret = models.CharField(max_length=64, null=True, blank=True)
+    totp_enabled = models.BooleanField(default=False)
 
     def __str__(self):
         """
@@ -242,6 +271,19 @@ class User(TimestampMixin, AbstractUser):
     @property
     def is_client(self):
         return self.user_role == self.CLIENT
+
+    @property
+    def is_customer_service(self):
+        return self.user_role == self.CUSTOMER_SERVICE
+
+    @property
+    def is_operator(self):
+        return self.user_role == self.OPERATOR
+
+    @property
+    def is_staff_member(self):
+        """True for any admin panel staff role."""
+        return self.user_role in (self.ADMIN, self.CUSTOMER_SERVICE, self.OPERATOR)
 
 
 class UserAccountDetails(TimestampMixin, models.Model):
