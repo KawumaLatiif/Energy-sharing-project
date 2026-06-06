@@ -1,4 +1,4 @@
--- Power Cred HEAVY sample data dump (PostgreSQL)
+-- Energy Share HEAVY sample data dump (PostgreSQL)
 -- Use after Django migrations.
 -- This variant provides broader scenarios for QA:
 -- - More users

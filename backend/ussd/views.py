@@ -493,7 +493,7 @@ def ussd_entry(request):
                 ussd_session,
                 "CON",
                 (
-                    "Power Cred\n"
+                    "Energy Share\n"
                     "1. Wallet & Meter\n"
                     "2. Buy Units\n"
                     "3. Loans\n"
@@ -720,7 +720,7 @@ def ussd_entry(request):
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(ussd_session, "END", "Thank you for using Power Cred.")
+        return _session_reply(ussd_session, "END", "Thank you for using Energy Share.")
     except Exception as exc:
         logger.exception("USSD processing error")
         ussd_session.last_text = text
