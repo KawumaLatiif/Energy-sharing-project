@@ -10,7 +10,9 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from accounts.models import generate_random_string
-from meter.models import Meter
+from wallet.models import UnitBalance
+from meter.models import generate_numeric_token
+from meter.models import Meter, MeterToken
 from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
@@ -22,7 +24,7 @@ from loan.scoring import (
     get_factor_breakdown,
     FACTOR_WEIGHTS,
 )
-from wallet.models import Wallet as UnitWallet
+from wallet.models import Wallet as MoneyWallet
 
 logger = logging.getLogger(__name__)
 
@@ -269,110 +271,6 @@ class LoanDetailView(generics.RetrieveAPIView):
     def get_queryset(self):
         return LoanApplication.objects.filter(user=self.request.user)
 
-# class LoanRepaymentView(APIView):
-#     permission_classes = (IsAuthenticated,)
-    
-#     def post(self, request, loan_id):
-#         try:
-#             loan = LoanApplication.objects.get(id=loan_id, user=request.user)
-            
-#             if loan.status != 'DISBURSED':
-#                 return Response({"error": "Loan is not disbursed or already completed"}, status=status.HTTP_400_BAD_REQUEST)
-            
-#             amount = float(request.data.get('amount', 0))
-            
-#             if amount <= 0:
-#                 return Response({"error": "Invalid amount"}, status=status.HTTP_400_BAD_REQUEST)
-            
-#             if amount > loan.outstanding_balance:
-#                 return Response({"error": "Amount exceeds outstanding balance"}, status=status.HTTP_400_BAD_REQUEST)
-            
-#              # Calculate units equivalent based on tariff block rates
-#             if loan.tariff:
-#                 units_equivalent = loan.calculate_units_from_amount(amount)
-#                 cost_breakdown = self.get_repayment_breakdown(loan, amount)
-#                 tariff_info = {
-#                     'tariff_code': loan.tariff.tariff_code,
-#                     'cost_breakdown': cost_breakdown
-#                 }
-#             else:
-#                 # Default calculation (500 UGX per unit)
-#                 units_equivalent = round(amount / 500)
-#                 tariff_info = {
-#                     'tariff_code': 'DEFAULT',
-#                     'rate_used': 500
-#                 }
-            
-#             with transaction.atomic():
-#                 # Generate payment reference
-#                 payment_ref = generate_random_string(12)
-                
-#                 # Create repayment record
-#                 repayment = LoanRepayment.objects.create(
-#                     loan=loan,
-#                     amount_paid=amount,
-#                     units_paid=units_equivalent,
-#                     payment_reference=payment_ref,
-#                     is_on_time=self.check_payment_timeliness(loan)
-#                 )
-                
-#                 # Add units to user's meter
-#                 try:
-#                     meter = Meter.objects.get(user=request.user)
-#                     meter.units += units_equivalent
-#                     meter.save()
-
-#                     # Log repayment
-#                     TransactionLog.objects.create(
-#                         user=request.user,
-#                         transaction_type=TransactionType.LOAN_REPAYMENT,
-#                         amount=amount,
-#                         units=units_equivalent,
-#                         status='COMPLETED',
-#                         reference_id=loan.loan_id,
-#                         details={
-#                             'payment_reference': payment_ref,
-#                             'units_added': float(units_equivalent)
-#                         }
-#                     )
-                    
-#                     # SKIP UnitTransaction creation for now to avoid errors
-#                     logger.info(f"Repayment processed. Loan: {loan.loan_id}, Amount: {amount}, Units: {units_equivalent}")
-                    
-#                 except Meter.DoesNotExist:
-#                     return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
-                
-#                 # Check if loan is fully paid
-#                 if loan.outstanding_balance <= 0:
-#                     loan.status = 'COMPLETED'
-#                     loan.save()
-            
-#             return Response({
-#                 "message": "Payment successful", 
-#                 "units_added": round(units_equivalent,2),
-#                 "payment_reference": payment_ref,
-#                 "tariff_info": tariff_info,
-#                 "outstanding_balance": loan.outstanding_balance
-#             })
-            
-#         except LoanApplication.DoesNotExist:
-#             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
-#         except Exception as e:
-#             logger.error(f"Repayment error: {str(e)}")
-#             return Response(
-#                 {"error": f"Failed to process repayment: {str(e)}"}, 
-#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
-#             )
-        
-#     def get_repayment_breakdown(self, loan, amount):
-#         """Calculate breakdown for repayment amount"""
-#         if not loan.tariff:
-#             return None
-        
-#         return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
-    
-#     def check_payment_timeliness(self, loan):
-#         return True
 
 class LoanRepaymentView(APIView):
     permission_classes = (IsAuthenticated,)
@@ -404,79 +302,61 @@ class LoanRepaymentView(APIView):
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
-            # Calculate units equivalent based on tariff block rates
-            if loan.tariff:
-                units_equivalent = loan.calculate_units_from_amount(amount)
-                cost_breakdown = self.get_repayment_breakdown(loan, amount)
-                tariff_info = {
-                    'tariff_code': loan.tariff.tariff_code,
-                    'cost_breakdown': cost_breakdown
-                }
-            else:
-                # Default calculation (500 UGX per unit)
-                units_equivalent = round(amount / 500, 2)
-                tariff_info = {
-                    'tariff_code': 'DEFAULT',
-                    'rate_used': 500
-                }
+            payment_source = str(request.data.get('payment_source', 'PHONE')).upper()
+            if payment_source not in {'WALLET', 'PHONE', 'MOBILE_MONEY'}:
+                return Response(
+                    {"error": "Payment source must be WALLET or PHONE"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            tariff_info = {
+                'tariff_code': loan.tariff.tariff_code if loan.tariff else 'DEFAULT',
+            }
             
             with transaction.atomic():
                 # Generate payment reference
                 payment_ref = generate_random_string(12)
+
+                if payment_source == 'WALLET':
+                    wallet, _ = MoneyWallet.objects.select_for_update().get_or_create(user=request.user)
+                    payment_amount = Decimal(str(amount))
+                    if wallet.balance < payment_amount:
+                        return Response(
+                            {"error": "Insufficient wallet balance", "wallet_balance": str(wallet.balance)},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    wallet.deduct(
+                        payment_amount,
+                        description=f"Loan repayment for {loan.loan_id}",
+                        transaction_ref=payment_ref,
+                    )
                 
                 # Create repayment record
                 repayment = LoanRepayment.objects.create(
                     loan=loan,
                     amount_paid=amount,
-                    units_paid=units_equivalent,
+                    units_paid=0,
                     payment_reference=payment_ref,
                     is_on_time=self.check_payment_timeliness(loan),
-                    payment_method='CASH',  # or whatever method was used
+                    payment_method='MOBILE_MONEY' if payment_source != 'WALLET' else 'CASH',
                     payment_status='SUCCESS'
                 )
-                
-                # Add units to user's meter
-                try:
-                    meter = Meter.objects.get(user=request.user)
-                    meter.units += units_equivalent
-                    meter.save()
-                    
-                except Meter.DoesNotExist:
-                    return Response(
-                        {"error": "Meter not found"}, 
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
                 
                 # Create Transaction Log - THIS WAS MISSING
                 TransactionLog.objects.create(
                     user=request.user,
                     transaction_type=TransactionType.LOAN_REPAYMENT,
                     amount=amount,
-                    units=units_equivalent,
+                    units=0,
                     status='COMPLETED',
                     reference_id=loan.loan_id,
                     details={
                         'payment_reference': payment_ref,
-                        'units_added': float(units_equivalent),
                         'loan_id': loan.loan_id,
-                        'payment_method': 'CASH'
+                        'payment_source': payment_source
                     }
                 )
-                
-                # Create UnitTransaction
-                try:
-                    UnitTransaction.objects.create(
-                        sender=request.user,
-                        receiver=request.user,
-                        units=units_equivalent,
-                        meter=meter,
-                        direction='IN',
-                        status='COMPLETED',
-                        message=f'Loan repayment for {loan.loan_id}'
-                    )
-                except Exception as e:
-                    logger.warning(f"UnitTransaction creation failed: {e}")
-                
+
                 # IMPORTANT: Refresh loan from database to get updated state
                 loan.refresh_from_db()
                 
@@ -504,7 +384,6 @@ class LoanRepaymentView(APIView):
             # Return updated loan info
             return Response({
                 "message": message,
-                "units_added": round(units_equivalent, 2),
                 "payment_reference": payment_ref,
                 "tariff_info": tariff_info,
                 "outstanding_balance": loan.outstanding_balance,
@@ -538,146 +417,137 @@ class LoanRepaymentView(APIView):
         return timezone.now() <= loan.due_date
 
 
-class LoanDisbursementView(APIView):
-    permission_classes = (IsAuthenticated,)
+# class LoanDisbursementView(APIView):
+#     permission_classes = (IsAuthenticated,)
     
-    def get_cost_breakdown(self, loan, amount):
-        """Calculate detailed cost breakdown for block tariff"""
-        if not loan.tariff:
-            return None
+#     def get_cost_breakdown(self, loan, amount):
+#         """Calculate detailed cost breakdown for block tariff"""
+#         if not loan.tariff:
+#             return None
         
-        blocks = loan.tariff.blocks.all().order_by('block_order')
-        breakdown = []
-        remaining_amount = amount
+#         blocks = loan.tariff.blocks.all().order_by('block_order')
+#         breakdown = []
+#         remaining_amount = amount
         
-        for block in blocks:
-            if remaining_amount <= 0:
-                break
+#         for block in blocks:
+#             if remaining_amount <= 0:
+#                 break
                 
-            if block.max_units:
-                block_units_available = block.max_units - block.min_units + 1
-                block_cost = block_units_available * float(block.rate_per_unit)
+#             if block.max_units:
+#                 block_units_available = block.max_units - block.min_units + 1
+#                 block_cost = block_units_available * float(block.rate_per_unit)
                 
-                if remaining_amount >= block_cost:
-                    units_from_block = block_units_available
-                    cost_from_block = block_cost
-                    remaining_amount -= block_cost
-                else:
-                    units_from_block = remaining_amount / float(block.rate_per_unit)
-                    cost_from_block = remaining_amount
-                    remaining_amount = 0
-            else:
-                units_from_block = remaining_amount / float(block.rate_per_unit)
-                cost_from_block = remaining_amount
-                remaining_amount = 0
+#                 if remaining_amount >= block_cost:
+#                     units_from_block = block_units_available
+#                     cost_from_block = block_cost
+#                     remaining_amount -= block_cost
+#                 else:
+#                     units_from_block = remaining_amount / float(block.rate_per_unit)
+#                     cost_from_block = remaining_amount
+#                     remaining_amount = 0
+#             else:
+#                 units_from_block = remaining_amount / float(block.rate_per_unit)
+#                 cost_from_block = remaining_amount
+#                 remaining_amount = 0
             
-            breakdown.append({
-                'block_name': block.block_name,
-                'units': round(units_from_block, 2),
-                'rate': float(block.rate_per_unit),
-                'cost': round(cost_from_block, 2),
-                'block_range': f"{block.min_units}-{block.max_units if block.max_units else 'inf'}"
-            })
+#             breakdown.append({
+#                 'block_name': block.block_name,
+#                 'units': round(units_from_block, 2),
+#                 'rate': float(block.rate_per_unit),
+#                 'cost': round(cost_from_block, 2),
+#                 'block_range': f"{block.min_units}-{block.max_units if block.max_units else 'inf'}"
+#             })
         
-        return breakdown
+#         return breakdown
     
-    def post(self, request, loan_id):
-        try:
-            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
+#     def post(self, request, loan_id):
+#         try:
+#             loan = LoanApplication.objects.get(id=loan_id, user=request.user)
             
-            if loan.status != 'APPROVED':
-                return Response({"error": "Loan is not approved for disbursement"}, status=status.HTTP_400_BAD_REQUEST)
+#             if loan.status != 'APPROVED':
+#                 return Response({"error": "Loan is not approved for disbursement"}, status=status.HTTP_400_BAD_REQUEST)
             
-            if not loan.amount_approved or loan.amount_approved <= 0:
-                return Response({"error": "Loan amount not approved"}, status=status.HTTP_400_BAD_REQUEST)
+#             if not loan.amount_approved or loan.amount_approved <= 0:
+#                 return Response({"error": "Loan amount not approved"}, status=status.HTTP_400_BAD_REQUEST)
             
-            with transaction.atomic():
-                # Get user's meter
-                try:
-                    meter = Meter.objects.get(user=request.user)
-                except Meter.DoesNotExist:
-                    return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
+#             with transaction.atomic():
+#                 # Get user's meter
+#                 try:
+#                     meter = Meter.objects.get(user=request.user)
+#                 except Meter.DoesNotExist:
+#                     return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
                 
-                # Calculate units to disburse based on tariff block rates
-                if loan.tariff:
-                    units_to_disburse = loan.calculate_units_from_amount()
-                    # FIXED: Now this method exists
-                    cost_breakdown = self.get_cost_breakdown(loan, float(loan.amount_approved))
-                    tariff_info = {
-                        'tariff_code': loan.tariff.tariff_code,
-                        'tariff_name': loan.tariff.tariff_name,
-                        'cost_breakdown': cost_breakdown
-                    }
-                else:
-                    # Fallback to default calculation (500 UGX per unit)
-                    units_to_disburse = round(float(loan.amount_approved) / 500)
-                    tariff_info = {
-                        'tariff_code': 'DEFAULT',
-                        'rate_per_kwh': 500,
-                        'tariff_name': 'Default Rate'
-                    }
+#                 # Calculate units to disburse based on tariff block rates
+#                 if loan.tariff:
+#                     units_to_disburse = loan.calculate_units_from_amount()
+#                     # FIXED: Now this method exists
+#                     cost_breakdown = self.get_cost_breakdown(loan, float(loan.amount_approved))
+#                     tariff_info = {
+#                         'tariff_code': loan.tariff.tariff_code,
+#                         'tariff_name': loan.tariff.tariff_name,
+#                         'cost_breakdown': cost_breakdown
+#                     }
+#                 else:
+#                     # Fallback to default calculation (500 UGX per unit)
+#                     units_to_disburse = round(float(loan.amount_approved) / 500)
+#                     tariff_info = {
+#                         'tariff_code': 'DEFAULT',
+#                         'rate_per_kwh': 500,
+#                         'tariff_name': 'Default Rate'
+#                     }
 
-                # Create disbursement record
-                disbursement = LoanDisbursement.objects.create(
-                    loan_application=loan,
-                    disbursed_amount=loan.amount_approved,
-                    units_disbursed=units_to_disburse,
-                    meter=meter
-                )
+#                 # Create disbursement record
+#                 disbursement = LoanDisbursement.objects.create(
+#                     loan_application=loan,
+#                     disbursed_amount=loan.amount_approved,
+#                     units_disbursed=units_to_disburse,
+#                     meter=meter
+#                 )
+#                 token_value = disbursement.token
+#                 while MeterToken.objects.filter(token=token_value).exists():
+#                     token_value = generate_random_string(10)
+#                 if token_value != disbursement.token:
+#                     disbursement.token = token_value
+#                     disbursement.save(update_fields=['token'])
+
+#                 meter_token = MeterToken.objects.create(
+#                     user=request.user,
+#                     token=token_value,
+#                     units=units_to_disburse,
+#                     meter=meter,
+#                     source='LOAN',
+#                     loan_application=loan,
+#                 )
                 
-                # Update loan status to DISBURSED
-                loan.status = 'DISBURSED'
-                loan.save()
+#                 # Update loan status to DISBURSED
+#                 loan.status = 'DISBURSED'
+#                 loan.save()
 
-                TransactionLog.objects.create(
-                    user=request.user,
-                    transaction_type=TransactionType.LOAN_DISBURSEMENT,
-                    amount=loan.amount_approved,
-                    units=units_to_disburse,
-                    status='COMPLETED',
-                    reference_id=loan.loan_id,
-                    details={
-                        'units_disbursed': float(units_to_disburse)
-                    }
-                )
-
-                # Add units to unit wallet (not meter)
-                unit_wallet, _ = UnitWallet.objects.get_or_create(user=request.user)
-                unit_wallet.balance += Decimal(str(units_to_disburse))
-                unit_wallet.save()
-                
-                try:
-                    # Try minimal fields based on your model structure
-                    unit_transaction_data = {
-                        'sender': request.user,
-                        'receiver': request.user,
-                        'units': units_to_disburse,
-                        'meter': None,
-                        'direction': 'IN',
-                        'status': 'COMPLETED',
-                        'message': f'Loan disbursement to wallet - {loan.loan_id}'
-                    }
-                    
-                    # Remove any None values
-                    unit_transaction_data = {k: v for k, v in unit_transaction_data.items() if v is not None}
-                    
-                    UnitTransaction.objects.create(**unit_transaction_data)
-                    
-                except Exception as e:
-                    logger.warning(f"UnitTransaction creation failed, but continuing: {e}")
-                    # Don't fail the whole disbursement if transaction recording fails
+#                 TransactionLog.objects.create(
+#                     user=request.user,
+#                     transaction_type=TransactionType.LOAN_DISBURSEMENT,
+#                     amount=loan.amount_approved,
+#                     units=units_to_disburse,
+#                     status='COMPLETED',
+#                     reference_id=loan.loan_id,
+#                     details={
+#                         'units_disbursed': float(units_to_disburse),
+#                         'token': meter_token.token
+#                     }
+#                 )
             
-            return Response({
-                "message": "Loan disbursed successfully to your unit wallet!",
-                "units_added_to_wallet": round(units_to_disburse, 2),
-                "units_disbursed": round(units_to_disburse, 2),
-                "tariff_info": tariff_info
-            })
+#             return Response({
+#                 "message": "Loan disbursed successfully. Use the generated token on your meter.",
+#                 "token": meter_token.token,
+#                 "disbursement_token": meter_token.token,
+#                 "units_disbursed": round(units_to_disburse, 2),
+#                 "tariff_info": tariff_info
+#             })
             
-        except LoanApplication.DoesNotExist:
-            return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
-        except Meter.DoesNotExist:
-            return Response({"error": "No meter found for this account. Please register your meter first."}, status=400)
+#         except LoanApplication.DoesNotExist:
+#             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
+#         except Meter.DoesNotExist:
+#             return Response({"error": "No meter found for this account. Please register your meter first."}, status=400)
 
 class LoanNotificationView(APIView):
     permission_classes = (IsAuthenticated,)
@@ -759,3 +629,116 @@ class LoanStatsView(APIView):
             logger.exception("Loan stats failed")
             return Response({"error": "Failed to fetch stats"}, status=500)
 
+
+class LoanDisbursementView(APIView):
+    permission_classes = (IsAuthenticated,)
+    
+    def post(self, request, loan_id):
+        try:
+            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
+            
+            if loan.status != 'APPROVED':
+                return Response({"error": "Loan is not approved for disbursement"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            if not loan.amount_approved or loan.amount_approved <= 0:
+                return Response({"error": "Loan amount not approved"}, status=status.HTTP_400_BAD_REQUEST)
+            
+            with transaction.atomic():
+                # Get user's meter
+                try:
+                    meter = Meter.objects.get(user=request.user)
+                except Meter.DoesNotExist:
+                    return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
+                
+                # Calculate units to disburse based on tariff block rates
+                if loan.tariff:
+                    units_to_disburse = loan.calculate_units_from_amount()
+                    cost_breakdown = self.get_cost_breakdown(loan, float(loan.amount_approved))
+                    tariff_info = {
+                        'tariff_code': loan.tariff.tariff_code,
+                        'tariff_name': loan.tariff.tariff_name,
+                        'cost_breakdown': cost_breakdown
+                    }
+                else:
+                    # Fallback to default calculation (500 UGX per unit)
+                    units_to_disburse = round(float(loan.amount_approved) / 500)
+                    tariff_info = {
+                        'tariff_code': 'DEFAULT',
+                        'rate_per_kwh': 500,
+                        'tariff_name': 'Default Rate'
+                    }
+                
+                # ADD UNITS TO UNIT BALANCE (for sharing)
+                unit_balance, _ = UnitBalance.objects.get_or_create(user=request.user)
+                unit_balance.add_units(
+                    units_to_disburse,
+                    description=f"Loan {loan.loan_id} disbursement",
+                    reference=loan.loan_id
+                )
+                
+                # Create numeric token for meter loading
+                token_value = generate_numeric_token(10)  # Use numeric token
+                while MeterToken.objects.filter(token=token_value).exists():
+                    token_value = generate_numeric_token(10)
+                
+                meter_token = MeterToken.objects.create(
+                    user=request.user,
+                    token=token_value,
+                    units=units_to_disburse,
+                    meter=meter,
+                    source='LOAN',
+                    loan_application=loan,
+                    is_used=False  # Token not used yet
+                )
+                
+                # Create disbursement record
+                disbursement = LoanDisbursement.objects.create(
+                    loan_application=loan,
+                    disbursed_amount=loan.amount_approved,
+                    units_disbursed=units_to_disburse,
+                    token=token_value,
+                    meter=meter
+                )
+                
+                # Update loan status to DISBURSED
+                loan.status = 'DISBURSED'
+                loan.save()
+                
+                # Log transaction
+                TransactionLog.objects.create(
+                    user=request.user,
+                    transaction_type=TransactionType.LOAN_DISBURSEMENT,
+                    amount=loan.amount_approved,
+                    units=units_to_disburse,
+                    status='COMPLETED',
+                    reference_id=loan.loan_id,
+                    details={
+                        'units_disbursed': float(units_to_disburse),
+                        'token': meter_token.token,
+                        'unit_balance_after': float(unit_balance.balance)
+                    }
+                )
+                
+                logger.info(
+                    f"Loan {loan.loan_id} disbursed: "
+                    f"Added {units_to_disburse} units to {request.user.email}'s UnitBalance. "
+                    f"New unit balance: {unit_balance.balance}. "
+                    f"Numeric token: {token_value}"
+                )
+                
+                return Response({
+                    "message": "Loan disbursed successfully! Units added to your available balance.",
+                    "token": meter_token.token,  # Numeric token
+                    "units_disbursed": round(units_to_disburse, 2),
+                    "units_available_to_share": float(unit_balance.balance),
+                    "tariff_info": tariff_info,
+                    "note": "Use the token above to load units to your meter, or share units with others."
+                })
+                
+        except LoanApplication.DoesNotExist:
+            return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
+        except Meter.DoesNotExist:
+            return Response({"error": "No meter found for this account. Please register your meter first."}, status=400)
+        except Exception as e:
+            logger.error(f"Loan disbursement error: {str(e)}")
+            return Response({"error": f"Failed to disburse loan: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

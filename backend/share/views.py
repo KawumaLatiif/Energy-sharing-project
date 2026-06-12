@@ -10,11 +10,11 @@ from datetime import datetime, timedelta
 import logging
 from transactions.models import TransactionType, TransactionLog
 from transactions.api.generate_token import generate_numeric_token
-
+from meter.models import generate_numeric_token
 from .serializers import ShareUnitSerializer, VerifyOTPSerializer, TransferUnitsSerializer
 from .models import Share, ShareTransaction
 from accounts.models import User, Wallet as AccountWallet
-from wallet.models import Wallet
+from wallet.models import Wallet, UnitBalance
 from meter.models import Meter, MeterToken
 from share.services import VerificationService, VerificationCode
 from utils.general import format_currency
@@ -27,6 +27,129 @@ from accounts.tasks import (
 
 logger = logging.getLogger(__name__)
 
+# class ShareUnitsView(APIView):
+#     permission_classes = [IsAuthenticated]
+    
+#     def post(self, request):
+#         verification_code = request.data.get('verification_code')
+        
+#         if not verification_code:
+#             # Step 1: Initial share request
+#             serializer = ShareUnitSerializer(data=request.data)
+#             if not serializer.is_valid():
+#                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            
+#             try:
+#                 with db_transaction.atomic():
+#                     # Get data
+#                     receiver_meter_no = serializer.validated_data['meter_number']
+#                     units_to_share = Decimal(str(serializer.validated_data['units']))
+                    
+#                     # Get sender (current user)
+#                     sender = request.user
+                    
+#                     # Get sender's meters and handle multiple
+#                     sender_meters = Meter.objects.filter(user=sender)
+#                     if sender_meters.count() == 0:
+#                         return Response(
+#                             {"error": "No meter found for sender"},
+#                             status=status.HTTP_400_BAD_REQUEST
+#                         )
+#                     if sender_meters.count() > 1:
+#                         # For now, assume single; extend to accept 'sender_meter_no' in data if needed
+#                         return Response(
+#                             {"error": "Multiple meters found. Please specify which to send from."},
+#                             status=status.HTTP_400_BAD_REQUEST
+#                         )
+#                     sender_meter = sender_meters.first()
+                    
+#                     # Check if sender's WALLET has sufficient units
+#                     sender_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=sender)
+#                     if sender_wallet.balance < units_to_share:
+#                         return Response({
+#                             "error": f"Insufficient units in your wallet. Your balance: {format_currency(sender_wallet.balance)} units"
+#                         }, status=status.HTTP_400_BAD_REQUEST)
+                    
+#                     # Validate receiver meter exists and is active
+#                     try:
+#                         receiver_meter = Meter.objects.select_for_update().get(
+#                             meter_no=receiver_meter_no,
+#                             # is_active=True  # Uncomment if Meter has is_active field
+#                         )
+#                     except Meter.DoesNotExist:
+#                         return Response(
+#                             {"error": "Receiver meter not found or inactive"},
+#                             status=status.HTTP_400_BAD_REQUEST
+#                         )
+                    
+#                     # Get receiver user
+#                     receiver_user = receiver_meter.user
+                    
+#                     # Generate transaction ref
+#                     transaction_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
+
+#                     # Cancel older pending shares for this sender and persist the new pending share in DB.
+#                     ShareTransaction.objects.filter(
+#                         sender=sender,
+#                         status='PENDING'
+#                     ).update(
+#                         status='CANCELLED',
+#                         message='Cancelled due to a newer share request'
+#                     )
+
+#                     pending_share = ShareTransaction.objects.create(
+#                         share_transaction_id=transaction_ref,
+#                         sender=sender,
+#                         receiver=receiver_user,
+#                         units=units_to_share,
+#                         meter_send=sender_meter,
+#                         meter_receive=receiver_meter,
+#                         direction='OUT',
+#                         status='PENDING',
+#                         message=f"Pending OTP verification for share to meter {receiver_meter_no}",
+#                         ip_address=request.META.get('REMOTE_ADDR'),
+#                         user_agent=request.META.get('HTTP_USER_AGENT', '')
+#                     )
+                    
+#                     # Generate verification code
+#                     verification = VerificationCode.create_code(
+#                         user=sender,
+#                         purpose='share_units',
+#                         expiry_minutes=10
+#                     )
+                    
+#                     # Prepare transaction details for email
+#                     transaction_details = (
+#                     f"You're sharing {units_to_share} units to meter {receiver_meter_no}."
+#                     f"From your meter: {sender_meter.meter_no}."
+#                     f"Transaction ID: {transaction_ref}."
+#                     f"Code expires: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}."
+#                     )
+                    
+#                     # Send verification email via Celery task
+#                     handle_send_share_verification.delay(
+#                         user_id=sender.id,
+#                         code=verification.code,
+#                         transaction_details=transaction_details
+#                     )
+                    
+#                     logger.info(f"Generated OTP for {sender.email}: {verification.code}")
+                    
+#                     return Response({
+#                         "success": True,
+#                         "message": "Verification code sent to your email. Please check and verify.",
+#                         "transaction_ref": pending_share.share_transaction_id,
+#                         "requires_verification": True
+#                     }, status=status.HTTP_200_OK)
+                    
+#             except Exception as e:
+#                 logger.error(f"Error initiating share: {str(e)}", exc_info=True)
+#                 return Response({
+#                     "error": "An error occurred while initiating the share request"
+#                 }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+# share/views.py - Update ShareUnitsView to use UnitBalance
+
 class ShareUnitsView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -34,73 +157,50 @@ class ShareUnitsView(APIView):
         verification_code = request.data.get('verification_code')
         
         if not verification_code:
-            # Step 1: Initial share request
+            # Initial share request - check UNIT balance, not money wallet
             serializer = ShareUnitSerializer(data=request.data)
             if not serializer.is_valid():
                 return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
             
             try:
                 with db_transaction.atomic():
-                    # Get data
                     receiver_meter_no = serializer.validated_data['meter_number']
                     units_to_share = Decimal(str(serializer.validated_data['units']))
-                    
-                    # Get sender (current user)
                     sender = request.user
                     
-                    # Get sender's meters and handle multiple
-                    sender_meters = Meter.objects.filter(user=sender)
-                    if sender_meters.count() == 0:
-                        return Response(
-                            {"error": "No meter found for sender"},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    if sender_meters.count() > 1:
-                        # For now, assume single; extend to accept 'sender_meter_no' in data if needed
-                        return Response(
-                            {"error": "Multiple meters found. Please specify which to send from."},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    sender_meter = sender_meters.first()
+                    # Get sender's unit balance (NOT money wallet)
+                    sender_units, _ = UnitBalance.objects.select_for_update().get_or_create(user=sender)
                     
-                    # Check if sender's WALLET has sufficient units
-                    sender_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=sender)
-                    if sender_wallet.balance < units_to_share:
+                    # Check if sender has enough UNITS
+                    if sender_units.balance < units_to_share:
                         return Response({
-                            "error": f"Insufficient units in your wallet. Your balance: {format_currency(sender_wallet.balance)} units"
+                            "error": f"Insufficient units. Your balance: {sender_units.balance} units"
                         }, status=status.HTTP_400_BAD_REQUEST)
                     
-                    # Validate receiver meter exists and is active
+                    # Validate receiver meter exists
                     try:
                         receiver_meter = Meter.objects.select_for_update().get(
                             meter_no=receiver_meter_no,
-                            # is_active=True  # Uncomment if Meter has is_active field
                         )
                     except Meter.DoesNotExist:
                         return Response(
-                            {"error": "Receiver meter not found or inactive"},
+                            {"error": "Receiver meter not found"},
                             status=status.HTTP_400_BAD_REQUEST
                         )
                     
-                    # Get receiver user
-                    receiver_user = receiver_meter.user
-                    
-                    # Generate transaction ref
+                    # Create pending share transaction
                     transaction_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
-
-                    # Cancel older pending shares for this sender and persist the new pending share in DB.
+                    
+                    # Cancel older pending shares
                     ShareTransaction.objects.filter(
                         sender=sender,
                         status='PENDING'
-                    ).update(
-                        status='CANCELLED',
-                        message='Cancelled due to a newer share request'
-                    )
-
+                    ).update(status='CANCELLED')
+                    
                     pending_share = ShareTransaction.objects.create(
                         share_transaction_id=transaction_ref,
                         sender=sender,
-                        receiver=receiver_user,
+                        receiver=receiver_meter.user,
                         units=units_to_share,
                         meter_send=sender_meter,
                         meter_receive=receiver_meter,
@@ -111,34 +211,24 @@ class ShareUnitsView(APIView):
                         user_agent=request.META.get('HTTP_USER_AGENT', '')
                     )
                     
-                    # Generate verification code
+                    # Generate and send OTP
                     verification = VerificationCode.create_code(
                         user=sender,
                         purpose='share_units',
                         expiry_minutes=10
                     )
                     
-                    # Prepare transaction details for email
-                    transaction_details = (
-                    f"You're sharing {units_to_share} units to meter {receiver_meter_no}."
-                    f"From your meter: {sender_meter.meter_no}."
-                    f"Transaction ID: {transaction_ref}."
-                    f"Code expires: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}."
-                    )
-                    
-                    # Send verification email via Celery task
+                    transaction_details = f"Sharing {units_to_share} units to meter {receiver_meter_no}"
                     handle_send_share_verification.delay(
                         user_id=sender.id,
                         code=verification.code,
                         transaction_details=transaction_details
                     )
                     
-                    logger.info(f"Generated OTP for {sender.email}: {verification.code}")
-                    
                     return Response({
                         "success": True,
-                        "message": "Verification code sent to your email. Please check and verify.",
-                        "transaction_ref": pending_share.share_transaction_id,
+                        "message": "Verification code sent to your email",
+                        "transaction_ref": transaction_ref,
                         "requires_verification": True
                     }, status=status.HTTP_200_OK)
                     
@@ -197,8 +287,11 @@ class ShareUnitsView(APIView):
                     share_token = None
 
                     if is_self_share:
-                        # Self-share: issue token to load units to sender's meter
-                        share_token = generate_numeric_token()
+                        # Self-share: issue numeric token to load units to sender's meter
+                        share_token = generate_numeric_token(10)  # Use numeric token
+                        while MeterToken.objects.filter(token=share_token).exists():
+                            share_token = generate_numeric_token(10)
+                    
                         MeterToken.objects.create(
                             token=share_token,
                             units=units_to_share,

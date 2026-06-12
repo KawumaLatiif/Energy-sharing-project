@@ -38,17 +38,6 @@ const ShareSchema = z.object({
 });
 
 type ShareFormValues = z.infer<typeof ShareSchema>;
-type WalletBalanceResponse = {
-  success: boolean;
-  wallet?: { balance?: string };
-  meters?: Array<{ is_active?: boolean; balance?: string; meter_number?: string }>;
-};
-
-type ShareUnitsResponse = {
-  success?: boolean;
-  error?: string;
-  transaction_ref?: string;
-};
 
 interface ShareFormProps {
   onSuccess?: () => void;
@@ -59,46 +48,40 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, setIsPending] = useState(false);
-  const [userBalance, setUserBalance] = useState<number | null>(null);
+  const [unitBalance, setUnitBalance] = useState<number | null>(null);  // Changed from userBalance
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
   const [transactionRef, setTransactionRef] = useState<string | null>(null);
-  const [userMeters, setUserMeters] = useState<any[]>([]);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
 
   const router = useRouter();
-
-  const fetchBalance = async () => {
-  try {
-    const response = await get<WalletBalanceResponse>("wallet/balance");
-
-    if (!response.error && response.data?.success) {
-      const apiData = response.data;
-      const meters = apiData.meters || [];
-      setUserMeters(meters);
-
-      const walletBalance = parseFloat(apiData.wallet?.balance || "0");
-      setUserBalance(walletBalance);
-    } else {
-      console.error(
-        "Balance fetch failed:",
-        response.error || "Unknown error"
-      );
-      setError(
-        getApiErrorMessage(response.error, "Failed to load balance. Please refresh.")
-      );
+  
+  // Fetch UNIT BALANCE - this is what's available to share
+  const fetchUnitBalance = async () => {
+    try {
+      const response = await get<any>("wallet/balance/");
+      console.log("Wallet balance response:", response.data); // Debug log
+      
+      if (!response.error && response.data?.success) {
+        // IMPORTANT: Use unit_balance.balance for sharing units
+        const availableUnits = Number(response.data.unit_balance?.balance || 0);
+        setUnitBalance(availableUnits);
+        console.log("Unit balance (available to share):", availableUnits);
+      } else {
+        console.error("Failed to fetch balance:", response.error);
+        setUnitBalance(0);
+      }
+    } catch (error) {
+      console.error("Failed to fetch unit balance:", error);
+      setUnitBalance(0);
+    } finally {
+      setIsLoadingBalance(false);
     }
-  } catch (error) {
-    console.error("Failed to fetch balance:", error);
-    setError("Network error. Please check your connection and try again.");
-  } finally {
-    setIsLoadingBalance(false);
-  }
-};
+  };
 
   useEffect(() => {
-    fetchBalance();
+    fetchUnitBalance();
   }, []);
 
   const form = useForm<ShareFormValues>({
@@ -111,8 +94,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
   // Step 1: Submit initial share request
   const handleInitialSubmit = async (data: ShareFormValues) => {
-    if (userBalance !== null && data.units > userBalance) {
-      setError("Insufficient units in your wallet");
+    // Check against UNIT BALANCE (not money wallet)
+    if (unitBalance !== null && data.units > unitBalance) {
+      setError(`Insufficient units. You have ${unitBalance} units available to share`);
       return;
     }
 
@@ -121,18 +105,18 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     setSuccess("");
 
     try {
-      const response = await post<ShareUnitsResponse>("share/share-units/", {
+      const response = await post<any>("share/share-units/", {
         meter_number: data.meter_number,
         units: data.units,
       });
 
-      if (response.data?.success === true) {
+      if (response.data?.success === true || response.status === 200) {
         // Store transaction details for verification step
-        setTransactionRef(response.data.transaction_ref || null);
+        setTransactionRef(response.data?.transaction_ref || null);
         setTransactionDetails({
           meter_number: data.meter_number,
           units: data.units,
-          newBalance: userBalance! - data.units,
+          newBalance: unitBalance! - data.units,
         });
         
         setSuccess("Verification code sent to your email!");
@@ -169,7 +153,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     setSuccess("");
 
     try {
-      const response = await post<ShareUnitsResponse>("share/share-units/", {
+      const response = await post<any>("share/share-units/", {
         meter_number: transactionDetails.meter_number,
         units: transactionDetails.units,
         verification_code: verificationCode,
@@ -180,9 +164,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         setSuccess("Units shared successfully!");
         setVerificationStep(2);
 
-        // Update local balance
-        if (userBalance !== null) {
-          setUserBalance(userBalance - transactionDetails.units);
+        // Update local unit balance
+        if (unitBalance !== null) {
+          setUnitBalance(unitBalance - transactionDetails.units);
         }
 
         // Reset after success
@@ -193,14 +177,13 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           setTransactionRef(null);
           setTransactionDetails(null);
           if (onSuccess) onSuccess();
-          fetchBalance(); // Refresh balance
+          fetchUnitBalance(); // Refresh unit balance
         }, 3000);
       } else {
         setError(
           response.data?.error ||
           getApiErrorMessage(response.error, "Failed to verify code")
         );
-        // Stay on verification step to retry
       }
     } catch (error: any) {
       console.error("Verification error:", error);
@@ -219,15 +202,15 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   };
 
   return (
-    <CardWrapper title="Share Units to your friend">
+    <CardWrapper title="Share Units">
       <div className="mb-4 space-y-2">
         <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Your Balance:</span>
+          <span className="text-sm text-muted-foreground">Your Available Units to Share:</span>
           {isLoadingBalance ? (
             <Loader2 className="h-4 w-4 animate-spin" />
           ) : (
             <Badge variant="secondary" className="text-sm font-medium">
-              {userBalance !== null ? `${userBalance.toFixed(2)} units` : "N/A"}
+              {unitBalance !== null ? `${unitBalance.toFixed(2)} units` : "0 units"}
             </Badge>
           )}
         </div>
@@ -266,7 +249,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                       <Input
                         type="number"
                         min="2"
-                        max="1000"
+                        max={unitBalance || 1000}
                         step="0.01"
                         placeholder="Enter Units"
                         {...field}
@@ -276,7 +259,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                       />
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-3 w-3" />
-                        <span>Minimum: 2 units | Maximum: 1000 units</span>
+                        <span>Minimum: 2 units | Maximum: {unitBalance || 1000} units</span>
                       </div>
                     </div>
                   </FormControl>
@@ -285,9 +268,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               )}
             />
 
-            {userBalance !== null && (
+            {unitBalance !== null && (
               <div className="text-sm text-muted-foreground">
-                Available: {userBalance.toFixed(2)} units
+                Available to share: {unitBalance.toFixed(2)} units
               </div>
             )}
 
@@ -306,7 +289,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                   Cancel
                 </Button>
               )}
-              <Button type="submit" disabled={isPending} className="flex-1">
+              <Button type="submit" disabled={isPending || !unitBalance || unitBalance < 2} className="flex-1">
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -326,7 +309,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              <strong className="text-red-800">Security Verification Required</strong>
+              <strong className="text-blue-800">Security Verification Required</strong>
               <p className="mt-1 text-sm text-muted-foreground">
                 A verification code has been sent to your registered email address.
                 Please enter the 6-digit code below to complete the transaction.
@@ -407,6 +390,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
             {transactionDetails?.units} units have been successfully
             shared to meter {transactionDetails?.meter_number}
           </p>
+          <p className="text-xs text-muted-foreground">
+            A token has been sent to the receiver's email address.
+          </p>
           <div className="flex gap-2">
             <Button
               type="button"
@@ -414,6 +400,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                 setVerificationStep(0);
                 setVerificationCode("");
                 setTransactionDetails(null);
+                fetchUnitBalance();
               }}
               variant="outline"
               className="flex-1"

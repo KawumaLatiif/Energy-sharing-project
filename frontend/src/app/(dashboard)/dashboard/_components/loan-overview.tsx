@@ -16,9 +16,10 @@ import {
   TrendingUpIcon,
   DollarSignIcon,
   AlertCircleIcon,
+  ZapIcon,
 } from "lucide-react";
 import { get } from "@/lib/fetch";
-import { useEffect, useState } from "react";
+import { useEffect, useState } from "react"; // Import the LoadTokenForm
 
 interface LoanStats {
   active_loans: number;
@@ -31,7 +32,7 @@ interface LoanStats {
 }
 
 export default function LoanOverview() {
-  const [walletUnitsBalance, setWalletUnitsBalance] = useState<number>(0);
+  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [stats, setStats] = useState<LoanStats>({
     active_loans: 0,
     pending_applications: 0,
@@ -42,6 +43,34 @@ export default function LoanOverview() {
     total_loans: 0,
   });
   const [loading, setLoading] = useState(true);
+  const [moneyBalance, setMoneyBalance] = useState<number>(0);  // UGX money
+  const [unitBalance, setUnitBalance] = useState<number>(0);   // Energy units available to share
+  const [meterUnits, setMeterUnits] = useState<number>(0);     // Units already on meters
+  const [refreshKey, setRefreshKey] = useState(0); // To refresh balances after token load
+
+  // Fetch all balances
+  const fetchBalances = async () => {
+    try {
+      const response = await get<any>("wallet/balance/");
+      
+      if (!response.error && response.data?.success) {
+        // Money in wallet (UGX) - for deposits/withdrawals/purchases
+        setMoneyBalance(Number(response.data.wallet?.balance || 0));
+        
+        // Units available for sharing (energy units from purchases/loans)
+        setUnitBalance(Number(response.data.unit_balance?.balance || 0));
+        
+        // Units already loaded on meters
+        setMeterUnits(Number(response.data.total_meter_units || 0));
+      }
+    } catch (error) {
+      console.error("Error fetching balances:", error);
+    }
+  };
+
+  useEffect(() => {
+    fetchBalances();
+  }, [refreshKey]); // Re-fetch when refreshKey changes
 
   useEffect(() => {
     async function fetchLoanStats() {
@@ -57,8 +86,8 @@ export default function LoanOverview() {
         setStats(response.data);
 
         if (!walletResponse.error && walletResponse.data?.success) {
-          const units = Number(walletResponse.data.wallet?.balance || 0);
-          setWalletUnitsBalance(units);
+          setWalletBalance(Number(walletResponse.data.wallet_balance || walletResponse.data.wallet?.balance || 0));
+          setMeterUnits(Number(walletResponse.data.total_meter_units || 0));
         }
       } catch (error) {
         console.error("Error fetching loan stats:", error);
@@ -68,7 +97,7 @@ export default function LoanOverview() {
     }
 
     fetchLoanStats();
-  }, []);
+  }, [refreshKey]);
 
   // Format currency values
   const formatCurrency = (amount: number) => {
@@ -78,6 +107,11 @@ export default function LoanOverview() {
       minimumFractionDigits: 0,
       maximumFractionDigits: 0,
     }).format(amount);
+  };
+
+  // Handle successful token load
+  const handleTokenLoadSuccess = () => {
+    setRefreshKey(prev => prev + 1); // Refresh all data
   };
 
   if (loading) {
@@ -99,140 +133,166 @@ export default function LoanOverview() {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-      {/* Active Loans */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Active Loans</CardDescription>
-            <ClockIcon className="h-4 w-4 text-blue-500" />
-          </div>
-          <CardTitle className="text-4xl">{stats.active_loans}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Currently active electricity loans
-          </div>
-        </CardContent>
-      </Card>
+    <div className="space-y-6">
+      {/* Stats Grid */}
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Active Loans */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Active Loans</CardDescription>
+              <ClockIcon className="h-4 w-4 text-blue-500" />
+            </div>
+            <CardTitle className="text-4xl">{stats.active_loans}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Currently active electricity loans
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Wallet Units Balance */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Wallet Unit Balance</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-indigo-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {walletUnitsBalance.toFixed(2)} units
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Units available to share to your meter or another meter
-          </div>
-        </CardContent>
-      </Card>
+        {/* Money Wallet Card */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Wallet Balance</CardDescription>
+              <DollarSignIcon className="h-4 w-4 text-green-500" />
+            </div>
+            <CardTitle className="text-3xl">
+              {formatCurrency(moneyBalance)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Money available for purchasing units or loan repayments
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Unit Balance Card (available to share) */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Available Units to Share</CardDescription>
+              <TrendingUpIcon className="h-4 w-4 text-blue-500" />
+            </div>
+            <CardTitle className="text-4xl">
+              {unitBalance.toFixed(2)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Units you can share with friends and family
+            </div>
+          </CardContent>
+        </Card>
+        
+        {/* Meter Units Card */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Meter Units</CardDescription>
+              <AlertCircleIcon className="h-4 w-4 text-yellow-500" />
+            </div>
+            <CardTitle className="text-4xl">
+              {meterUnits.toFixed(2)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Units already loaded on your meter (ready to use)
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Pending Applications */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Wallet Balance</CardDescription>
-            <AlertCircleIcon className="h-4 w-4 text-yellow-500" />
-          </div>
-          <CardTitle className="text-4xl">
-            Ush 0.00
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">Your wallet Balance</div>
-        </CardContent>
-      </Card>
+        {/* Approved Loans */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Approved Loans</CardDescription>
+              <CheckCircleIcon className="h-4 w-4 text-green-500" />
+            </div>
+            <CardTitle className="text-4xl">{stats.approved_loans}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Successfully approved
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Approved Loans */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Approved Loans</CardDescription>
-            <CheckCircleIcon className="h-4 w-4 text-green-500" />
-          </div>
-          <CardTitle className="text-4xl">{stats.approved_loans}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Successfully approved
-          </div>
-        </CardContent>
-      </Card>
+        {/* Total Loans */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Total Loans</CardDescription>
+              <TrendingUpIcon className="h-4 w-4 text-purple-500" />
+            </div>
+            <CardTitle className="text-4xl">{stats.total_loans}</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              All-time applications
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Total Loans */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Loans</CardDescription>
-            <TrendingUpIcon className="h-4 w-4 text-purple-500" />
-          </div>
-          <CardTitle className="text-4xl">{stats.total_loans}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            All-time applications
-          </div>
-        </CardContent>
-      </Card>
+        {/* Total Borrowed */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Total Borrowed</CardDescription>
+              <DollarSignIcon className="h-4 w-4 text-green-500" />
+            </div>
+            <CardTitle className="text-3xl">
+              {formatCurrency(stats.total_borrowed)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Total amount borrowed
+            </div>
+          </CardContent>
+        </Card>
 
-      {/* Total Borrowed */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Borrowed</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-green-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {formatCurrency(stats.total_borrowed)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Total amount borrowed
-          </div>
-        </CardContent>
-      </Card>
+        {/* Total Repayments */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Total Repayments</CardDescription>
+              <DollarSignIcon className="h-4 w-4 text-blue-500" />
+            </div>
+            <CardTitle className="text-3xl">
+              {formatCurrency(stats.total_repayments)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">Amount repaid</div>
+          </CardContent>
+        </Card>
 
-      {/* Total Repayments */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Repayments</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-blue-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {formatCurrency(stats.total_repayments)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">Amount repaid</div>
-        </CardContent>
-      </Card>
+        {/* Outstanding Balance */}
+        <Card>
+          <CardHeader className="pb-2">
+            <div className="flex items-center justify-between">
+              <CardDescription>Outstanding Payback Amount</CardDescription>
+              <DollarSignIcon className="h-4 w-4 text-orange-500" />
+            </div>
+            <CardTitle className="text-3xl">
+              {formatCurrency(stats.outstanding_balance)}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-xs text-muted-foreground">
+              Amount yet to be repaid
+            </div>
+          </CardContent>
+        </Card>
+      </div>
 
-      {/* Outstanding Balance */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Outstanding Payback Amount</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-orange-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {formatCurrency(stats.outstanding_balance)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Amount yet to be repaid
-          </div>
-        </CardContent>
-      </Card>
+      {/* Load Token Form Section */}
+      {/* <LoadTokenForm onSuccess={handleTokenLoadSuccess} /> */}
 
       {/* Quick Actions Card */}
       <Card className="md:col-span-2 lg:col-span-4">
@@ -250,6 +310,12 @@ export default function LoanOverview() {
             <Link href="/dashboard/myloans">
               <CheckCircleIcon className="h-4 w-4 mr-2" />
               View My Loans
+            </Link>
+          </Button>
+          <Button asChild variant="outline" className="flex-1">
+            <Link href="/dashboard/share-units">
+              <TrendingUpIcon className="h-4 w-4 mr-2" />
+              Share Units
             </Link>
           </Button>
         </CardContent>

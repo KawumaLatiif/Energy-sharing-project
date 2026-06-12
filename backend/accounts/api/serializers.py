@@ -14,6 +14,7 @@ from accounts.models import (
 )
 from django.db.models import Q
 import re
+from wallet.models import Wallet as MoneyWallet
 
 from utils.validations import validate_password
 
@@ -668,6 +669,7 @@ class UserConfigSerializer(serializers.ModelSerializer):
     is_staff = serializers.SerializerMethodField()
     is_superuser = serializers.SerializerMethodField()
     phone_number = serializers.SerializerMethodField()  # Convert PhoneNumber to string
+    wallet = serializers.SerializerMethodField()
 
     def get_is_admin(self, obj):
         return obj.user_role == User.ADMIN
@@ -682,13 +684,21 @@ class UserConfigSerializer(serializers.ModelSerializer):
         # Convert PhoneNumber object to string
         return str(obj.phone_number) if obj.phone_number else None
 
+    def get_wallet(self, obj):
+        wallet, _ = MoneyWallet.objects.get_or_create(user=obj)
+        return {
+            "wallet_id": str(wallet.id),
+            "balance": str(wallet.balance),
+            "currency": "UGX",
+        }
+
     class Meta:
         model = User
         fields = [
             'id', 'email', 'first_name', 'last_name', 
             'phone_number', 'profile', 'account_is_active',
             'account_details', 'is_admin', 'is_staff', 'is_superuser',
-            'user_role'
+            'user_role', 'wallet'
         ]
 
     def to_representation(self, instance):

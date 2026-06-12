@@ -1,15 +1,19 @@
-from django.urls import path
+# meter/urls.py - Add the new endpoint
 
-from .views import BuyUnitsView, CheckPaymentStatusView, MeterRegisterView
+from django.urls import path
+from .views import (
+    BuyUnitsView, 
+    CheckPaymentStatusView, 
+    MeterRegisterView,
+    LoadTokenToMeterView,
+)
 from .views import (
     SendUnitsView, 
     ReceiveUnitsView,
     TokenView,
     update_meter,
-    )
-from meter.api import views
-
-
+    check_user_meter,
+)
 
 urlpatterns = [
     path('send-units/', SendUnitsView.as_view(), name="send-units"),
@@ -18,7 +22,7 @@ urlpatterns = [
     path('buy-units/', BuyUnitsView.as_view(), name="buy-units"),
     path('check-payment-status/', CheckPaymentStatusView.as_view(), name="check-payment-status"),
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
-    path('my-meter/', views.check_user_meter, name='check-user-meter'),
+    path('my-meter/', check_user_meter, name='check-user-meter'),
     path('update/', update_meter, name='update-meter'),
+    path('load-token/', LoadTokenToMeterView.as_view(), name='load-token'),  # New endpoint
 ]
-

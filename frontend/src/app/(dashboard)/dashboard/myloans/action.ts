@@ -28,11 +28,11 @@ export async function disburseLoan(loanId: number) {
   }
 }
 
-export async function repayLoan(loanId: number, amount: number) {
+export async function repayLoan(loanId: number, amount: number, paymentSource: "WALLET" | "PHONE" = "WALLET") {
   try {
     console.log('Repaying loan:', loanId, 'Amount:', amount);
     
-    const response = await post<any>(`loans/repay/${loanId}/`, { amount });
+    const response = await post<any>(`loans/repay/${loanId}/`, { amount, payment_source: paymentSource });
     
     if (response.error) {
       console.error('Repayment error response:', response.error);

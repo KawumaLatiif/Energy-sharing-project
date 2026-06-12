@@ -55,3 +55,16 @@ def sync_meter_balance(sender, instance, created, **kwargs):
             'meter': instance  
         }
     )
+
+
+@receiver(post_save, sender=User)
+def create_user_wallet_and_units(sender, instance, created, **kwargs):
+    """Create both money wallet and unit balance when user is created"""
+    if created:
+        # Create money wallet (UGX)
+        Wallet.objects.get_or_create(user=instance)
+        logger.info(f"Money wallet created for user {instance.username}")
+        
+        # Create unit balance (energy units)
+        UnitBalance.objects.get_or_create(user=instance)
+        logger.info(f"Unit balance created for user {instance.username}")

@@ -147,7 +147,8 @@ class LoanApplicationSerializer(serializers.ModelSerializer):
         return obj.check_eligibility()
     
     def get_disbursement_token(self, obj):
-        # Tokens are no longer exposed for loan disbursements
+        if hasattr(obj, 'disbursement') and obj.disbursement:
+            return obj.disbursement.token
         return None
     
     def get_disbursement_units(self, obj):

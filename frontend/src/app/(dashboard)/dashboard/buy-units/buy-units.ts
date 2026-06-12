@@ -48,6 +48,8 @@ type BuyUnitsCompletedResponse = {
   token?: string;
   message: string;
   "Units purchased": string;
+  wallet_balance?: string;
+  status?: "SUCCESS";
   payment_status?: string;
   transaction?: unknown;
 };

@@ -232,7 +232,7 @@ export default function LoanList({ loans }: LoanListProps) {
       console.log('Acceptment response:', data);
 
       handleDisbursementSuccess(data);
-      setSuccessMessage('Loan accepted successfully! Units have been added to your wallet.');
+      setSuccessMessage('Loan accepted successfully! A meter token has been generated.');
 
       setTimeout(() => {
         window.location.reload();
@@ -255,7 +255,7 @@ export default function LoanList({ loans }: LoanListProps) {
   const handleDisbursementSuccess = (data: { token?: string; units_added?: number } | any) => {
     console.log('Disbursement success data:', data);
     const token = data.token || data.disbursement_token || '';
-    const units = data.units_added || data.units_disbursed || data.units_added_to_wallet || 0;
+    const units = data.units_added || data.units_disbursed || 0;
 
     if (token) {
       setDisbursementData({ token, units });
@@ -292,8 +292,8 @@ export default function LoanList({ loans }: LoanListProps) {
     const status = getLoanStatus(loan);
     const explanations: Record<string, string> = {
       'PENDING': 'Your loan application is under review',
-      'APPROVED': 'Loan approved! Click "Accept Loan" to receive your electricity units',
-      'DISBURSED': 'Electricity units have been added to your meter. You can now make repayments',
+      'APPROVED': 'Loan approved! Click "Accept Loan" to generate your meter token',
+      'DISBURSED': 'A meter token has been generated. You can now make repayments',
       'COMPLETED': 'Loan has been fully repaid - Thank you!',
       'REJECTED': 'Your loan application was not approved',
       'DEFAULTED': 'Loan repayment is overdue',
