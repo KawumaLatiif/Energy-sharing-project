@@ -8,7 +8,6 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
-
 from accounts.models import generate_random_string
 from wallet.models import UnitBalance
 from meter.models import generate_numeric_token
@@ -25,6 +24,11 @@ from loan.scoring import (
     FACTOR_WEIGHTS,
 )
 from wallet.models import Wallet as MoneyWallet
+from loan.credit_score_service import CreditScoreService
+from datetime import datetime
+from loan.models import CreditScoreHistory, CreditScoreFactors
+from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+
 
 logger = logging.getLogger(__name__)
 
@@ -272,149 +276,149 @@ class LoanDetailView(generics.RetrieveAPIView):
         return LoanApplication.objects.filter(user=self.request.user)
 
 
-class LoanRepaymentView(APIView):
-    permission_classes = (IsAuthenticated,)
+# class LoanRepaymentView(APIView):
+#     permission_classes = (IsAuthenticated,)
     
-    def post(self, request, loan_id):
-        try:
-            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
+#     def post(self, request, loan_id):
+#         try:
+#             loan = LoanApplication.objects.get(id=loan_id, user=request.user)
             
-            if loan.status != 'DISBURSED':
-                return Response(
-                    {"error": "Loan is not disbursed or already completed"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+#             if loan.status != 'DISBURSED':
+#                 return Response(
+#                     {"error": "Loan is not disbursed or already completed"}, 
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
             
-            amount = float(request.data.get('amount', 0))
+#             amount = float(request.data.get('amount', 0))
             
-            if amount <= 0:
-                return Response(
-                    {"error": "Invalid amount"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+#             if amount <= 0:
+#                 return Response(
+#                     {"error": "Invalid amount"}, 
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
             
-            # Get current outstanding balance
-            current_balance = loan.outstanding_balance
+#             # Get current outstanding balance
+#             current_balance = loan.outstanding_balance
             
-            if amount > current_balance:
-                return Response(
-                    {"error": f"Amount exceeds outstanding balance of {current_balance} UGX"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+#             if amount > current_balance:
+#                 return Response(
+#                     {"error": f"Amount exceeds outstanding balance of {current_balance} UGX"}, 
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
             
-            payment_source = str(request.data.get('payment_source', 'PHONE')).upper()
-            if payment_source not in {'WALLET', 'PHONE', 'MOBILE_MONEY'}:
-                return Response(
-                    {"error": "Payment source must be WALLET or PHONE"},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+#             payment_source = str(request.data.get('payment_source', 'PHONE')).upper()
+#             if payment_source not in {'WALLET', 'PHONE', 'MOBILE_MONEY'}:
+#                 return Response(
+#                     {"error": "Payment source must be WALLET or PHONE"},
+#                     status=status.HTTP_400_BAD_REQUEST
+#                 )
 
-            tariff_info = {
-                'tariff_code': loan.tariff.tariff_code if loan.tariff else 'DEFAULT',
-            }
+#             tariff_info = {
+#                 'tariff_code': loan.tariff.tariff_code if loan.tariff else 'DEFAULT',
+#             }
             
-            with transaction.atomic():
-                # Generate payment reference
-                payment_ref = generate_random_string(12)
+#             with transaction.atomic():
+#                 # Generate payment reference
+#                 payment_ref = generate_random_string(12)
 
-                if payment_source == 'WALLET':
-                    wallet, _ = MoneyWallet.objects.select_for_update().get_or_create(user=request.user)
-                    payment_amount = Decimal(str(amount))
-                    if wallet.balance < payment_amount:
-                        return Response(
-                            {"error": "Insufficient wallet balance", "wallet_balance": str(wallet.balance)},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-                    wallet.deduct(
-                        payment_amount,
-                        description=f"Loan repayment for {loan.loan_id}",
-                        transaction_ref=payment_ref,
-                    )
+#                 if payment_source == 'WALLET':
+#                     wallet, _ = MoneyWallet.objects.select_for_update().get_or_create(user=request.user)
+#                     payment_amount = Decimal(str(amount))
+#                     if wallet.balance < payment_amount:
+#                         return Response(
+#                             {"error": "Insufficient wallet balance", "wallet_balance": str(wallet.balance)},
+#                             status=status.HTTP_400_BAD_REQUEST
+#                         )
+#                     wallet.deduct(
+#                         payment_amount,
+#                         description=f"Loan repayment for {loan.loan_id}",
+#                         transaction_ref=payment_ref,
+#                     )
                 
-                # Create repayment record
-                repayment = LoanRepayment.objects.create(
-                    loan=loan,
-                    amount_paid=amount,
-                    units_paid=0,
-                    payment_reference=payment_ref,
-                    is_on_time=self.check_payment_timeliness(loan),
-                    payment_method='MOBILE_MONEY' if payment_source != 'WALLET' else 'CASH',
-                    payment_status='SUCCESS'
-                )
+#                 # Create repayment record
+#                 repayment = LoanRepayment.objects.create(
+#                     loan=loan,
+#                     amount_paid=amount,
+#                     units_paid=0,
+#                     payment_reference=payment_ref,
+#                     is_on_time=self.check_payment_timeliness(loan),
+#                     payment_method='MOBILE_MONEY' if payment_source != 'WALLET' else 'CASH',
+#                     payment_status='SUCCESS'
+#                 )
                 
-                # Create Transaction Log - THIS WAS MISSING
-                TransactionLog.objects.create(
-                    user=request.user,
-                    transaction_type=TransactionType.LOAN_REPAYMENT,
-                    amount=amount,
-                    units=0,
-                    status='COMPLETED',
-                    reference_id=loan.loan_id,
-                    details={
-                        'payment_reference': payment_ref,
-                        'loan_id': loan.loan_id,
-                        'payment_source': payment_source
-                    }
-                )
+#                 # Create Transaction Log - THIS WAS MISSING
+#                 TransactionLog.objects.create(
+#                     user=request.user,
+#                     transaction_type=TransactionType.LOAN_REPAYMENT,
+#                     amount=amount,
+#                     units=0,
+#                     status='COMPLETED',
+#                     reference_id=loan.loan_id,
+#                     details={
+#                         'payment_reference': payment_ref,
+#                         'loan_id': loan.loan_id,
+#                         'payment_source': payment_source
+#                     }
+#                 )
 
-                # IMPORTANT: Refresh loan from database to get updated state
-                loan.refresh_from_db()
+#                 # IMPORTANT: Refresh loan from database to get updated state
+#                 loan.refresh_from_db()
                 
-                # Check if loan is fully paid - after recording the payment
-                new_balance = loan.outstanding_balance
+#                 # Check if loan is fully paid - after recording the payment
+#                 new_balance = loan.outstanding_balance
                 
-                if new_balance <= 0:
-                    loan.status = 'COMPLETED'
-                    loan.save()
+#                 if new_balance <= 0:
+#                     loan.status = 'COMPLETED'
+#                     loan.save()
                     
-                    # Log completion
-                    TransactionLog.objects.create(
-                        user=request.user,
-                        transaction_type=TransactionType.LOAN_COMPLETION,
-                        amount=0,
-                        status='COMPLETED',
-                        reference_id=loan.loan_id,
-                        details={'message': 'Loan fully repaid'}
-                    )
+#                     # Log completion
+#                     TransactionLog.objects.create(
+#                         user=request.user,
+#                         transaction_type=TransactionType.LOAN_COMPLETION,
+#                         amount=0,
+#                         status='COMPLETED',
+#                         reference_id=loan.loan_id,
+#                         details={'message': 'Loan fully repaid'}
+#                     )
                     
-                    message = "Loan fully repaid! Thank you."
-                else:
-                    message = "Payment successful"
+#                     message = "Loan fully repaid! Thank you."
+#                 else:
+#                     message = "Payment successful"
             
-            # Return updated loan info
-            return Response({
-                "message": message,
-                "payment_reference": payment_ref,
-                "tariff_info": tariff_info,
-                "outstanding_balance": loan.outstanding_balance,
-                "loan_status": loan.status,  # Return updated status
-                "total_paid": loan.amount_paid,
-                "total_due": loan.total_amount_due
-            })
+#             # Return updated loan info
+#             return Response({
+#                 "message": message,
+#                 "payment_reference": payment_ref,
+#                 "tariff_info": tariff_info,
+#                 "outstanding_balance": loan.outstanding_balance,
+#                 "loan_status": loan.status,  # Return updated status
+#                 "total_paid": loan.amount_paid,
+#                 "total_due": loan.total_amount_due
+#             })
             
-        except LoanApplication.DoesNotExist:
-            return Response(
-                {"error": "Loan not found"}, 
-                status=status.HTTP_404_NOT_FOUND
-            )
-        except Exception as e:
-            logger.error(f"Repayment error: {str(e)}")
-            return Response(
-                {"error": f"Failed to process repayment: {str(e)}"}, 
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+#         except LoanApplication.DoesNotExist:
+#             return Response(
+#                 {"error": "Loan not found"}, 
+#                 status=status.HTTP_404_NOT_FOUND
+#             )
+#         except Exception as e:
+#             logger.error(f"Repayment error: {str(e)}")
+#             return Response(
+#                 {"error": f"Failed to process repayment: {str(e)}"}, 
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
     
-    def get_repayment_breakdown(self, loan, amount):
-        """Calculate breakdown for repayment amount"""
-        if not loan.tariff:
-            return None
-        return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
+#     def get_repayment_breakdown(self, loan, amount):
+#         """Calculate breakdown for repayment amount"""
+#         if not loan.tariff:
+#             return None
+#         return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
     
-    def check_payment_timeliness(self, loan):
-        """Check if payment is on time"""
-        if not loan.due_date:
-            return True
-        return timezone.now() <= loan.due_date
+#     def check_payment_timeliness(self, loan):
+#         """Check if payment is on time"""
+#         if not loan.due_date:
+#             return True
+#         return timezone.now() <= loan.due_date
 
 
 # class LoanDisbursementView(APIView):
@@ -742,3 +746,261 @@ class LoanDisbursementView(APIView):
         except Exception as e:
             logger.error(f"Loan disbursement error: {str(e)}")
             return Response({"error": f"Failed to disburse loan: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class LoanRepaymentView(APIView):
+    permission_classes = (IsAuthenticated,)
+    
+    def post(self, request, loan_id):
+        try:
+            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
+            
+            if loan.status != 'DISBURSED':
+                return Response(
+                    {"error": "Loan is not disbursed or already completed"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            amount = float(request.data.get('amount', 0))
+            
+            if amount <= 0:
+                return Response(
+                    {"error": "Invalid amount"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            current_balance = loan.outstanding_balance
+            
+            if amount > current_balance:
+                return Response(
+                    {"error": f"Amount exceeds outstanding balance of {current_balance} UGX"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            payment_source = str(request.data.get('payment_source', 'PHONE')).upper()
+            if payment_source not in {'WALLET', 'PHONE', 'MOBILE_MONEY'}:
+                return Response(
+                    {"error": "Payment source must be WALLET or PHONE"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if payment is on time
+            is_on_time = self.check_payment_timeliness(loan)
+            days_late = 0
+            if not is_on_time and loan.due_date:
+                days_late = (timezone.now() - loan.due_date).days
+            
+            tariff_info = {
+                'tariff_code': loan.tariff.tariff_code if loan.tariff else 'DEFAULT',
+            }
+            
+            with transaction.atomic():
+                payment_ref = generate_random_string(12)
+
+                if payment_source == 'WALLET':
+                    wallet, _ = MoneyWallet.objects.select_for_update().get_or_create(user=request.user)
+                    payment_amount = Decimal(str(amount))
+                    if wallet.balance < payment_amount:
+                        return Response(
+                            {"error": "Insufficient wallet balance", "wallet_balance": str(wallet.balance)},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    wallet.deduct(
+                        payment_amount,
+                        description=f"Loan repayment for {loan.loan_id}",
+                        transaction_ref=payment_ref,
+                    )
+                
+                # Create repayment record
+                repayment = LoanRepayment.objects.create(
+                    loan=loan,
+                    amount_paid=amount,
+                    units_paid=0,
+                    payment_reference=payment_ref,
+                    is_on_time=is_on_time,
+                    payment_method='MOBILE_MONEY' if payment_source != 'WALLET' else 'CASH',
+                    payment_status='SUCCESS'
+                )
+                
+                # Update credit score for repayment
+                CreditScoreService.update_credit_score(
+                    user=request.user,
+                    event_type='LOAN_REPAYMENT',
+                    reference_id=loan.loan_id,
+                    extra_data={
+                        'amount': amount,
+                        'is_on_time': is_on_time,
+                        'days_late': days_late,
+                        'payment_source': payment_source
+                    }
+                )
+                
+                # Create Transaction Log
+                TransactionLog.objects.create(
+                    user=request.user,
+                    transaction_type=TransactionType.LOAN_REPAYMENT,
+                    amount=amount,
+                    units=0,
+                    status='COMPLETED',
+                    reference_id=loan.loan_id,
+                    details={
+                        'payment_reference': payment_ref,
+                        'loan_id': loan.loan_id,
+                        'payment_source': payment_source,
+                        'is_on_time': is_on_time
+                    }
+                )
+
+                loan.refresh_from_db()
+                new_balance = loan.outstanding_balance
+                
+                if new_balance <= 0:
+                    loan.status = 'COMPLETED'
+                    loan.save()
+                    
+                    # Bonus credit score for completing loan
+                    CreditScoreService.update_credit_score(
+                        user=request.user,
+                        event_type='LOAN_COMPLETION',
+                        reference_id=loan.loan_id,
+                        extra_data={'loan_id': loan.loan_id}
+                    )
+                    
+                    TransactionLog.objects.create(
+                        user=request.user,
+                        transaction_type=TransactionType.LOAN_COMPLETION,
+                        amount=0,
+                        status='COMPLETED',
+                        reference_id=loan.loan_id,
+                        details={'message': 'Loan fully repaid'}
+                    )
+                    
+                    message = "Loan fully repaid! Thank you."
+                else:
+                    message = "Payment successful"
+            
+            # Get updated credit score
+            new_credit_score, _, _ = CreditScoreService.update_credit_score(
+                request.user, 'NO_CHANGE'
+            )
+            
+            return Response({
+                "message": message,
+                "payment_reference": payment_ref,
+                "tariff_info": tariff_info,
+                "outstanding_balance": loan.outstanding_balance,
+                "loan_status": loan.status,
+                "total_paid": loan.amount_paid,
+                "total_due": loan.total_amount_due,
+                "credit_score_updated": True
+            })
+            
+        except LoanApplication.DoesNotExist:
+            return Response(
+                {"error": "Loan not found"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        except Exception as e:
+            logger.error(f"Repayment error: {str(e)}")
+            return Response(
+                {"error": f"Failed to process repayment: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def check_payment_timeliness(self, loan):
+        if not loan.due_date:
+            return True
+        return timezone.now() <= loan.due_date
+
+
+# loan/views.py - Add or update this view
+
+class CreditScoreView(APIView):
+    permission_classes = (IsAuthenticated,)
+    
+    def get(self, request):
+        try:
+            from loan.models import CreditScoreHistory, CreditScoreFactors
+            from loan.credit_score_service import CreditScoreService
+            from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+            
+            user = request.user
+            
+            # Get or create credit signal (base score source)
+            credit_signal = get_or_create_dummy_credit_signal(user)
+            
+            # Calculate base score from third-party factors (0-100)
+            base_score = calculate_weighted_credit_score(credit_signal)
+            
+            # Get or create behavioral factors
+            factors, _ = CreditScoreFactors.objects.get_or_create(user=user)
+            
+            # Calculate behavioral bonus (max 40 points)
+            behavioral_bonus = min(40, (
+                (factors.on_time_payments * 2) +
+                (factors.wallet_usage_count * 1) +
+                (factors.purchase_frequency * 1) +
+                (factors.sharing_count * 1) +
+                (factors.loans_completed * 5)
+            ))
+            
+            # Overall score (base + bonus, capped at 100)
+            overall_score = min(100, base_score + behavioral_bonus)
+            
+            # Calculate component scores
+            components = {
+                'payment_history': base_score,
+                'wallet_usage': min(100, factors.wallet_usage_count * 10),
+                'purchase_activity': min(100, factors.purchase_frequency * 10),
+                'sharing_behavior': min(100, factors.sharing_count * 15),
+                'loan_history': min(100, (factors.loans_completed * 20) if factors.loans_taken > 0 else 50),
+            }
+            
+            # Get recent history
+            history = CreditScoreHistory.objects.filter(
+                user=user
+            ).order_by('-created_at')[:10]
+            
+            history_data = [{
+                'previous_score': h.previous_score,
+                'new_score': h.new_score,
+                'change_amount': h.change_amount,
+                'reason': h.reason,
+                'event_type': h.event_type,
+                'created_at': h.created_at.isoformat()
+            } for h in history]
+            
+            # Log for debugging
+            logger.info(f"Credit score for {user.email}: base={base_score}, bonus={behavioral_bonus}, overall={overall_score}")
+            
+            return Response({
+                'overall_score': overall_score,
+                'base_score': base_score,
+                'behavioral_bonus': behavioral_bonus,
+                'components': components,
+                'history': history_data,
+                'credit_signal': {
+                    'payment_history': credit_signal.payment_history,
+                    'energy_consumption': credit_signal.energy_consumption,
+                    'financial_capacity': credit_signal.financial_capacity,
+                }
+            })
+            
+        except Exception as e:
+            logger.error(f"Error in CreditScoreView: {str(e)}", exc_info=True)
+            return Response({
+                'overall_score': 50,
+                'base_score': 50,
+                'behavioral_bonus': 0,
+                'components': {
+                    'payment_history': 50,
+                    'wallet_usage': 0,
+                    'purchase_activity': 0,
+                    'sharing_behavior': 0,
+                    'loan_history': 50,
+                },
+                'history': [],
+                'error': str(e)
+            }, status=status.HTTP_200_OK) 
+
+            

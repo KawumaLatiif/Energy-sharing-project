@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import LoanApplicationView, LoanDetailView, LoanDisbursementView, LoanNotificationView, LoanRepaymentView, LoanStatsView, TariffListView, UserLoansView
+from .views import LoanApplicationView, LoanDetailView, LoanDisbursementView, LoanNotificationView, LoanRepaymentView, LoanStatsView, TariffListView, UserLoansView, CreditScoreView
 from loan.api.momo_views import MoMoPaymentView, PaymentStatusView
 from webhooks.api.views import LoanTokenVerificationView
 
@@ -15,5 +15,6 @@ urlpatterns = [
     path('repay/momo/<int:loan_id>/', MoMoPaymentView.as_view(), name='loan-repay-momo'),
     path('payment-status/<str:external_id>/', PaymentStatusView.as_view(), name='payment-status'),
     # path('momo-callback/', MoMoPaymentCallbackView.as_view(), name='momo-callback'),
-    path('tariffs/', TariffListView.as_view(), name='tariff-list')
+    path('tariffs/', TariffListView.as_view(), name='tariff-list'),
+    path('credit-score/', CreditScoreView.as_view(), name='credit-score'),
 ]

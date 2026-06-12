@@ -1,3 +1,4 @@
+// app/dashboard/dashboard-client.tsx
 "use client";
 
 import { useState, useEffect } from 'react';
@@ -9,7 +10,8 @@ import MeterRegistrationPopup from './_components/meter-registration-popup';
 import MeterManagementModal from './_components/meter-registration-modal';
 import LatestTransactions from './_components/latest-transactions';
 import { User } from '@/interface/user.interface';
-import { Zap } from 'lucide-react';
+import { Zap, Brain } from 'lucide-react';
+import CreditScoreModal from './_components/credit-score-modal';
 
 type SetupStep = 'loading' | 'meter' | 'complete';
 
@@ -27,6 +29,7 @@ export default function DashboardClient({
   const [currentStep, setCurrentStep] = useState<SetupStep>(initialStep);
   const [isMeterPopupOpen, setIsMeterPopupOpen] = useState(false);
   const [isMeterManagementOpen, setIsMeterManagementOpen] = useState(false);
+  const [isCreditScoreOpen, setIsCreditScoreOpen] = useState(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -51,6 +54,10 @@ export default function DashboardClient({
 
   const openMeterManagement = () => {
     setIsMeterManagementOpen(true);
+  };
+
+  const openCreditScore = () => {
+    setIsCreditScoreOpen(true);
   };
 
   if (currentStep === 'loading' || !userConfig) {
@@ -94,12 +101,24 @@ export default function DashboardClient({
           userData={userConfig}
         />
 
+        <CreditScoreModal
+          isOpen={isCreditScoreOpen}
+          onClose={() => setIsCreditScoreOpen(false)}
+        />
+
         <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
           <div className="flex items-center justify-between">
             <h1 className="text-lg font-semibold md:text-2xl">Dashboard</h1>
 
             {currentStep === 'complete' && (
               <div className="flex gap-2">
+                <button
+                  onClick={openCreditScore}
+                  className="px-4 py-2 text-sm bg-purple-100 text-purple-700 rounded-lg hover:bg-purple-200 transition-colors flex items-center gap-2"
+                >
+                  <Brain className="h-4 w-4" />
+                  Credit Score
+                </button>
                 <button
                   onClick={openMeterManagement}
                   className="px-4 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors flex items-center gap-2"

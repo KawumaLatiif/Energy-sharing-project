@@ -1,5 +1,4 @@
-
-
+from rest_framework.views import APIView
 import logging
 from accounts.tasks import handle_send_email_code, handle_send_email_verification
 from utils.email import send_email
@@ -1137,6 +1136,39 @@ class LoginAPIView(TokenObtainPairView):
         return response
 
 
+# class CreateUserAPIView(CreateAPIView):
+#     """
+#     API view for registering a user
+#     """
+
+#     permission_classes = (AllowAny,)
+#     serializer_class = CreateUserSerializer
+
+#     def post(self, request, *args, **kwargs):
+#         logger.info(f"[REGISTRATION] Starting registration with data: {request.data}")
+#         serializer = self.serializer_class(data=request.data)
+#         serializer.is_valid(raise_exception=True)
+#         user = serializer.save()
+
+#         logger.info(f"[REGISTRATION] User {user.id} created successfully")
+
+#         # For development: Send email synchronously instead of using Celery
+#         if settings.DEBUG:
+#             logger.info(f"[REGISTRATION] DEBUG mode: Sending email synchronously")
+#             from accounts.tasks import handle_send_email_verification
+#             handle_send_email_verification(user.id)  # Call synchronously
+#         else:
+#             # Production: Use Celery
+#             handle_send_email_verification.delay(user.id)
+
+#         response_data = {
+#             "success": True,
+#             "message": "User registered successfully!",
+#         }
+
+#         return Response(response_data, status=status.HTTP_201_CREATED)
+
+
 class CreateUserAPIView(CreateAPIView):
     """
     API view for registering a user
@@ -1152,6 +1184,14 @@ class CreateUserAPIView(CreateAPIView):
         user = serializer.save()
 
         logger.info(f"[REGISTRATION] User {user.id} created successfully")
+        
+        # Create credit signal for the new user
+        try:
+            from loan.scoring import get_or_create_dummy_credit_signal
+            credit_signal = get_or_create_dummy_credit_signal(user)
+            logger.info(f"[REGISTRATION] Created credit signal for user {user.id}: {credit_signal.payment_history}, {credit_signal.energy_consumption}, {credit_signal.financial_capacity}")
+        except Exception as e:
+            logger.error(f"[REGISTRATION] Failed to create credit signal: {str(e)}")
 
         # For development: Send email synchronously instead of using Celery
         if settings.DEBUG:
@@ -1507,3 +1547,88 @@ class UpdateAccountDetailsAPIView(GenericAPIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
+
+class CreditScoreView(APIView):
+    permission_classes = (IsAuthenticated,)
+    
+    def get(self, request):
+        from loan.credit_score_service import CreditScoreService
+        from loan.models import CreditScoreHistory, UserCreditSignal
+        from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+        
+        user = request.user
+        
+        # Get or create credit signal (base score source)
+        credit_signal = get_or_create_dummy_credit_signal(user)
+        
+        # Calculate base score from third-party factors (0-100)
+        base_score = calculate_weighted_credit_score(credit_signal)
+        
+        # Get behavioral factors
+        try:
+            from loan.models import CreditScoreFactors
+            factors, _ = CreditScoreFactors.objects.get_or_create(user=user)
+            
+            # Calculate behavioral bonus (max 40 points)
+            behavioral_bonus = min(40, (
+                (factors.on_time_payments * 2) +
+                (factors.wallet_usage_count * 1) +
+                (factors.purchase_frequency * 1) +
+                (factors.sharing_count * 1) +
+                (factors.loans_completed * 5)
+            ))
+        except:
+            # If CreditScoreFactors doesn't exist yet, create it
+            from loan.models import CreditScoreFactors
+            factors = CreditScoreFactors.objects.create(user=user)
+            behavioral_bonus = 0
+        
+        # Overall score (base + bonus, capped at 100)
+        overall_score = min(100, base_score + behavioral_bonus)
+        
+        # Get detailed components
+        try:
+            _, components = CreditScoreService.calculate_detailed_score(user)
+        except:
+            # Fallback components if service not available
+            components = {
+                'payment_history': base_score,
+                'wallet_usage': 0,
+                'purchase_activity': 0,
+                'sharing_behavior': 0,
+                'loan_history': 0,
+            }
+        
+        # Get recent history
+        try:
+            history = CreditScoreHistory.objects.filter(
+                user=user
+            ).order_by('-created_at')[:10]
+            
+            history_data = [{
+                'previous_score': h.previous_score,
+                'new_score': h.new_score,
+                'change_amount': h.change_amount,
+                'reason': h.reason,
+                'event_type': h.event_type,
+                'created_at': h.created_at.isoformat()
+            } for h in history]
+        except:
+            history_data = []
+        
+        # Log for debugging
+        logger.info(f"Credit score for {user.email}: base={base_score}, bonus={behavioral_bonus}, overall={overall_score}")
+        logger.info(f"Credit signal values: payment_history={credit_signal.payment_history}, energy_consumption={credit_signal.energy_consumption}, financial_capacity={credit_signal.financial_capacity}")
+        
+        return Response({
+            'overall_score': overall_score,
+            'base_score': base_score,
+            'behavioral_bonus': behavioral_bonus,
+            'components': components,
+            'history': history_data,
+            'credit_signal': {
+                'payment_history': credit_signal.payment_history,
+                'energy_consumption': credit_signal.energy_consumption,
+                'financial_capacity': credit_signal.financial_capacity,
+            }
+        })

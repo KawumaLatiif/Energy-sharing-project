@@ -12,11 +12,12 @@ from accounts.models import User
 from mtn_momo.services import MTNMoMoService
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from .serializers import SendUnitSerializer, TokenSerializer
-from ..models import generate_random_string
+from ..models import generate_random_string, generate_numeric_token
 from rest_framework.generics import (
     CreateAPIView,
     GenericAPIView,
 )
+from loan.credit_score_service import CreditScoreService
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework import status
 from rest_framework.response import Response
@@ -40,6 +41,7 @@ from django.db import transaction as db_transaction
 from loan.models import ElectricityTariff, LoanApplication, LoanRepayment
 import traceback
 from wallet.models import UnitBalance 
+
 
 base_url = settings.BASE_URL
 
@@ -516,6 +518,7 @@ class BuyUnitsView(GenericAPIView):
         When user buys units:
         1. Add to UnitBalance (available to share)
         2. Create token (optional loading to meter)
+        3. Update credit score
         """
         
         # 1. Add to UnitBalance - units available for sharing
@@ -526,10 +529,10 @@ class BuyUnitsView(GenericAPIView):
             reference=reference_id
         )
         
-        # 2. Create token for meter loading (user can choose when to use)
-        token_value = generate_random_string(10)
+        # 2. Create token for meter loading
+        token_value = generate_numeric_token(10)
         while MeterToken.objects.filter(token=token_value).exists():
-            token_value = generate_random_string(10)
+            token_value = generate_numeric_token(10)
         
         token = MeterToken.objects.create(
             user=user,
@@ -537,8 +540,28 @@ class BuyUnitsView(GenericAPIView):
             units=units_purchased,
             meter=meter,
             source='PURCHASE',
-            is_used=False  # Token not used yet
+            is_used=False
         )
+        
+        # 3. Update credit score for purchase
+        CreditScoreService.update_credit_score(
+            user=user,
+            event_type='UNIT_PURCHASE',
+            reference_id=reference_id,
+            extra_data={
+                'units': float(units_purchased),
+                'amount': float(units_purchased * 500),  # Approximate amount
+                'payment_source': 'WALLET'
+            }
+        )
+        
+        logger.info(
+            f"Purchase complete for user {user.email}: "
+            f"Added {units_purchased} units to UnitBalance (new balance: {unit_balance.balance}), "
+            f"Token {token.token} created"
+        )
+        
+        return token, unit_balance.balance
         
         logger.info(
             f"Purchase complete for user {user.email}: "
@@ -947,12 +970,6 @@ class CheckPaymentStatusView(GenericAPIView):
                 "error": "Failed to check payment status"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
             
-                   
-  
- # meter/views.py - Update the BuyUnitsView
-
- # Add this import
-
 
 
 class LoadTokenToMeterView(APIView):

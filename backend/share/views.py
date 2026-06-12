@@ -310,6 +310,14 @@ class ShareUnitsView(APIView):
                             description=f"Units received from {sender_meter.meter_no}",
                             transaction_ref=transaction_ref
                         )
+                        
+                        # Update credit score for sharing (positive behavior)
+                        CreditScoreService.update_credit_score(
+                            user=user,
+                            event_type='SHARE_UNITS',
+                            reference_id=transaction_ref,
+                            extra_data={'units': float(units_to_share)}
+                        )
                     
                     # Create share record using legacy accounts wallet relation used by Share model
                     sender_account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()

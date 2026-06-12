@@ -432,3 +432,71 @@ def get_tier_by_score(score):
             if tier['min_score'] <= score <= tier['max_score']:
                 return tier
         return None
+
+
+class CreditScoreHistory(models.Model):
+    """
+    Track credit score changes over time
+    """
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='credit_score_history')
+    previous_score = models.IntegerField()
+    new_score = models.IntegerField()
+    change_amount = models.IntegerField()
+    reason = models.CharField(max_length=200)
+    event_type = models.CharField(max_length=50, choices=[
+        ('LOAN_APPLICATION', 'Loan Application'),
+        ('LOAN_REPAYMENT', 'Loan Repayment'),
+        ('UNIT_PURCHASE', 'Unit Purchase'),
+        ('WALLET_USAGE', 'Wallet Usage'),
+        ('LATE_PAYMENT', 'Late Payment'),
+        ('ON_TIME_PAYMENT', 'On-Time Payment'),
+        ('SHARE_UNITS', 'Share Units'),
+        ('METER_REGISTRATION', 'Meter Registration'),
+    ])
+    reference_id = models.CharField(max_length=100, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    
+    class Meta:
+        ordering = ['-created_at']
+    
+    def __str__(self):
+        return f"{self.user.email}: {self.previous_score} → {self.new_score} ({self.change_amount})"
+
+
+class CreditScoreFactors(models.Model):
+    """
+    Store detailed credit scoring factors for each user
+    """
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='credit_factors')
+    
+    # Payment behavior factors
+    on_time_payments = models.IntegerField(default=0)
+    late_payments = models.IntegerField(default=0)
+    total_repayments = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    repayment_consistency_score = models.FloatField(default=0)
+    
+    # Purchase behavior factors
+    total_units_purchased = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    purchase_frequency = models.IntegerField(default=0)  # Number of purchases
+    wallet_usage_count = models.IntegerField(default=0)  # Times used wallet for transactions
+    wallet_transaction_volume = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Sharing behavior factors
+    units_shared = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    units_received = models.DecimalField(max_digits=20, decimal_places=2, default=0)
+    sharing_count = models.IntegerField(default=0)
+    
+    # Loan behavior factors
+    loans_taken = models.IntegerField(default=0)
+    loans_completed = models.IntegerField(default=0)
+    loans_defaulted = models.IntegerField(default=0)
+    total_loan_amount = models.DecimalField(max_digits=10, decimal_places=2, default=0)
+    
+    # Account age
+    account_age_days = models.IntegerField(default=0)
+    last_activity_date = models.DateTimeField(auto_now=True)
+    
+    updated_at = models.DateTimeField(auto_now=True)
+    
+    def __str__(self):
+        return f"Factors for {self.user.email}"
