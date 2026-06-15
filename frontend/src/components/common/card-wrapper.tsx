@@ -1,14 +1,19 @@
 "use client";
-import { Zap } from "lucide-react";
+import Image from "next/image";
+import logo from "@/assets/images/logo.jpg";
 
 function GpawaAuthBrand() {
   return (
     <div className="flex flex-col items-center gap-2 mb-6">
-      <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-blue-500/25">
-        <Zap className="h-5 w-5 text-white" />
-      </div>
+      <Image
+        src={logo}
+        alt="gPawa"
+        width={44}
+        height={44}
+        className="rounded-2xl object-cover shadow-lg shadow-blue-500/25"
+      />
       <span className="text-xl font-bold tracking-tight">
-        <span className="text-blue-600 dark:text-blue-400">g</span>
+        <span className="gpawa-gradient-text">g</span>
         <span className="text-gray-900 dark:text-white">Pawa</span>
       </span>
     </div>

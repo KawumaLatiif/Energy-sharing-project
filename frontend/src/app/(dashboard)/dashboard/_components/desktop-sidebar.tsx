@@ -8,7 +8,6 @@ import {
   PlusCircleIcon,
   Smartphone,
   User,
-  Zap,
 } from "lucide-react";
 import Link from "next/link";
 import Image from "next/image";
@@ -37,11 +36,15 @@ export default function DesktopSidebar() {
       {/* Brand */}
       <div className="flex h-[60px] items-center gap-2.5 px-5 border-b border-border shrink-0">
         <Link href="/" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center shadow shadow-blue-500/25">
-            <Zap className="h-4 w-4 text-white" />
-          </div>
+          <Image
+            src={logo}
+            alt="gPawa"
+            width={32}
+            height={32}
+            className="rounded-lg object-cover shadow shadow-blue-500/25"
+          />
           <span className="font-bold text-base tracking-tight">
-            <span className="text-primary">g</span>
+            <span className="gpawa-gradient-text">g</span>
             <span className="text-foreground">Pawa</span>
           </span>
         </Link>

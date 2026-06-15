@@ -1,14 +1,13 @@
 from django.urls import path
 
-from .views import BuyUnitsView, CheckPaymentStatusView, MeterRegisterView
+from .views import ActivateReceivedUnitsView, BuyUnitsView, CheckPaymentStatusView, EstimateUnitsView, MeterRegisterView
 from .views import (
-    SendUnitsView, 
+    SendUnitsView,
     ReceiveUnitsView,
     TokenView,
     update_meter,
-    )
+)
 from meter.api import views
-
 
 
 urlpatterns = [
@@ -20,5 +19,9 @@ urlpatterns = [
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
     path('update/', update_meter, name='update-meter'),
+    # STS: generate token for pending (received/shared) units
+    path('activate-received-units/', ActivateReceivedUnitsView.as_view(), name='activate-received-units'),
+    # Estimate kWh yield for a given UGX amount (no side effects)
+    path('estimate-units/', EstimateUnitsView.as_view(), name='estimate-units'),
 ]
 

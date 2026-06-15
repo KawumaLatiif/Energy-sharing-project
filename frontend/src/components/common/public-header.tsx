@@ -1,11 +1,12 @@
 "use client";
 import { Disclosure } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
-import { Zap } from "lucide-react";
 import { ModeToggle } from "../theme-toggle";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
+import Image from "next/image";
+import logo from "@/assets/images/logo.jpg";
 
 const navLinks = [
   { href: "/about",   label: "About"   },
@@ -16,11 +17,15 @@ const navLinks = [
 function GpawaLogo() {
   return (
     <Link href="/" className="flex items-center gap-2.5 group">
-      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center shadow-md shadow-blue-500/25 group-hover:shadow-blue-500/40 transition-shadow">
-        <Zap className="h-4.5 w-4.5 text-white" />
-      </div>
+      <Image
+        src={logo}
+        alt="gPawa"
+        width={36}
+        height={36}
+        className="rounded-xl object-cover shadow-md shadow-blue-500/25 group-hover:shadow-blue-500/40 transition-shadow"
+      />
       <span className="text-xl font-bold tracking-tight">
-        <span className="text-blue-600 dark:text-blue-400">g</span>
+        <span className="gpawa-gradient-text">g</span>
         <span className="text-gray-900 dark:text-white">Pawa</span>
       </span>
     </Link>

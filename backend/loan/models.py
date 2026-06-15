@@ -1,4 +1,6 @@
+from decimal import Decimal
 from django.db import models
+from django.conf import settings
 from accounts.models import User
 import random
 import string
@@ -55,12 +57,17 @@ def generate_token():
     return ''.join(random.choices(string.digits, k=10))  
 
 class ElectricityTariff(models.Model):
+    """
+    ERA/UEDCL tariff schedule. Rates are versioned by effective date range so
+    a quarterly revision is a data change, not a code change.
+    Only DOMESTIC (Code 10.1) tariffs are used in the pilot.
+    """
     TARIFF_TYPES = (
         ('DOMESTIC', 'Domestic'),
         ('COMMERCIAL', 'Commercial'),
         ('INDUSTRIAL', 'Industrial'),
     )
-    
+
     tariff_code = models.CharField(max_length=20, unique=True)
     tariff_name = models.CharField(max_length=100)
     tariff_type = models.CharField(max_length=20, choices=TARIFF_TYPES, default='DOMESTIC')
@@ -68,27 +75,46 @@ class ElectricityTariff(models.Model):
     voltage_value = models.CharField(max_length=20, blank=True)
     service_charge = models.DecimalField(max_digits=8, decimal_places=2, default=0)
     is_active = models.BooleanField(default=True)
+    # Legacy field kept for backwards compat; prefer effective_from/effective_to
     effective_date = models.DateTimeField(default=timezone.now)
-    
+    effective_from = models.DateField(null=True, blank=True, help_text="Date from which this tariff applies")
+    effective_to = models.DateField(null=True, blank=True, help_text="Last date this tariff applies (null = open-ended)")
+
     def __str__(self):
         return f"{self.tariff_code} - {self.tariff_name}"
 
+
 class TariffBlock(models.Model):
+    """
+    A single rate block within a tariff schedule.
+    Blocks are monthly-cumulative: a purchase's cost depends on how many
+    units the customer has already bought in the current calendar month.
+    """
     tariff = models.ForeignKey(ElectricityTariff, on_delete=models.CASCADE, related_name='blocks')
-    block_name = models.CharField(max_length=100) 
-    min_units = models.IntegerField(default=0)  
-    max_units = models.IntegerField(null=True, blank=True)  
-    rate_per_unit = models.DecimalField(max_digits=8, decimal_places=2)  
-    block_order = models.IntegerField(default=0)  
-    
+    block_name = models.CharField(max_length=100)
+    min_units = models.IntegerField(default=0)
+    max_units = models.IntegerField(null=True, blank=True)
+    rate_per_unit = models.DecimalField(max_digits=8, decimal_places=2)
+    block_order = models.IntegerField(default=0)
+    # Lifeline block: applies only to users whose 6-month rolling average ≤ 100 kWh/month.
+    # For the pilot, all domestic users are treated as lifeline-eligible.
+    is_lifeline_block = models.BooleanField(
+        default=False,
+        help_text="If true, this block only applies to lifeline-eligible customers"
+    )
+    # Non-lifeline fallback rate for this block (used when is_lifeline_block=True but user is ineligible)
+    non_lifeline_rate = models.DecimalField(
+        max_digits=8, decimal_places=2, null=True, blank=True,
+        help_text="Rate charged for ineligible customers in a lifeline block"
+    )
+
     class Meta:
         ordering = ['block_order']
-    
+
     def __str__(self):
         if self.max_units:
             return f"{self.block_name} ({self.min_units}-{self.max_units} kWh): {self.rate_per_unit} UGX"
-        else:
-            return f"{self.block_name} (Above {self.min_units} kWh): {self.rate_per_unit} UGX"
+        return f"{self.block_name} (Above {self.min_units} kWh): {self.rate_per_unit} UGX"
 
 class TimeStampedModel(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
@@ -281,26 +307,30 @@ class LoanApplication(TimeStampedModel):
 
     @property
     def outstanding_balance(self):
-        """Calculate outstanding balance correctly"""
+        """Calculate outstanding balance with the statutory 100%-of-principal cap on all charges."""
         if not self.amount_approved:
             return 0
-    
-        # Calculate total amount due with interest
-        total_due = self.total_amount_due
-    
-        # Add penalty if applicable
+
+        principal = float(self.amount_approved)
+
+        # Interest (annual rate applied pro-rata over tenure)
+        interest = principal * float(self.interest_rate) / 100 * (self.tenure_months / 12)
+
+        # Late-payment penalty: 0.1% per day on principal
+        penalty = 0.0
         if self.due_date and timezone.now() > self.due_date:
             days_late = (timezone.now() - self.due_date).days
-            penalty_rate = 0.001  # 0.1% per day penalty
-            penalty = days_late * penalty_rate * float(self.amount_approved)
-            total_due += penalty
-    
-        # Calculate total paid
-        total_paid = self.amount_paid
-    
-        # Return the difference, ensuring it's not negative
-        balance = total_due - total_paid
-        return max(0, balance)  # Never return negative
+            penalty = days_late * 0.001 * principal
+
+        # Statutory cap: total charges (interest + penalty) must not exceed 100% of principal
+        max_charges = principal * float(
+            getattr(settings, 'MAX_CUMULATIVE_CHARGES_MULTIPLIER', 1.0)
+        )
+        total_charges = min(interest + penalty, max_charges)
+
+        total_due = principal + total_charges
+        balance = total_due - self.amount_paid
+        return max(0.0, balance)
     
     class Meta:
         ordering = ['-created_at']
@@ -382,7 +412,7 @@ class LoanTier(models.Model):
         return f"{self.name} ({self.min_score}-{self.max_score})"
     
     def clean(self):
-        """Validate score ranges don't overlap"""
+        """Validate score ranges and statutory interest cap."""
         overlapping = LoanTier.objects.filter(
             is_active=True
         ).exclude(id=self.id).filter(
@@ -390,6 +420,16 @@ class LoanTier(models.Model):
         )
         if overlapping.exists():
             raise ValidationError("Tier score ranges cannot overlap")
+
+        # Uganda Tier 4 MFI / Money Lenders Act: max 2.8% per month = 33.6% per annum.
+        # interest_rate is stored as annual %. Monthly equivalent = interest_rate / 12.
+        max_annual = getattr(settings, 'MAX_ANNUAL_INTEREST_RATE_PCT', Decimal('33.6'))
+        if Decimal(str(self.interest_rate)) > max_annual:
+            raise ValidationError(
+                f"Interest rate {self.interest_rate}% per annum exceeds the statutory "
+                f"cap of {max_annual}% per annum (2.8%/month). "
+                "Reduce the rate or obtain a regulatory exemption."
+            )
     
     def save(self, *args, **kwargs):
         self.clean()

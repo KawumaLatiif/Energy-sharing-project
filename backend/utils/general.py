@@ -1,9 +1,26 @@
+import logging
 import random
 from base64 import b64encode
 from typing import Callable
 from django.conf import settings
 from django.utils import timezone
 from decimal import Decimal
+
+_task_logger = logging.getLogger(__name__)
+
+
+def dispatch_task(task, *args, **kwargs):
+    """
+    Call a Celery task directly in DEBUG mode (no Redis/broker needed),
+    or dispatch via .delay() in production.
+    """
+    if settings.DEBUG:
+        try:
+            task(*args, **kwargs)
+        except Exception as exc:
+            _task_logger.warning("Background task %s failed: %s", task.__name__, exc)
+    else:
+        task.delay(*args, **kwargs)
 
 def format_currency(value: Decimal, currency_symbol="") -> str:
     """Format decimal value as currency string (e.g., '100.00 units')."""

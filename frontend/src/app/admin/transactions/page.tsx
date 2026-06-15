@@ -80,8 +80,8 @@ export default function TransactionsPage() {
   const [page, setPage] = useState(1);
 
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [typeFilter, setTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
   const [flaggedOnly, setFlaggedOnly] = useState(showFlagged);
@@ -96,8 +96,8 @@ export default function TransactionsPage() {
     try {
       const params = new URLSearchParams({ page: String(page), limit: '20' });
       if (search) params.set('user', search);
-      if (typeFilter) params.set('type', typeFilter);
-      if (statusFilter) params.set('status', statusFilter);
+      if (typeFilter && typeFilter !== 'all') params.set('type', typeFilter);
+      if (statusFilter && statusFilter !== 'all') params.set('status', statusFilter);
       if (dateFrom) params.set('date_from', dateFrom);
       if (dateTo) params.set('date_to', dateTo);
 
@@ -174,7 +174,7 @@ export default function TransactionsPage() {
               <Select value={typeFilter} onValueChange={setTypeFilter}>
                 <SelectTrigger><SelectValue placeholder="Type" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Types</SelectItem>
+                  <SelectItem value="all">All Types</SelectItem>
                   {Object.entries(TYPE_LABELS).map(([k, v]) => (
                     <SelectItem key={k} value={k}>{v}</SelectItem>
                   ))}
@@ -183,7 +183,7 @@ export default function TransactionsPage() {
               <Select value={statusFilter} onValueChange={setStatusFilter}>
                 <SelectTrigger><SelectValue placeholder="Status" /></SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">All Statuses</SelectItem>
+                  <SelectItem value="all">All Statuses</SelectItem>
                   <SelectItem value="COMPLETED">Completed</SelectItem>
                   <SelectItem value="FAILED">Failed</SelectItem>
                   <SelectItem value="PENDING">Pending</SelectItem>

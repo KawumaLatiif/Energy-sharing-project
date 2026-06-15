@@ -37,7 +37,8 @@ from wallet.models import Wallet as UnitWallet
 import time
 import threading
 from django.db import transaction as db_transaction
-from loan.models import ElectricityTariff
+from loan.models import ElectricityTariff, LoanApplication
+from transactions.api.generate_token import generate_numeric_token
 import traceback
 
 base_url = settings.BASE_URL
@@ -507,6 +508,71 @@ class TokenView(GenericAPIView):
    
   
    
+class ActivateReceivedUnitsView(APIView):
+    """
+    POST /api/v1/meter/activate-received-units/
+
+    For STS meters: converts pending_units into a MeterToken the user can enter
+    on the physical keypad to load the units. Clears pending_units on success.
+
+    For AMI meters: units are already applied — returns 409 with a clear message.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        try:
+            meter = Meter.objects.get(user=user)
+        except Meter.DoesNotExist:
+            return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if meter.architecture == Meter.ARCH_AMI:
+            return Response(
+                {"error": "AMI meter — units are applied automatically; no token needed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if meter.pending_units <= 0:
+            return Response(
+                {"error": "No pending units to activate. Buy or receive units first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                units = meter.pending_units
+                # Lock the row to prevent double-activation
+                locked_meter = Meter.objects.select_for_update().get(pk=meter.pk)
+                if locked_meter.pending_units <= 0:
+                    return Response(
+                        {"error": "Pending units already activated."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                token_value = generate_numeric_token()
+                MeterToken.objects.create(
+                    user=user,
+                    token=token_value,
+                    units=units,
+                    meter=locked_meter,
+                    source='SHARE',
+                )
+                locked_meter.pending_units = 0
+                locked_meter.save(update_fields=['pending_units'])
+
+            return Response(
+                {
+                    "success": True,
+                    "token": token_value,
+                    "units": float(units),
+                    "message": f"Enter this token on your meter keypad to load {float(units):.2f} kWh.",
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.error("ActivateReceivedUnitsView error: %s", exc, exc_info=True)
+            return Response({"error": "Failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 class BuyUnitsView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
 
@@ -834,7 +900,58 @@ class CheckPaymentStatusView(GenericAPIView):
             return Response({
                 "error": "Failed to check payment status"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-                   
-  
-            
+
+
+class EstimateUnitsView(APIView):
+    """
+    GET /api/v1/meter/estimate-units/?amount=5000
+
+    Returns the estimated kWh purchasable for the given UGX amount using the
+    active ERA domestic tariff blocks. No side effects.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        raw = request.query_params.get("amount", "")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            return Response({"error": "Provide a positive numeric amount."}, status=status.HTTP_400_BAD_REQUEST)
+
+        tariff = ElectricityTariff.objects.filter(is_active=True).order_by('-effective_date').first()
+        fallback_rate = Decimal("500")
+
+        if not tariff or not tariff.blocks.exists():
+            estimated = (amount / fallback_rate).quantize(Decimal("0.01"))
+            return Response({"estimated_units": float(estimated), "tariff": None})
+
+        blocks = tariff.blocks.all().order_by('block_order')
+        remaining = amount
+        total_units = Decimal("0")
+        for block in blocks:
+            if remaining <= 0:
+                break
+            rate = Decimal(str(block.rate_per_unit))
+            if rate <= 0:
+                continue
+            if block.max_units is None:
+                total_units += remaining / rate
+                remaining = Decimal("0")
+                break
+            available = Decimal(str(block.max_units - block.min_units + 1))
+            cost = available * rate
+            if remaining >= cost:
+                total_units += available
+                remaining -= cost
+            else:
+                total_units += remaining / rate
+                remaining = Decimal("0")
+                break
+
+        return Response({
+            "estimated_units": float(total_units.quantize(Decimal("0.01"))),
+            "tariff": tariff.tariff_code if tariff else None,
+        })
+

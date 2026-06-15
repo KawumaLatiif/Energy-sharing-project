@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Loader2, Shield, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, Shield, CheckCircle, Zap, Lock } from "lucide-react";
 import {
   Form,
   FormControl,
@@ -24,6 +24,8 @@ import { getApiErrorMessage } from "@/lib/api-response";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
+import { BreakdownCard } from "@/components/ui/breakdown-card";
+import { InfoBanner } from "@/components/ui/info-banner";
 
 const ShareSchema = z.object({
   meter_number: z
@@ -38,16 +40,25 @@ const ShareSchema = z.object({
 });
 
 type ShareFormValues = z.infer<typeof ShareSchema>;
+
 type WalletBalanceResponse = {
   success: boolean;
   wallet?: { balance?: string };
-  meters?: Array<{ is_active?: boolean; balance?: string; meter_number?: string }>;
+  meters?: Array<{
+    is_active?: boolean;
+    balance?: string;
+    meter_number?: string;
+    architecture?: string;
+    pending_units?: string;
+  }>;
 };
 
 type ShareUnitsResponse = {
   success?: boolean;
   error?: string;
   transaction_ref?: string;
+  receiver_architecture?: string;
+  receiver_pending_units?: number;
 };
 
 interface ShareFormProps {
@@ -59,43 +70,46 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, setIsPending] = useState(false);
-  const [userBalance, setUserBalance] = useState<number | null>(null);
+  const [standardUnits, setStandardUnits] = useState<number>(0);
+  const [lifelineUnits, setLifelineUnits] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
   const [transactionRef, setTransactionRef] = useState<string | null>(null);
-  const [userMeters, setUserMeters] = useState<any[]>([]);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
+  const [receiverArch, setReceiverArch] = useState<string | null>(null);
 
   const router = useRouter();
 
   const fetchBalance = async () => {
-  try {
-    const response = await get<WalletBalanceResponse>("wallet/balance");
+    try {
+      const response = await get<WalletBalanceResponse>("wallet/balance");
 
-    if (!response.error && response.data?.success) {
-      const apiData = response.data;
-      const meters = apiData.meters || [];
-      setUserMeters(meters);
+      if (!response.error && response.data?.success) {
+        const apiData = response.data;
+        const meters = apiData.meters || [];
 
-      const walletBalance = parseFloat(apiData.wallet?.balance || "0");
-      setUserBalance(walletBalance);
-    } else {
-      console.error(
-        "Balance fetch failed:",
-        response.error || "Unknown error"
-      );
-      setError(
-        getApiErrorMessage(response.error, "Failed to load balance. Please refresh.")
-      );
+        const activeMeter = meters.find(m => m.is_active) || meters[0];
+        const totalBalance = activeMeter
+          ? parseFloat(activeMeter.balance || "0")
+          : parseFloat(apiData.wallet?.balance || "0");
+
+        // Pilot: lifeline block = first 15 kWh of balance (non-shareable)
+        // Standard = rest (shareable). Real computation is done server-side;
+        // this is a display-only approximation.
+        const lifeline = Math.min(totalBalance, 15);
+        const standard = Math.max(0, totalBalance - lifeline);
+        setLifelineUnits(lifeline);
+        setStandardUnits(standard);
+      } else {
+        setError(getApiErrorMessage(response.error, "Failed to load balance. Please refresh."));
+      }
+    } catch {
+      setError("Network error. Please check your connection and try again.");
+    } finally {
+      setIsLoadingBalance(false);
     }
-  } catch (error) {
-    console.error("Failed to fetch balance:", error);
-    setError("Network error. Please check your connection and try again.");
-  } finally {
-    setIsLoadingBalance(false);
-  }
-};
+  };
 
   useEffect(() => {
     fetchBalance();
@@ -103,16 +117,17 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
   const form = useForm<ShareFormValues>({
     resolver: zodResolver(ShareSchema),
-    defaultValues: {
-      meter_number: "",
-      units: 2,
-    },
+    defaultValues: { meter_number: "", units: 2 },
   });
 
-  // Step 1: Submit initial share request
+  const totalBalance = standardUnits + lifelineUnits;
+
   const handleInitialSubmit = async (data: ShareFormValues) => {
-    if (userBalance !== null && data.units > userBalance) {
-      setError("Insufficient units in your wallet");
+    if (data.units > standardUnits) {
+      setError(
+        `You can only share Standard Block units (${standardUnits.toFixed(2)} kWh). ` +
+        `Lifeline units (${lifelineUnits.toFixed(2)} kWh) are for personal use only.`
+      );
       return;
     }
 
@@ -127,38 +142,34 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       });
 
       if (response.data?.success === true) {
-        // Store transaction details for verification step
         setTransactionRef(response.data.transaction_ref || null);
+        setReceiverArch(response.data.receiver_architecture || null);
         setTransactionDetails({
           meter_number: data.meter_number,
           units: data.units,
-          newBalance: userBalance! - data.units,
+          newStandard: standardUnits - data.units,
+          receiverArch: response.data.receiver_architecture || null,
         });
-        
         setSuccess("Verification code sent to your email!");
         setVerificationStep(1);
       } else {
-        console.error("Initial share failed:", response);
         setError(
           response.data?.error ||
           getApiErrorMessage(response.error, "Failed to initiate share")
         );
       }
     } catch (error: any) {
-      console.error("Initial share error:", error);
       setError(error.message || "An error occurred");
     } finally {
       setIsPending(false);
     }
   };
 
-  // Step 2: Submit verification code
   const handleVerificationSubmit = async () => {
     if (verificationCode.length !== 6) {
       setError("Please enter a 6-digit verification code");
       return;
     }
-
     if (!transactionDetails) {
       setError("No transaction details found. Please start over.");
       return;
@@ -180,12 +191,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
         setSuccess("Units shared successfully!");
         setVerificationStep(2);
 
-        // Update local balance
-        if (userBalance !== null) {
-          setUserBalance(userBalance - transactionDetails.units);
-        }
+        setStandardUnits(transactionDetails.newStandard);
 
-        // Reset after success
         setTimeout(() => {
           form.reset();
           setVerificationStep(0);
@@ -193,17 +200,15 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           setTransactionRef(null);
           setTransactionDetails(null);
           if (onSuccess) onSuccess();
-          fetchBalance(); // Refresh balance
-        }, 3000);
+          fetchBalance();
+        }, 4000);
       } else {
         setError(
           response.data?.error ||
           getApiErrorMessage(response.error, "Failed to verify code")
         );
-        // Stay on verification step to retry
       }
     } catch (error: any) {
-      console.error("Verification error:", error);
       setError(error.message || "An error occurred");
     } finally {
       setIsPending(false);
@@ -219,18 +224,36 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   };
 
   return (
-    <CardWrapper title="Share Units to your friend">
-      <div className="mb-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Your Balance:</span>
-          {isLoadingBalance ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Badge variant="secondary" className="text-sm font-medium">
-              {userBalance !== null ? `${userBalance.toFixed(2)} units` : "N/A"}
-            </Badge>
-          )}
-        </div>
+    <CardWrapper title="Share Units">
+      {/* Balance display — Standard vs Lifeline split */}
+      <div className="mb-4 space-y-3">
+        {isLoadingBalance ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading balance…
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="rounded-lg border border-border p-3 text-center space-y-0.5">
+              <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                <Zap className="w-3 h-3 text-primary" />
+                Shareable (Standard)
+              </div>
+              <div className="font-bold text-base tabular-nums">{standardUnits.toFixed(2)} kWh</div>
+            </div>
+            <div className="rounded-lg border border-border p-3 text-center space-y-0.5 bg-muted/40">
+              <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground">
+                <Lock className="w-3 h-3" />
+                Lifeline (Personal)
+              </div>
+              <div className="font-bold text-base tabular-nums text-muted-foreground">{lifelineUnits.toFixed(2)} kWh</div>
+            </div>
+          </div>
+        )}
+
+        <InfoBanner>
+          Only Standard Block units can be shared. Lifeline units (first 15 kWh of your balance) are reserved for your personal consumption.
+        </InfoBanner>
+
         <Separator />
       </div>
 
@@ -242,13 +265,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               name="meter_number"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Receiver's Meter Number</FormLabel>
+                  <FormLabel>Receiver&apos;s Meter Number</FormLabel>
                   <FormControl>
-                    <Input
-                      placeholder="e.g., 0838123456"
-                      {...field}
-                      maxLength={10}
-                    />
+                    <Input placeholder="e.g., 0838123456" {...field} maxLength={10} />
                   </FormControl>
                   <FormMessage />
                 </FormItem>
@@ -260,23 +279,21 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               name="units"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Units to Share</FormLabel>
+                  <FormLabel>Units to Share (kWh)</FormLabel>
                   <FormControl>
                     <div className="space-y-2">
                       <Input
                         type="number"
                         min="2"
-                        max="1000"
+                        max={standardUnits}
                         step="0.01"
-                        placeholder="Enter Units"
+                        placeholder="Enter units"
                         {...field}
-                        onChange={(e) =>
-                          field.onChange(parseFloat(e.target.value) || 0)
-                        }
+                        onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                       />
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-3 w-3" />
-                        <span>Minimum: 2 units | Maximum: 1000 units</span>
+                        <span>Min: 2 kWh · Max: {standardUnits.toFixed(2)} kWh (your shareable balance)</span>
                       </div>
                     </div>
                   </FormControl>
@@ -285,33 +302,22 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               )}
             />
 
-            {userBalance !== null && (
-              <div className="text-sm text-muted-foreground">
-                Available: {userBalance.toFixed(2)} units
-              </div>
-            )}
-
             <FormError message={error} />
             <FormSuccess message={success} />
 
             <div className="flex gap-2">
               {onCancel && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={onCancel}
-                  className="flex-1"
-                  disabled={isPending}
-                >
+                <Button type="button" variant="outline" onClick={onCancel} className="flex-1" disabled={isPending}>
                   Cancel
                 </Button>
               )}
-              <Button type="submit" disabled={isPending} className="flex-1">
+              <Button
+                type="submit"
+                disabled={isPending || standardUnits < 2}
+                className="flex-1 gpawa-gradient text-white"
+              >
                 {isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing...
-                  </>
+                  <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Processing...</>
                 ) : (
                   "Share Units"
                 )}
@@ -323,13 +329,12 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
       {verificationStep === 1 && (
         <div className="space-y-4">
-          <Alert className="bg-blue-50 border-blue-200">
+          <Alert className="bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-800/40">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              <strong className="text-red-800">Security Verification Required</strong>
+              <strong>Security Verification Required</strong>
               <p className="mt-1 text-sm text-muted-foreground">
-                A verification code has been sent to your registered email address.
-                Please enter the 6-digit code below to complete the transaction.
+                A 6-digit code has been sent to your registered email address. Enter it below to confirm.
               </p>
             </AlertDescription>
           </Alert>
@@ -340,57 +345,52 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               type="text"
               placeholder="Enter 6-digit code"
               value={verificationCode}
-              onChange={(e) =>
-                setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-              }
+              onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
               maxLength={6}
               className="text-center text-lg font-mono tracking-widest"
             />
-            <p className="text-xs text-muted-foreground">
-              Check your email for the verification code
-            </p>
           </div>
 
           {transactionDetails && (
-            <div className="bg-muted p-4 rounded-md text-sm">
-              <p className="font-medium mb-2">Transaction Details:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <span className="text-muted-foreground">To Meter:</span>
-                <span className="font-medium">{transactionDetails.meter_number}</span>
-                <span className="text-muted-foreground">Units:</span>
-                <span className="font-medium">{transactionDetails.units} units</span>
-                <span className="text-muted-foreground">Your New Balance:</span>
-                <span className="font-medium">
-                  {transactionDetails.newBalance.toFixed(2)} units
-                </span>
-              </div>
-            </div>
+            <BreakdownCard
+              rows={[
+                { label: "To Meter", value: transactionDetails.meter_number },
+                { label: "Units", value: `${transactionDetails.units} kWh` },
+                { label: "Your Remaining", value: `${transactionDetails.newStandard.toFixed(2)} kWh` },
+              ]}
+              totalLabel="Total Shared"
+              totalValue={`${transactionDetails.units} kWh`}
+              subline={
+                transactionDetails.receiverArch === "STS"
+                  ? "Receiver has an STS meter — they will need to activate a token to load units."
+                  : transactionDetails.receiverArch === "AMI"
+                  ? "Receiver has an AMI meter — units will be applied automatically."
+                  : undefined
+              }
+            />
+          )}
+
+          {transactionDetails?.receiverArch === "STS" && (
+            <InfoBanner variant="info">
+              The recipient will need to generate a token (via &quot;Activate Units&quot;) and enter it on their keypad to load these units.
+            </InfoBanner>
           )}
 
           <FormError message={error} />
           <FormSuccess message={success} />
 
           <div className="flex gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={handleCancelVerification}
-              className="flex-1"
-              disabled={isPending}
-            >
+            <Button type="button" variant="outline" onClick={handleCancelVerification} className="flex-1" disabled={isPending}>
               Cancel
             </Button>
             <Button
               type="button"
               onClick={handleVerificationSubmit}
               disabled={isPending || verificationCode.length !== 6}
-              className="flex-1"
+              className="flex-1 gpawa-gradient text-white"
             >
               {isPending ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Verifying...
-                </>
+                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Verifying...</>
               ) : (
                 "Confirm & Share"
               )}
@@ -402,30 +402,26 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       {verificationStep === 2 && (
         <div className="text-center space-y-4 py-4">
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
-          <h3 className="text-lg font-semibold">Success!</h3>
+          <h3 className="text-lg font-semibold">Units Shared!</h3>
           <p className="text-muted-foreground">
-            {transactionDetails?.units} units have been successfully
-            shared to meter {transactionDetails?.meter_number}
+            {transactionDetails?.units} kWh sent to meter {transactionDetails?.meter_number}
           </p>
+          {receiverArch === "STS" && (
+            <InfoBanner variant="info">
+              Remind the recipient to generate an activation token via &quot;Activate Units&quot; on their dashboard and enter it on their meter keypad.
+            </InfoBanner>
+          )}
           <div className="flex gap-2">
             <Button
               type="button"
-              onClick={() => {
-                setVerificationStep(0);
-                setVerificationCode("");
-                setTransactionDetails(null);
-              }}
+              onClick={() => { setVerificationStep(0); setVerificationCode(""); setTransactionDetails(null); }}
               variant="outline"
               className="flex-1"
             >
-              Share More Units
+              Share More
             </Button>
-            <Button
-              type="button"
-              onClick={() => router.push("/dashboard")}
-              className="flex-1"
-            >
-              Go to Dashboard
+            <Button type="button" onClick={() => router.push("/dashboard")} className="flex-1 gpawa-gradient text-white">
+              Dashboard
             </Button>
           </div>
         </div>

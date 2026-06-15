@@ -121,6 +121,26 @@
   }
 }
 
+/* ── gPawa brand tokens (sampled from logo: cyan→blue bolt, navy text) ── */
+:root {
+  --gpawa-cyan:   199 80% 60%;   /* #4FB4E8 — top of bolt */
+  --gpawa-blue:   213 66% 48%;   /* #2E7DD1 — mid bolt / primary CTA */
+  --gpawa-deep:   215 74% 37%;   /* #1B5FA8 — base of bolt */
+  --gpawa-navy:   218 71% 21%;   /* #12305C — wordmark / headings */
+  --gpawa-surface: 210 40% 97%; /* #F5F6F8 — page background */
+}
+
+/* Gradient for CTAs, total rows, and the bolt icon */
+.gpawa-gradient {
+  background: linear-gradient(135deg, hsl(var(--gpawa-cyan)), hsl(var(--gpawa-blue)));
+}
+.gpawa-gradient-text {
+  background: linear-gradient(135deg, hsl(var(--gpawa-cyan)), hsl(var(--gpawa-blue)));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 /* ── gPawa Admin Sidebar ──────────────────────────────────────── */
 .gpawa-sidebar {
   background: hsl(var(--sidebar-bg));

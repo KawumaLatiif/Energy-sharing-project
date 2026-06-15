@@ -22,6 +22,14 @@ class Meter(TimestampMixin):
     """
     Prepaid electricity meter linked to a user account.
     Enhanced per spec Section 4.
+
+    Architecture choices:
+      STS  — Standard Transfer Specification (IEC 62055-41): no network link.
+             Units are delivered via a 20-digit encrypted token typed on the keypad.
+             Credit-increasing transactions (PURCHASE, TRANSFER_IN, CREDIT, REFUND)
+             land in pending_units until the user generates a token to activate them.
+      AMI  — Advanced Metering Infrastructure: networked meter that receives balance
+             updates directly from the server. No token required; units apply automatically.
     """
     STATUS_ACTIVE = "ACTIVE"
     STATUS_INACTIVE = "INACTIVE"
@@ -32,6 +40,13 @@ class Meter(TimestampMixin):
         (STATUS_SUSPENDED, "Suspended"),
     ]
 
+    ARCH_STS = "STS"
+    ARCH_AMI = "AMI"
+    ARCHITECTURE_CHOICES = [
+        (ARCH_STS, "STS (token-based)"),
+        (ARCH_AMI, "AMI (networked)"),
+    ]
+
     meter_no = models.CharField(max_length=100, unique=True)
     static_ip = models.GenericIPAddressField(null=True, blank=True)
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
@@ -40,6 +55,20 @@ class Meter(TimestampMixin):
         decimal_places=2,
         default=0.00,
         validators=[MinValueValidator(Decimal('0.00'))]
+    )
+    # STS pending units: credited but not yet loaded via token
+    pending_units = models.DecimalField(
+        max_digits=20,
+        decimal_places=2,
+        default=0.00,
+        validators=[MinValueValidator(Decimal('0.00'))],
+        help_text="Units credited but not yet activated via STS token (STS meters only)"
+    )
+    architecture = models.CharField(
+        max_length=3,
+        choices=ARCHITECTURE_CHOICES,
+        default=ARCH_STS,
+        help_text="STS = token keypad entry; AMI = networked, direct balance update"
     )
     # Spec additions — Section 4.3
     label = models.CharField(max_length=50, blank=True, default='Home')
@@ -53,7 +82,7 @@ class Meter(TimestampMixin):
     )
 
     def __str__(self):
-        return f"{self.meter_no} - {self.label} ({self.status})"
+        return f"{self.meter_no} - {self.label} ({self.architecture}/{self.status})"
 
     
 class MeterToken(TimestampMixin):

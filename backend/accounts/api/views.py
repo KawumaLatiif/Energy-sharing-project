@@ -3,7 +3,7 @@
 import logging
 from accounts.tasks import handle_send_email_code, handle_send_email_verification
 from utils.email import send_email
-from utils.general import generate_numeric_id, get_base_url
+from utils.general import generate_numeric_id, get_base_url, dispatch_task
 from six import text_type
 from django.utils.encoding import force_str as force_text
 from django.conf import settings
@@ -473,7 +473,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #             handle_send_email_verification(user.id)  # Call synchronously
 #         else:
 #             # Production: Use Celery
-#             handle_send_email_verification.delay(user.id)
+#             dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "success": True,
@@ -573,7 +573,8 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 
 #         token = reset_password_token_generator.make_token(user)
 #         user_hash = b64encode_user(force_text(user.pk))
-#         url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+#         frontend_url = settings.FRONTEND_URL.rstrip('/')
+#         url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
 #         message = (
 #             f"You requested for a password reset for your account. "
 #             f"Please click the link below to continue"
@@ -720,7 +721,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #                 code=code
 #             )
 
-#         handle_send_email_code.delay(user.id, code)
+#         dispatch_task(handle_send_email_code, user.id, code)
 
 #         response_data = {
 #             "success": True,
@@ -760,7 +761,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #             raise CustomAPIException(message=error_msg)
 
 #         # send the email now
-#         handle_send_email_verification.delay(user.id)
+#         dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "message": "Verification email sent successfully!",
@@ -1169,15 +1170,6 @@ class CreateUserAPIView(CreateAPIView):
 
         logger.info(f"[REGISTRATION] User {user.id} created successfully")
 
-        # For development: Send email synchronously instead of using Celery
-        if settings.DEBUG:
-            logger.info(f"[REGISTRATION] DEBUG mode: Sending email synchronously")
-            from accounts.tasks import handle_send_email_verification
-            handle_send_email_verification(user.id)  # Call synchronously
-        else:
-            # Production: Use Celery
-            handle_send_email_verification.delay(user.id)
-
         response_data = {
             "success": True,
             "message": "User registered successfully!",
@@ -1276,7 +1268,8 @@ class ForgotPasswordAPIView(GenericAPIView):
 
         token = reset_password_token_generator.make_token(user)
         user_hash = b64encode_user(force_text(user.pk))
-        url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
         message = (
             f"You requested for a password reset for your account. "
             f"Please click the link below to continue"
@@ -1408,7 +1401,7 @@ class SettingsAPIView(CreateAPIView):
                 code=code
             )
 
-        handle_send_email_code.delay(user.id, code)
+        dispatch_task(handle_send_email_code, user.id, code)
 
         response_data = {
             "success": True,
@@ -1448,7 +1441,7 @@ class ResendVerificationEmailAPIView(GenericAPIView):
             raise CustomAPIException(message=error_msg)
 
         # send the email now
-        handle_send_email_verification.delay(user.id)
+        dispatch_task(handle_send_email_verification, user.id)
 
         response_data = {
             "message": "Verification email sent successfully!",

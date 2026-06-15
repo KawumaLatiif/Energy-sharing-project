@@ -359,6 +359,10 @@ class Profile(TimestampMixin, models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE)
     email_verified = models.BooleanField(default=False)
     id_image = models.URLField(null=True, blank=True)
+    # Lifeline eligibility: ERA requires ≤100 kWh average over the previous 6 months.
+    # For the pilot, all domestic accounts default to eligible; the real six-month
+    # check will be activated once sufficient purchase history exists.
+    lifeline_eligible = models.BooleanField(default=True)
 
     def __str__(self):
         """

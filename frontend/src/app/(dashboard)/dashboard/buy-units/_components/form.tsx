@@ -1,6 +1,7 @@
 "use client";
+
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState, useTransition, useEffect, useCallback } from "react";
+import { useState, useTransition, useEffect, useCallback, useRef } from "react";
 import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import type { z } from "zod";
@@ -21,6 +22,8 @@ import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import { Button } from "@/components/ui/button";
 import { Input as ShadInput } from "@/components/ui/input";
+import { BreakdownCard } from "@/components/ui/breakdown-card";
+import { BottomSheet } from "@/components/ui/bottom-sheet";
 import { BuyUnitSchema } from "@/lib/schema";
 import { formatCurrency } from "@/lib/utils";
 import { useForm } from "react-hook-form";
@@ -36,6 +39,10 @@ import {
 import Link from "next/link";
 import { get } from "@/lib/fetch";
 import { getApiErrorMessage } from "@/lib/api-response";
+
+function formatUGX(n: number) {
+  return `UGX ${Math.round(n).toLocaleString()}`;
+}
 
 export default function BuyUnitsForm() {
   const formatter = formatCurrency("USD");
@@ -54,6 +61,12 @@ export default function BuyUnitsForm() {
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [pollingCount, setPollingCount] = useState(0);
+
+  // Estimate state
+  const [estimatedUnits, setEstimatedUnits] = useState<number | null>(null);
+  const [estimating, setEstimating] = useState(false);
+  const [showConfirm, setShowConfirm] = useState(false);
+  const estimateTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const { user, loading } = useAccount();
 
@@ -108,6 +121,22 @@ export default function BuyUnitsForm() {
     checkLoans();
   }, []);
 
+  // Debounced estimate on amount change
+  const fetchEstimate = useCallback(async (amount: number) => {
+    if (amount < 100) { setEstimatedUnits(null); return; }
+    setEstimating(true);
+    try {
+      const res = await get<{ estimated_units: number }>(`meter/estimate-units/?amount=${amount}`);
+      if (res.data?.estimated_units != null) setEstimatedUnits(res.data.estimated_units);
+    } catch { /* ignore */ }
+    finally { setEstimating(false); }
+  }, []);
+
+  const handleAmountChange = (value: number) => {
+    if (estimateTimeout.current) clearTimeout(estimateTimeout.current);
+    estimateTimeout.current = setTimeout(() => fetchEstimate(value), 500);
+  };
+
   const checkStatus = useCallback(async (id: string) => {
     try {
       const result = await checkPaymentStatus(id);
@@ -156,7 +185,6 @@ export default function BuyUnitsForm() {
     }
   }, [paymentStatus, transactionId, checkStatus]);
 
-  // Reset polling count
   useEffect(() => {
     if (paymentStatus === "pending") setPollingCount(0);
   }, [paymentStatus]);
@@ -167,6 +195,7 @@ export default function BuyUnitsForm() {
     setPaymentStatus("pending");
     setTransactionId(null);
     setPollingCount(0);
+    setShowConfirm(false);
 
     startTransition(async () => {
       try {
@@ -207,7 +236,6 @@ export default function BuyUnitsForm() {
           setUnitsPurchased(parseFloat(responseData["Units purchased"]) || 0);
           setToken(responseData.token || "");
           setTransactionDetails(responseData.transaction || responseData || null);
-          // setSuccess(data.data.message || "Payment initiated successfully!, check your phone to complete the payment");
           setSuccess(
             "Payment initiated successfully!, check your phone to complete the payment"
           );
@@ -218,6 +246,16 @@ export default function BuyUnitsForm() {
       }
     });
   }
+
+  const amount = form.watch("amount");
+  const phone = form.watch("phone_number");
+
+  const handleReviewClick = async () => {
+    const valid = await form.trigger();
+    if (!valid) return;
+    if (!estimatedUnits && amount >= 100) await fetchEstimate(Number(amount));
+    setShowConfirm(true);
+  };
 
   if (loading || loadingLoans) return null;
 
@@ -230,7 +268,7 @@ export default function BuyUnitsForm() {
             <DialogHeader>
               <DialogTitle className="text-green-600 dark:text-green-400 flex items-center gap-2">
                 <CheckCircle2 className="h-5 w-5" />
-                Payment Successful!!!
+                Payment Successful!
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
                 Units have been successfully purchased
@@ -238,57 +276,26 @@ export default function BuyUnitsForm() {
             </DialogHeader>
 
             <div className="space-y-4">
-              <div className="bg-green-50 dark:bg-green-900/20 p-4 rounded-lg border border-green-200 dark:border-green-800">
-                <h3 className="font-semibold text-green-800 dark:text-green-300 mb-2">
-                  Transaction Details
-                </h3>
-                <div className="space-y-2 text-sm">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Amount Paid:
-                    </span>
-                    <span className="font-semibold text-foreground">
-                      UGX {transactionDetails?.amount}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Units Purchased:
-                    </span>
-                    <span className="font-semibold text-foreground">
-                      {unitsPurchased} units
-                    </span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-gray-600 dark:text-gray-400">
-                      Status:
-                    </span>
-                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-300">
-                      Completed
-                    </span>
-                  </div>
-                  {transactionDetails?.timestamp && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600 dark:text-gray-400">
-                        Date:
-                      </span>
-                      <span className="font-semibold text-foreground text-xs">
-                        {new Date(
-                          transactionDetails.timestamp
-                        ).toLocaleString()}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <BreakdownCard
+                rows={[
+                  { label: "Amount Paid", value: formatUGX(transactionDetails?.amount ?? 0) },
+                  { label: "Units Purchased", value: `${unitsPurchased ?? 0} kWh` },
+                  { label: "Status", value: "Completed" },
+                  ...(transactionDetails?.timestamp
+                    ? [{ label: "Date", value: new Date(transactionDetails.timestamp).toLocaleString(), muted: true }]
+                    : []),
+                ]}
+                totalLabel="Units Added"
+                totalValue={`${unitsPurchased ?? 0} kWh`}
+              />
 
               {token && (
                 <Alert className="bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800">
                   <Terminal className="h-4 w-4 text-blue-600 dark:text-blue-400" />
                   <AlertTitle className="text-blue-800 dark:text-blue-300">
-                    Token
+                    STS Token — enter on meter keypad
                   </AlertTitle>
-                  <AlertDescription className="text-blue-700 dark:text-blue-400 break-all">
+                  <AlertDescription className="text-blue-700 dark:text-blue-400 break-all font-mono text-lg tracking-widest">
                     {token}
                   </AlertDescription>
                 </Alert>
@@ -300,8 +307,9 @@ export default function BuyUnitsForm() {
                     setShowSuccessModal(false);
                     form.reset();
                     setPaymentStatus("idle");
+                    setEstimatedUnits(null);
                   }}
-                  className="flex-1 bg-primary text-primary-foreground hover:bg-primary/90"
+                  className="flex-1 gpawa-gradient text-white"
                 >
                   Done
                 </Button>
@@ -310,16 +318,43 @@ export default function BuyUnitsForm() {
                     setShowSuccessModal(false);
                     form.reset();
                     setPaymentStatus("idle");
+                    setEstimatedUnits(null);
                   }}
                   variant="outline"
                   className="flex-1"
                 >
-                  Buy More Units
+                  Buy More
                 </Button>
               </div>
             </div>
           </DialogContent>
         </Dialog>
+
+        {/* --- CONFIRM BOTTOM SHEET --- */}
+        <BottomSheet
+          open={showConfirm}
+          onClose={() => setShowConfirm(false)}
+          title="Confirm Purchase"
+          primaryAction={{
+            label: "Pay Now",
+            onClick: form.handleSubmit(onSubmit),
+            loading: isPending || paymentStatus === "pending",
+          }}
+        >
+          <BreakdownCard
+            rows={[
+              { label: "Amount", value: formatUGX(Number(amount)) },
+              { label: "Payment Method", value: "MTN Mobile Money" },
+              { label: "Phone", value: phone || "—" },
+              ...(estimatedUnits != null
+                ? [{ label: "Estimated Yield", value: `${estimatedUnits} kWh` }]
+                : []),
+            ]}
+            totalLabel="You Pay"
+            totalValue={formatUGX(Number(amount))}
+            subline={estimatedUnits != null ? `Estimated yield: ${estimatedUnits} kWh` : undefined}
+          />
+        </BottomSheet>
 
         {/* --- PAYMENT STATUS ALERTS --- */}
         {paymentStatus === "pending" && (
@@ -338,9 +373,7 @@ export default function BuyUnitsForm() {
                 <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
                   <div
                     className="bg-blue-600 h-2 rounded-full transition-all duration-1000 ease-out"
-                    style={{
-                      width: `${Math.min((pollingCount + 1) * 10, 100)}%`,
-                    }}
+                    style={{ width: `${Math.min((pollingCount + 1) * 10, 100)}%` }}
                   />
                 </div>
               </div>
@@ -352,12 +385,9 @@ export default function BuyUnitsForm() {
           <Alert className="mb-4 border-green-200 dark:border-green-800 bg-green-50 dark:bg-green-900/20">
             <CheckCircle2 className="h-4 w-4 text-green-600 dark:text-green-400" />
             <AlertTitle className="text-green-800 dark:text-green-300">
-              Payment Initialed Successful!
+              Payment Initiated Successfully!
             </AlertTitle>
-            <AlertDescription className="text-green-700 dark:text-green-400">
-              {/* Your payment was successful. {unitsPurchased} units have been
-              added to your meter. */}
-            </AlertDescription>
+            <AlertDescription className="text-green-700 dark:text-green-400" />
           </Alert>
         )}
 
@@ -403,27 +433,25 @@ export default function BuyUnitsForm() {
         {/* --- FORM --- */}
         <div className={loanBlocked ? "opacity-50 pointer-events-none" : ""}>
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form className="space-y-6">
               <div className="space-y-4">
                 <FormField
                   control={form.control}
                   name="amount"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel className="text-foreground">
-                        Amount (UGX)
-                      </FormLabel>
+                      <FormLabel className="text-foreground">Amount (UGX)</FormLabel>
                       <FormControl>
                         <Input
-                          disabled={
-                            isPending || paymentStatus === "pending"
-                          }
+                          disabled={isPending || paymentStatus === "pending"}
                           type="number"
                           placeholder="5000"
                           {...field}
-                          onChange={(e) =>
-                            field.onChange(parseInt(e.target.value) || 0)
-                          }
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            field.onChange(val);
+                            handleAmountChange(val);
+                          }}
                           className="bg-background border-input text-foreground placeholder:text-muted-foreground"
                         />
                       </FormControl>
@@ -432,19 +460,33 @@ export default function BuyUnitsForm() {
                   )}
                 />
 
+                {/* Live estimate */}
+                {(estimating || estimatedUnits != null) && Number(amount) >= 100 && (
+                  <BreakdownCard
+                    rows={[
+                      { label: "Amount", value: formatUGX(Number(amount)) },
+                      {
+                        label: "Estimated Yield",
+                        value: estimating ? "Calculating…" : `${estimatedUnits} kWh`,
+                      },
+                    ]}
+                    totalLabel="You Get"
+                    totalValue={estimating ? "…" : `${estimatedUnits} kWh`}
+                    subline="Based on ERA domestic tariff (ERA Code 10.1)"
+                  />
+                )}
+
                 <FormField
                   control={form.control}
                   name="phone_number"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="font-semibold text-foreground">
-                        Phone Number
+                        MTN Mobile Money Number
                       </FormLabel>
                       <FormControl>
                         <PhoneInput
-                          disabled={
-                            isPending || paymentStatus === "pending"
-                          }
+                          disabled={isPending || paymentStatus === "pending"}
                           {...field}
                           international
                           defaultCountry="UG"
@@ -452,31 +494,28 @@ export default function BuyUnitsForm() {
                           inputComponent={ShadInput}
                         />
                       </FormControl>
-                      <div className="text-sm text-muted-foreground">
-                        Enter your MTN mobile money number
-                      </div>
                       <FormMessage />
                     </FormItem>
                   )}
                 />
               </div>
 
-              <FormError message={error} />
+              <FormError message={paymentStatus !== "failed" ? error : undefined} />
               <FormSuccess message={success} />
 
               <Button
-                type="submit"
+                type="button"
+                onClick={handleReviewClick}
                 disabled={isPending || paymentStatus === "pending"}
-                className="w-full text-white bg-sky-600 hover:bg-sky-700 dark:bg-sky-700 dark:hover:bg-sky-800 dark:text-white transition-colors duration-200"
+                className="w-full gpawa-gradient text-white font-semibold"
               >
                 {paymentStatus === "pending" ? (
                   <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing
-                    Payment...
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Processing…
                   </>
                 ) : (
                   <>
-                    <Terminal className="mr-2 h-4 w-4" /> Purchase Units
+                    <Terminal className="mr-2 h-4 w-4" /> Review & Pay
                   </>
                 )}
               </Button>

@@ -39,7 +39,8 @@ def handle_send_email_verification(user_id):
         user_hash = b64encode_user(force_text(user_id))
         
         # Use query parameters instead of path parameters to avoid encoding issues
-        url = f"{get_base_url()}/auth/verify-email?uid={user_hash}&token={token}"
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        url = f"{frontend_url}/auth/verify-email?uid={user_hash}&token={token}"
         
         logger.info(f"[EMAIL VERIFICATION] Generated verification URL: {url}")
         
