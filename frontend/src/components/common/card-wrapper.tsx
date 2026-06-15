@@ -1,24 +1,5 @@
 "use client";
-import Image from "next/image";
-import logo from "@/assets/images/logo.jpg";
-
-function GpawaAuthBrand() {
-  return (
-    <div className="flex flex-col items-center gap-2 mb-6">
-      <Image
-        src={logo}
-        alt="gPawa"
-        width={44}
-        height={44}
-        className="rounded-2xl object-cover shadow-lg shadow-blue-500/25"
-      />
-      <span className="text-xl font-bold tracking-tight">
-        <span className="gpawa-gradient-text">g</span>
-        <span className="text-gray-900 dark:text-white">Pawa</span>
-      </span>
-    </div>
-  );
-}
+import { GpawaLogo } from "./gpawa-logo";
 
 const CardWrapper = ({
   title,
@@ -55,7 +36,11 @@ const CardWrapper = ({
       <div className={`${containerBase} ${containerClassName ?? ""}`}>
         <div className="sm:mx-auto sm:w-full sm:max-w-md w-full mt-4">
           <div className={`${cardBase} ${cardClassName ?? ""}`}>
-            {variant === "auth" && <GpawaAuthBrand />}
+            {variant === "auth" && (
+              <div className="flex flex-col items-center gap-2 mb-6">
+                <GpawaLogo href="/" textSize="xl" logoSize={44} />
+              </div>
+            )}
             <h1 className="text-xl font-semibold text-center text-gray-900 dark:text-white mb-1">
               {title}
             </h1>

@@ -10,11 +10,10 @@ import {
   User,
 } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
-import logo from "@/assets/images/logo.jpg";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { IconMoneybag } from "@tabler/icons-react";
+import { GpawaLogo } from "@/components/common/gpawa-logo";
 
 const navItems = [
   { href: "/dashboard",               label: "Dashboard",      icon: Home,           exact: true },
@@ -35,19 +34,7 @@ export default function DesktopSidebar() {
     <div className="hidden border-r border-border bg-card md:flex flex-col h-full max-h-screen">
       {/* Brand */}
       <div className="flex h-[60px] items-center gap-2.5 px-5 border-b border-border shrink-0">
-        <Link href="/" className="flex items-center gap-2.5">
-          <Image
-            src={logo}
-            alt="gPawa"
-            width={32}
-            height={32}
-            className="rounded-lg object-cover shadow shadow-blue-500/25"
-          />
-          <span className="font-bold text-base tracking-tight">
-            <span className="gpawa-gradient-text">g</span>
-            <span className="text-foreground">Pawa</span>
-          </span>
-        </Link>
+        <GpawaLogo href="/" textSize="base" logoSize={32} />
       </div>
 
       {/* Nav */}

@@ -5,32 +5,13 @@ import { ModeToggle } from "../theme-toggle";
 import { motion } from "framer-motion";
 import { useAuth } from "@/hooks/use-auth";
 import Link from "next/link";
-import Image from "next/image";
-import logo from "@/assets/images/logo.jpg";
+import { GpawaLogo } from "./gpawa-logo";
 
 const navLinks = [
   { href: "/about",   label: "About"   },
   { href: "/contact", label: "Contact" },
   { href: "/privacy", label: "Privacy" },
 ];
-
-function GpawaLogo() {
-  return (
-    <Link href="/" className="flex items-center gap-2.5 group">
-      <Image
-        src={logo}
-        alt="gPawa"
-        width={36}
-        height={36}
-        className="rounded-xl object-cover shadow-md shadow-blue-500/25 group-hover:shadow-blue-500/40 transition-shadow"
-      />
-      <span className="text-xl font-bold tracking-tight">
-        <span className="gpawa-gradient-text">g</span>
-        <span className="text-gray-900 dark:text-white">Pawa</span>
-      </span>
-    </Link>
-  );
-}
 
 export default function PublicHeader() {
   const { auth } = useAuth();
@@ -44,7 +25,7 @@ export default function PublicHeader() {
         <>
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-16 items-center justify-between">
-              <GpawaLogo />
+              <GpawaLogo href="/" textSize="xl" logoSize={36} />
 
               {/* Desktop nav */}
               <div className="hidden md:flex items-center gap-1">
@@ -73,7 +54,7 @@ export default function PublicHeader() {
                     <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
                       <Link
                         href="/auth/login"
-                        className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
+                        className="px-4 py-2 text-sm font-semibold text-white gpawa-gradient rounded-xl transition-all shadow-md shadow-blue-500/20"
                       >
                         Sign In
                       </Link>
@@ -82,7 +63,7 @@ export default function PublicHeader() {
                 ) : (
                   <Link
                     href="/dashboard"
-                    className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
+                    className="px-4 py-2 text-sm font-semibold text-white gpawa-gradient rounded-xl transition-all shadow-md shadow-blue-500/20"
                   >
                     Dashboard
                   </Link>
@@ -120,7 +101,7 @@ export default function PublicHeader() {
                   <Disclosure.Button
                     as={Link}
                     href="/auth/login"
-                    className="block w-full text-center px-3 py-2.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 rounded-lg"
+                    className="block w-full text-center px-3 py-2.5 text-sm font-semibold text-white gpawa-gradient rounded-lg"
                   >
                     Sign In
                   </Disclosure.Button>
