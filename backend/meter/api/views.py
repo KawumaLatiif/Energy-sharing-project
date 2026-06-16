@@ -8,6 +8,7 @@ import traceback
 from django.conf import settings
 from django.http import JsonResponse
 from meter.models import Meter, MeterToken
+from meter.services import push_units_to_thingsboard
 from accounts.models import User
 from mtn_momo.services import MTNMoMoService
 from transactions.models import UnitTransaction
@@ -796,6 +797,17 @@ class BuyUnitsView(GenericAPIView):
                     f"Buy units - {amount_decimal} UGX | Loan repaid: {repaid_to_loans} UGX | "
                     f"Units to wallet: {units_purchased} | Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
                 )
+
+                # Push purchased units to physical meter via ThingsBoard when configured.
+                push_ok, push_msg = (True, "Skipped (no units purchased).")
+                if units_purchased > 0:
+                    push_ok, push_msg = push_units_to_thingsboard(
+                        meter=meter,
+                        units=units_purchased,
+                        reference_id=transaction.transaction_reference,
+                    )
+
+                transaction.message = f"{transaction.message} | MeterPush: {'OK' if push_ok else 'FAILED'} ({push_msg})"
                 transaction.save()
 
                 # Create UnitTransaction record
@@ -813,6 +825,10 @@ class BuyUnitsView(GenericAPIView):
                     logger.info(
                         f"Units credited to wallet for user {user_id}: {units_purchased} (no token issued)"
                     )
+                    if push_ok:
+                        logger.info("ThingsBoard push completed for meter %s", meter.meter_no)
+                    else:
+                        logger.warning("ThingsBoard push not completed for meter %s: %s", meter.meter_no, push_msg)
 
             logger.info(
                 f"Sandbox: Payment complete for user {user_id}. "
@@ -902,6 +918,88 @@ class CheckPaymentStatusView(GenericAPIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+class MeterPushTestView(APIView):
+    """
+    Manual utility endpoint to test ThingsBoard unit push.
+    This does not change wallet balances; it only pushes telemetry.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, *args, **kwargs):
+        amount_raw = request.data.get("amount")
+        reference_id = str(request.data.get("reference_id", "")).strip() or f"TEST-{uuid.uuid4().hex[:8].upper()}"
+
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"error": "Invalid amount. Provide a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meter = Meter.objects.get(user=request.user)
+        except Meter.DoesNotExist:
+            return Response({"error": "No meter found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        ok, msg = push_units_to_thingsboard(meter=meter, units=amount, reference_id=reference_id)
+        status_code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST
+
+        return Response(
+            {
+                "success": ok,
+                "meter_no": meter.meter_no,
+                "amount": float(amount),
+                "reference_id": reference_id,
+                "message": msg,
+            },
+            status=status_code,
+        )
+
+
+class AdminMeterPushTestView(APIView):
+    """
+    Admin-only ThingsBoard push utility that targets any meter by meter_no.
+    This does not change wallet balances; it only sends telemetry.
+    """
+    permission_classes = (permissions.IsAdminUser,)
+
+    def post(self, request, *args, **kwargs):
+        meter_no = str(request.data.get("meter_no", "")).strip()
+        amount_raw = request.data.get("amount")
+        reference_id = str(request.data.get("reference_id", "")).strip() or f"ADMIN-TEST-{uuid.uuid4().hex[:8].upper()}"
+
+        if not meter_no:
+            return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"error": "Invalid amount. Provide a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meter = Meter.objects.get(meter_no=meter_no)
+        except Meter.DoesNotExist:
+            return Response({"error": "Meter not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        ok, msg = push_units_to_thingsboard(meter=meter, units=amount, reference_id=reference_id)
+        status_code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST
+
+        return Response(
+            {
+                "success": ok,
+                "meter_no": meter.meter_no,
+                "amount": float(amount),
+                "reference_id": reference_id,
+                "message": msg,
+            },
+            status=status_code,
+        )
+
+
 class EstimateUnitsView(APIView):
     """
     GET /api/v1/meter/estimate-units/?amount=5000
@@ -954,4 +1052,3 @@ class EstimateUnitsView(APIView):
             "estimated_units": float(total_units.quantize(Decimal("0.01"))),
             "tariff": tariff.tariff_code if tariff else None,
         })
-

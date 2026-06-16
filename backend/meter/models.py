@@ -56,6 +56,12 @@ class Meter(TimestampMixin):
         default=0.00,
         validators=[MinValueValidator(Decimal('0.00'))]
     )
+    iot_device_token = models.CharField(
+        max_length=128,
+        null=True,
+        blank=True,
+        help_text="ThingsBoard device access token used to push purchased units."
+    )
     # STS pending units: credited but not yet loaded via token
     pending_units = models.DecimalField(
         max_digits=20,

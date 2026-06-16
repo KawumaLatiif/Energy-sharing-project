@@ -1,46 +1,55 @@
 import Link from "next/link";
-import { Zap } from "lucide-react";
-
-const footerLinks = [
-  { href: "/terms",   name: "Terms"   },
-  { href: "/privacy", name: "Privacy" },
-  { href: "/about",   name: "About"   },
-  { href: "/contact", name: "Contact" },
-];
 
 export default function PublicFooter() {
-  return (
-    <footer className="border-t border-gray-200/70 dark:border-slate-800/70 bg-white/60 dark:bg-slate-950/60 backdrop-blur-sm">
-      <div className="max-w-7xl mx-auto px-4 md:px-8 py-8">
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-6">
-          {/* Brand */}
-          <Link href="/" className="flex items-center gap-2 shrink-0">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center">
-              <Zap className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span className="font-bold text-sm tracking-tight">
-              <span className="text-blue-600 dark:text-blue-400">g</span>
-              <span className="text-gray-900 dark:text-white">Pawa</span>
-            </span>
-          </Link>
+  const footerNavs = [
+    { href: "/terms", name: "Terms" },
+    { href: "/license", name: "License" },
+    { href: "/privacy", name: "Privacy" },
+    { href: "/about", name: "About" },
+  ];
 
-          {/* Links */}
+  const socialLinks = [
+    {
+      href: "#",
+      icon: "M9 8h-3v4h-2v-4h-3V7h8v2.014M3 20v-6h6v6H3z m14-9v-5c0-4.97-4.03-9-9-9H3v2c3.87 0 7 3.13 7 7v5h-3v6h12v-6h-3.003M15 20v-6h3v3h2v-3h3v-2h-8v6h2z",
+      label: "LinkedIn",
+    }, // Placeholder SVG paths; replace with actual icons
+    // Add more as needed
+  ];
+
+  return (
+    <footer className="pt-12 bg-gradient-to-t from-slate-50 via-white to-white dark:from-slate-950 dark:via-slate-900 dark:to-slate-900">
+      <div className="max-w-7xl mx-auto px-4 md:px-8">
+        <div className="border-t border-gray-200/80 dark:border-slate-800/70 py-10 mt-10 flex flex-col sm:flex-row items-center justify-between gap-6">
+          <p className="text-gray-500 dark:text-gray-400 text-sm">
+            &copy; {new Date().getFullYear()} gPawa Inc. All rights
+            reserved.
+          </p>
           <ul className="flex flex-wrap items-center gap-6">
-            {footerLinks.map((item) => (
-              <li key={item.href}>
+            {footerNavs.map((item, idx) => (
+              <li key={idx}>
                 <Link
                   href={item.href}
-                  className="text-sm text-gray-500 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 transition-colors"
+                  className="text-gray-600 dark:text-gray-300 hover:text-blue-600 dark:hover:text-blue-400 text-sm font-medium transition-colors duration-200"
                 >
                   {item.name}
                 </Link>
               </li>
             ))}
           </ul>
-
-          <p className="text-sm text-gray-400 dark:text-gray-500 shrink-0">
-            &copy; {new Date().getFullYear()} gPawa. All rights reserved.
-          </p>
+          {/* Social links */}
+          <div className="flex gap-4">
+            {socialLinks.map((link, idx) => (
+              <Link
+                key={idx}
+                href={link.href}
+                className="p-2 hover:bg-blue-100 dark:hover:bg-blue-900/20 rounded-full transition-colors"
+              >
+                {/* Render icon here */}
+                <span className="sr-only">{link.label}</span>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </footer>

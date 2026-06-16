@@ -1,21 +1,32 @@
 "use client";
 
 import {
+  ArrowRight,
   ArrowUpRight,
   CircleUser,
   FileTextIcon,
   Forward,
   Home,
+  LineChart,
   Menu,
+  Package,
+  Package2,
   PlusCircleIcon,
-  Settings,
+  Search,
+  ShoppingCart,
   Smartphone,
+  Users,
   User,
-  Zap,
-  LogOut,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -24,127 +35,251 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { ModeToggle } from "@/components/theme-toggle";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
-import { cn } from "@/lib/utils";
-import { IconMoneybag } from "@tabler/icons-react";
 import logout from "../logout";
+import Image from "next/image";
+import { cn } from "@/lib/utils";
+import { usePathname } from "next/navigation";
+import { ModeToggle } from "@/components/theme-toggle";
+import { Skeleton } from "@/components/ui/skeleton";
+import { IconMoneybag } from "@tabler/icons-react";
+import { useState } from "react";
+import { Zap, Settings, LogOut } from "lucide-react";
 
 interface RightHeaderProps {
   onProfileClick?: () => void;
   onMeterClick?: () => void;
 }
 
-const mobileNav = [
-  { href: "/dashboard",              label: "Dashboard",      icon: Home,           exact: true },
-  { href: "/dashboard/buy-units",    label: "Buy Units",      icon: PlusCircleIcon  },
-  { href: "/dashboard/share",        label: "Share Units",    icon: Forward         },
-  { href: "/dashboard/tokens",       label: "My Tokens",      icon: ArrowUpRight    },
-  { href: "/dashboard/request-loan", label: "Request Loan",   icon: IconMoneybag    },
-  { href: "/dashboard/myloans",      label: "My Loans",       icon: FileTextIcon    },
-  { href: "/dashboard/transactions", label: "Transactions",   icon: FileTextIcon    },
-  { href: "/dashboard/myaccount",    label: "My Account",     icon: User            },
-  { href: "/ussd-simulator",         label: "USSD Simulator", icon: Smartphone      },
-];
-
 export default function RightHeader({ onProfileClick, onMeterClick }: RightHeaderProps) {
   const pathname = usePathname();
-  const [sheetOpen, setSheetOpen] = useState(false);
+  const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+
+  const handleProfileClick = () => {
+    if (onProfileClick) {
+      onProfileClick();
+      setIsProfileMenuOpen(false);
+    }
+  };
+
+  const handleMeterClick = () => {
+    if (onMeterClick) {
+      onMeterClick();
+      setIsProfileMenuOpen(false);
+    }
+  };
 
   return (
-    <header className="flex justify-between md:justify-end h-[60px] items-center gap-3 border-b border-border bg-card/80 backdrop-blur-sm px-4 lg:px-6 shrink-0">
-      {/* Mobile sheet */}
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+    <header className="flex justify-between sm:justify-end h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
+      <Sheet>
         <SheetTrigger asChild>
-          <Button variant="ghost" size="icon" className="md:hidden">
+          <Button variant="outline" size="icon" className="shrink-0 md:hidden">
             <Menu className="h-5 w-5" />
+            <span className="sr-only">Toggle navigation menu</span>
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="w-72 p-0 bg-card border-r border-border">
-          <div className="flex h-[60px] items-center gap-2.5 px-5 border-b border-border">
-            <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center shadow shadow-blue-500/20">
-              <Zap className="h-3.5 w-3.5 text-white" />
-            </div>
-            <span className="font-bold text-base tracking-tight">
-              <span className="text-primary">g</span>
-              <span className="text-foreground">Pawa</span>
-            </span>
-          </div>
-          <nav className="p-3 space-y-0.5">
-            {mobileNav.map(({ href, label, icon: Icon, exact }) => {
-              const active = exact ? pathname === href : pathname.startsWith(href);
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={() => setSheetOpen(false)}
-                  className={cn(
-                    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all border-l-2",
-                    active
-                      ? "bg-primary/10 text-primary border-primary"
-                      : "text-muted-foreground hover:text-foreground hover:bg-muted border-transparent"
-                  )}
-                >
-                  <Icon className="h-4 w-4 shrink-0" />
-                  {label}
-                </Link>
-              );
-            })}
+        <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
+          <nav className="grid gap-2 text-lg font-medium">
+            <Link href="/" className="flex items-center gap-2 font-semibold">
+              <Image
+                src="/gpawa-mark-tight.png"
+                width={42}
+                height={42}
+                className="h-10 w-10 object-contain"
+                alt="gPawa"
+              />
+            </Link>
+            <Link
+              href="/dashboard"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard" }
+              )}
+            >
+              <Home className="h-4 w-4" />
+              Dashboard
+            </Link>
+            <Link
+              href="/dashboard/buy-units"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/deposit" }
+              )}
+            >
+              <PlusCircleIcon className="h-4 w-4" />
+              Buy Units
+            </Link>
+            <Link
+              href="/dashboard/share"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/share" }
+              )}
+            >
+              <Forward className="h-4 w-4" />
+              Share Units
+            </Link>            
+            {/* <Link
+              href="/dashboard/transfering"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/transfering" }
+              )}
+            >
+              <ArrowRight className="h-4 w-4" />
+              Transfer Units
+            </Link> */}
+            <Link
+              href="/dashboard/tokens"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/withdraw" }
+              )}
+            >
+              <ArrowUpRight className="h-4 w-4" />
+              Tokens
+            </Link>
+            <Link
+              href="/dashboard/request-loan"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                {
+                  "bg-muted text-primary":
+                    pathname === "/dashboard/request-loan",
+                }
+              )}
+            >
+              <IconMoneybag className="h-4 w-4" />
+              Request Loan
+            </Link>
+
+            <Link
+              href="/dashboard/myloans"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/myloans" }
+              )}
+            >
+              <FileTextIcon className="h-4 w-4" />
+              My Loans
+            </Link>
+            <Link
+              href={`/dashboard/transactions`}
+              className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", { "bg-muted text-primary": pathname === "/dashboard/transactions" })}
+            >
+              <Forward className="h-4 w-4" />
+              Transaction
+            </Link>
+            <Link
+              href={`/dashboard/myaccount`}
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/dashboard/myaccount" }
+              )}
+            >
+              <Forward className="h-4 w-4" />
+              My Account
+            </Link>
+            <Link
+              href="/ussd-simulator"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/ussd-simulator" }
+              )}
+            >
+              <Smartphone className="h-4 w-4" />
+              USSD Simulator
+            </Link>
           </nav>
         </SheetContent>
       </Sheet>
-
-      {/* Right actions */}
-      <div className="flex items-center gap-2">
-        {onMeterClick && (
-          <Button variant="ghost" size="sm" className="hidden md:flex gap-2 text-xs" onClick={onMeterClick}>
-            <Zap className="h-3.5 w-3.5" /> Meter
+      
+      <div className="flex items-center gap-3">
+        {/* Profile Management Button (visible on desktop) */}
+        {/* {onProfileClick && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleProfileClick}
+            className="hidden md:flex items-center gap-2"
+          >
+            <User className="h-4 w-4" />
+            Manage Profile
           </Button>
-        )}
+        )} */}
+        
         <ModeToggle />
-        <DropdownMenu>
+        
+        <DropdownMenu open={isProfileMenuOpen} onOpenChange={setIsProfileMenuOpen}>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="rounded-full h-9 w-9 border border-border">
-              <CircleUser className="h-4 w-4" />
+            <Button variant="secondary" size="icon" className="rounded-full">
+              <CircleUser className="h-5 w-5" />
+              <span className="sr-only">Toggle user menu</span>
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel className="font-normal text-xs text-muted-foreground">My Account</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-56">
+            <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
+            
+            {/* Profile Management Option */}
             {onProfileClick && (
-              <DropdownMenuItem onClick={onProfileClick} className="gap-2">
-                <User className="h-3.5 w-3.5" /> Manage Profile
+              <DropdownMenuItem onClick={handleProfileClick}>
+                <User className="h-4 w-4 mr-2" />
+                Manage Profile
               </DropdownMenuItem>
             )}
+            
+            {/* Meter Management Option */}
             {onMeterClick && (
-              <DropdownMenuItem onClick={onMeterClick} className="gap-2">
-                <Zap className="h-3.5 w-3.5" /> Manage Meter
+              <DropdownMenuItem onClick={handleMeterClick}>
+                <Zap className="h-4 w-4 mr-2" />
+                Manage Meter
               </DropdownMenuItem>
             )}
+            
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/myaccount" className="flex items-center gap-2">
-                <Settings className="h-3.5 w-3.5" /> Account Settings
+              <Link href="/dashboard/myaccount">
+                <Settings className="h-4 w-4 mr-2" />
+                Account Settings
               </Link>
             </DropdownMenuItem>
+            
             <DropdownMenuSeparator />
+            
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/transactions" className="flex items-center gap-2">
-                <FileTextIcon className="h-3.5 w-3.5" /> Transactions
+              <Link href="/dashboard/transactions">
+                <FileTextIcon className="h-4 w-4 mr-2" />
+                Transaction History
               </Link>
             </DropdownMenuItem>
+            
             <DropdownMenuItem asChild>
-              <Link href="/dashboard/myloans" className="flex items-center gap-2">
-                <IconMoneybag className="h-3.5 w-3.5" /> My Loans
+              <Link href="/dashboard/myloans">
+                <IconMoneybag className="h-4 w-4 mr-2" />
+                My Loans
               </Link>
             </DropdownMenuItem>
+
+            <DropdownMenuItem asChild>
+              <Link href="/ussd-simulator">
+                <Smartphone className="h-4 w-4 mr-2" />
+                USSD Simulator
+              </Link>
+            </DropdownMenuItem>
+            
             <DropdownMenuSeparator />
-            <DropdownMenuItem
-              className="text-destructive focus:text-destructive gap-2 cursor-pointer"
-              onClick={async () => { await logout(); }}
-            >
-              <LogOut className="h-3.5 w-3.5" /> Log out
+            
+            <DropdownMenuItem asChild>
+              <span
+                onClick={async () => {
+                  await logout();
+                }}
+                className="w-full text-left cursor-pointer"
+              >
+                <LogOut className="h-4 w-4 mr-2" />
+                Logout
+              </span>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

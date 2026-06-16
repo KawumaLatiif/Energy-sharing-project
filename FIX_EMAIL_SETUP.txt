@@ -16,7 +16,7 @@ STEP 1 — Generate a new Gmail App Password
    NOTE: If 2-Step Verification is OFF, you must turn it on first —
    App Passwords only work when 2-Step Verification is enabled.
 5. Scroll to the bottom of the 2-Step Verification page and click "App passwords".
-6. Under "App name", type something like: EnergyShareApp
+6. Under "App name", type something like: gPawaApp
 7. Click "Create".
 8. Google will show you a 16-character password like: xxxx xxxx xxxx xxxx
    COPY THIS PASSWORD — you will not see it again.

@@ -17,6 +17,7 @@ from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_cr
 from loan.models import get_tier_by_score
 from meter.api.views import BuyUnitsView
 from meter.models import Meter, MeterToken
+from meter.services import push_units_to_thingsboard
 from share.models import ShareTransaction
 from share.services import VerificationCode
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
@@ -25,6 +26,48 @@ from ussd.models import UssdSession
 from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def ussd_phone_numbers(request):
+    """
+    Lightweight helper endpoint for local simulator.
+    Returns users that have phone numbers so the UI can provide quick selection.
+    """
+    from accounts.models import User
+
+    users = (
+        User.objects.exclude(phone_number__isnull=True)
+        .exclude(phone_number="")
+        .only("id", "email", "phone_number")
+        .order_by("email")[:100]
+    )
+    items = [{"phone_number": str(user.phone_number), "email": user.email} for user in users]
+    return Response({"results": items})
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def ussd_receiver_meters(request):
+    """
+    Helper endpoint for the local simulator.
+    Returns available receiver meter numbers excluding sender's own meter.
+    """
+    phone_number = str(request.query_params.get("phoneNumber", "")).strip()
+    sender_user = _find_user_by_phone(phone_number) if phone_number else None
+    sender_meter_no = None
+
+    if sender_user:
+        sender_meter = Meter.objects.filter(user=sender_user).only("meter_no").first()
+        sender_meter_no = sender_meter.meter_no if sender_meter else None
+
+    meters_qs = Meter.objects.select_related("user").only("meter_no", "user__email").order_by("meter_no")
+    if sender_meter_no:
+        meters_qs = meters_qs.exclude(meter_no=sender_meter_no)
+
+    items = [{"meter_no": meter.meter_no, "email": meter.user.email} for meter in meters_qs[:200]]
+    return Response({"results": items})
 
 
 def _normalize_phone(phone: str) -> str:
@@ -258,6 +301,12 @@ def _disburse_loan(user, loan_id_raw: str):
         unit_wallet.balance += Decimal(str(units_to_disburse))
         unit_wallet.save()
 
+        push_ok, push_msg = push_units_to_thingsboard(
+            meter=meter,
+            units=units_to_disburse,
+            reference_id=loan.loan_id,
+        )
+
         TransactionLog.objects.create(
             user=user,
             transaction_type=TransactionType.LOAN_DISBURSEMENT,
@@ -265,10 +314,13 @@ def _disburse_loan(user, loan_id_raw: str):
             units=units_to_disburse,
             status="COMPLETED",
             reference_id=loan.loan_id,
-            details={"channel": "USSD"},
+            details={"channel": "USSD", "meter_push": {"status": "OK" if push_ok else "FAILED", "message": push_msg}},
         )
 
-    return True, f"Loan disbursed.\nLoanRef: {loan.loan_id}\nUnits added: {round(units_to_disburse, 2)}"
+    return True, (
+        f"Loan disbursed.\nLoanRef: {loan.loan_id}\nUnits added: {round(units_to_disburse, 2)}\n"
+        f"Meter push: {'OK' if push_ok else 'FAILED'}"
+    )
 
 
 def _repay_loan(user, loan_id_raw: str, amount_raw: str):
@@ -311,6 +363,16 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
         unit_wallet.balance += Decimal(str(units_equivalent))
         unit_wallet.save()
 
+        meter = Meter.objects.filter(user=user).first()
+        push_ok = False
+        push_msg = "No meter found."
+        if meter:
+            push_ok, push_msg = push_units_to_thingsboard(
+                meter=meter,
+                units=units_equivalent,
+                reference_id=repayment.payment_reference,
+            )
+
         TransactionLog.objects.create(
             user=user,
             transaction_type=TransactionType.LOAN_REPAYMENT,
@@ -318,7 +380,11 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
             units=units_equivalent,
             status="COMPLETED",
             reference_id=loan.loan_id,
-            details={"payment_reference": repayment.payment_reference, "channel": "USSD"},
+            details={
+                "payment_reference": repayment.payment_reference,
+                "channel": "USSD",
+                "meter_push": {"status": "OK" if push_ok else "FAILED", "message": push_msg},
+            },
         )
 
         loan.refresh_from_db()
@@ -328,7 +394,8 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
 
     return True, (
         f"Repayment successful.\nLoanRef: {loan.loan_id}\nPaid: UGX {amount}\n"
-        f"Outstanding: UGX {loan.outstanding_balance}\nWallet +{round(units_equivalent, 2)} units"
+        f"Outstanding: UGX {loan.outstanding_balance}\nWallet +{round(units_equivalent, 2)} units\n"
+        f"Meter push: {'OK' if push_ok else 'FAILED'}"
     )
 
 
@@ -493,7 +560,7 @@ def ussd_entry(request):
                 ussd_session,
                 "CON",
                 (
-                    "Energy Share\n"
+                    "gPawa\n"
                     "1. Wallet & Meter\n"
                     "2. Buy Units\n"
                     "3. Loans\n"
@@ -720,7 +787,7 @@ def ussd_entry(request):
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(ussd_session, "END", "Thank you for using Energy Share.")
+        return _session_reply(ussd_session, "END", "Thank you for using gPawa.")
     except Exception as exc:
         logger.exception("USSD processing error")
         ussd_session.last_text = text

@@ -11,6 +11,7 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 
 from accounts.models import generate_random_string
 from meter.models import Meter
+from meter.services import push_units_to_thingsboard
 from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
@@ -645,6 +646,12 @@ class LoanDisbursementView(APIView):
                 unit_wallet, _ = UnitWallet.objects.get_or_create(user=request.user)
                 unit_wallet.balance += Decimal(str(units_to_disburse))
                 unit_wallet.save()
+
+                push_ok, push_msg = push_units_to_thingsboard(
+                    meter=meter,
+                    units=units_to_disburse,
+                    reference_id=loan.loan_id,
+                )
                 
                 try:
                     # Try minimal fields based on your model structure
@@ -671,7 +678,11 @@ class LoanDisbursementView(APIView):
                 "message": "Loan disbursed successfully to your unit wallet!",
                 "units_added_to_wallet": round(units_to_disburse, 2),
                 "units_disbursed": round(units_to_disburse, 2),
-                "tariff_info": tariff_info
+                "tariff_info": tariff_info,
+                "meter_push": {
+                    "status": "OK" if push_ok else "FAILED",
+                    "message": push_msg,
+                }
             })
             
         except LoanApplication.DoesNotExist:

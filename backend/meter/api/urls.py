@@ -1,9 +1,15 @@
 from django.urls import path
 
-from .views import ActivateReceivedUnitsView, BuyUnitsView, CheckPaymentStatusView, EstimateUnitsView, MeterRegisterView
 from .views import (
-    SendUnitsView,
+    ActivateReceivedUnitsView,
+    AdminMeterPushTestView,
+    BuyUnitsView,
+    CheckPaymentStatusView,
+    EstimateUnitsView,
+    MeterPushTestView,
+    MeterRegisterView,
     ReceiveUnitsView,
+    SendUnitsView,
     TokenView,
     update_meter,
 )
@@ -16,6 +22,8 @@ urlpatterns = [
     path('token/', TokenView.as_view(), name="token"),
     path('buy-units/', BuyUnitsView.as_view(), name="buy-units"),
     path('check-payment-status/', CheckPaymentStatusView.as_view(), name="check-payment-status"),
+    path('test-meter-push/', MeterPushTestView.as_view(), name="test-meter-push"),
+    path('admin-test-meter-push/', AdminMeterPushTestView.as_view(), name="admin-test-meter-push"),
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
     path('update/', update_meter, name='update-meter'),

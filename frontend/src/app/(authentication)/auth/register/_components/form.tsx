@@ -1,7 +1,7 @@
 "use client"
 import type { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 // import 'react-phone-number-input/style.css'
 import PhoneInput from 'react-phone-number-input'
 
@@ -24,16 +24,14 @@ import {
 
 import { Input } from "@/components/anim/input";
 import { Input as ShadIput } from "@/components/ui/input";
-import { createAccountSchema, LoginSchema } from "@/lib/schema";
+import { createAccountSchema } from "@/lib/schema";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import createAccount from "../register";
-import { useSearchParams } from "next/navigation";
 import CardWrapper from "@/components/common/card-wrapper";
 import Link from "next/link";
-import CountrySelect from "@/components/common/country-select";
 import { cn } from "@/lib/utils";
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from "@/lib/api-response";
@@ -44,14 +42,10 @@ import { getApiErrorMessage } from "@/lib/api-response";
 export default function RegisterForm() {
 
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  // const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [countries, setCountries] = useState([]);
-  const [selectedCountry, setSelectedCountry] = useState<{ value: string, label: string } | null>(null);
+  const [redirectNote, setRedirectNote] = useState("");
 
 
   const form = useForm<z.infer<typeof createAccountSchema>>({
@@ -70,48 +64,24 @@ export default function RegisterForm() {
 
   // 2. Define a submit handler.
   async function onSubmit(values: z.infer<typeof createAccountSchema>) {
-    setIsSubmitting(true);
     setError('');
-    console.log("posting form data: ", values)
+    setSuccess("");
+    setRedirectNote("");
     startTransition(async () => {
-      createAccount(values).then((data) => {
-        if (data?.error) {
-          setError(getApiErrorMessage(data.error, "Registration failed"));
-        }
-
-        // if (data?.success) {
-        //   form.reset();
-        //   setSuccess(data.success);
-        // }
-
-        // if (data?.twoFactor) {
-        //   setShowTwoFactor(true);
-        // }
-      }).catch(() => setError(""));
-
-    })
-    try {
-      const response = await fetch('/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(values),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        // Redirect to verification page on success
-        router.push('/auth/verify-email?email=' + encodeURIComponent(values.email));
-      } else {
-        setError(result.error || 'Registration failed');
+      const data = await createAccount(values);
+      if (data?.error) {
+        setError(getApiErrorMessage(data.error, "Registration failed"));
+        return;
       }
-    } catch (error) {
-      setError("User registered Successfully");
-    } finally {
-      setIsSubmitting(false);
-    }
+
+      form.reset();
+      const email = data?.email || values.email;
+      setSuccess("Account created successfully.");
+      setRedirectNote(`Verification link sent to ${email}. Redirecting to login...`);
+      setTimeout(() => {
+        router.push("/auth/login");
+      }, 2500);
+    });
   }
 
 
@@ -121,7 +91,7 @@ export default function RegisterForm() {
       <CardWrapper title="Create an account" variant="auth">
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2.5 sm:space-y-3">
 
             <div className="mt-1">
 
@@ -297,7 +267,7 @@ export default function RegisterForm() {
 
 
 
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center">
                 <input
                   id="remember-me"
@@ -321,6 +291,7 @@ export default function RegisterForm() {
             <FormError message={error} />
 
             <FormSuccess message={success} />
+            <FormSuccess message={redirectNote} />
 
             <div>
               <Button

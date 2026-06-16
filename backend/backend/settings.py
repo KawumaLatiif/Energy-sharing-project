@@ -85,6 +85,9 @@ MTN_MOMO_CONFIG = {
     'ENVIRONMENT': 'sandbox',  
 }
 
+THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
+THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 8, cast=int)
+
 # Application definition
 
 INSTALLED_APPS = [

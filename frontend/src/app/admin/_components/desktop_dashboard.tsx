@@ -1,112 +1,109 @@
 'use client';
-
 import {
-  Activity,
-  BarChart3,
-  ClipboardList,
-  CreditCard,
+  ActivityIcon,
+  ArrowUpRight,
+  Bell,
+  FileTextIcon,
+  Forward,
   Home,
-  Monitor,
-  Settings,
+  LineChart,
+  Package,
+  Package2,
+  PlusCircleIcon,
+  ShoppingCart,
   Users,
-  UserCog,
   Zap,
-  Lock,
-} from 'lucide-react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+} from "lucide-react";
+import Link from "next/link";
+import Image from "next/image";
 
-const navSections = [
-  {
-    label: 'Overview',
-    items: [
-      { href: '/admin/dashboard', label: 'Dashboard', icon: Home, exact: true },
-    ],
-  },
-  {
-    label: 'Management',
-    items: [
-      { href: '/admin/users',        label: 'Users',           icon: Users },
-      { href: '/admin/meters',       label: 'Meters',          icon: Zap },
-      { href: '/admin/loans',        label: 'Credit & Loans',  icon: CreditCard },
-      { href: '/admin/transactions', label: 'Transactions',    icon: Activity },
-    ],
-  },
-  {
-    label: 'Operations',
-    items: [
-      { href: '/admin/system-health', label: 'System Health', icon: Monitor },
-      { href: '/admin/reports',       label: 'Reports',        icon: BarChart3 },
-      { href: '/admin/audit-log',     label: 'Audit Log',      icon: ClipboardList },
-    ],
-  },
-  {
-    label: 'Administration',
-    items: [
-      { href: '/admin/staff',     label: 'Staff Accounts', icon: UserCog },
-      { href: '/admin/myaccount', label: 'My Account',     icon: Settings, exact: true },
-    ],
-  },
-];
-
-function GpawaWordmark() {
-  return (
-    <span className="text-base font-bold tracking-tight select-none">
-      <span className="text-blue-400">g</span>
-      <span className="text-white">Pawa</span>
-    </span>
-  );
-}
+import { usePathname } from "next/navigation";
+import { cn } from "@/lib/utils";
+import { Skeleton } from "@/components/ui/skeleton";
+import { IconMoneybag } from "@tabler/icons-react";
+import { ActivityLogIcon, PersonIcon } from "@radix-ui/react-icons";
 
 export default function AdminDesktopSidebar() {
   const pathname = usePathname();
 
   return (
-    <div className="hidden md:flex flex-col h-full max-h-screen gpawa-sidebar border-r border-white/5">
-      {/* Logo */}
-      <div className="flex h-[60px] items-center gap-3 px-5 border-b border-white/8 shrink-0">
-        <Link href="/admin/dashboard" className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-emerald-500 flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <Zap className="h-4 w-4 text-white" />
-          </div>
-          <div className="flex flex-col leading-none">
-            <GpawaWordmark />
-            <span className="text-[10px] text-white/40 font-medium tracking-widest uppercase">Admin Portal</span>
-          </div>
-        </Link>
-      </div>
-
-      {/* Nav */}
-      <div className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-        {navSections.map((section) => (
-          <div key={section.label}>
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-white/28 px-3 mb-1.5">
-              {section.label}
-            </p>
-            <div className="space-y-0.5">
-              {section.items.map(({ href, label, icon: Icon, exact }) => {
-                const active = exact ? pathname === href : pathname.startsWith(href);
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={`gpawa-sidebar-link${active ? ' active' : ''}`}
-                  >
-                    <Icon className="h-[15px] w-[15px] shrink-0 opacity-80" />
-                    {label}
-                  </Link>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {/* Footer */}
-      <div className="shrink-0 px-4 py-3 border-t border-white/8">
-        <div className="flex items-center gap-2 text-[11px] text-white/32">
-          <Lock className="h-3 w-3 shrink-0" />
-          <span>VPN access required</span>
+    <div className="hidden border-r bg-muted/40 md:block">
+      <div className="flex h-full max-h-screen flex-col gap-2">
+        <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
+          <Link href="/" className="flex items-center gap-2 font-semibold">
+            <Image
+              src="/gpawa-mark-tight.png"
+              width={42}
+              height={42}
+              className="h-10 w-10 object-contain"
+              alt="gPawa Logo"
+            />
+            <span className="">Administrator</span>
+          </Link>
+        </div>
+        <div className="flex-1">
+          <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
+            <Link
+              href="/admin/dashboard"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/admin/dashboard" }
+              )}
+            >
+              <Home className="h-4 w-4" />
+              Dashboard
+            </Link>
+            <Link
+              href="/admin/users"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname.startsWith("/admin/users") }
+              )}
+            >
+              <Users className="h-4 w-4" />
+              Manage Users
+            </Link>
+            <Link
+              href="/admin/meters"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname.startsWith("/admin/meters") }
+              )}
+            >
+              <Zap className="h-4 w-4" />
+              Manage Meters
+            </Link>
+            <Link
+              href="/admin/loans"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname.startsWith("/admin/loans") }
+              )}
+            >
+              <IconMoneybag className="h-4 w-4" />
+              Manage Loans
+            </Link>
+            <Link
+              href="/admin/myaccount"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/admin/myaccount" }
+              )}
+            >
+              <PersonIcon className="h-4 w-4" />
+              My Account
+            </Link>
+            <Link
+              href="/admin/analytics"
+              className={cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                { "bg-muted text-primary": pathname === "/admin/analytics" }
+              )}
+            >
+              <ActivityIcon className="h-4 w-4" />
+             Analytics info
+            </Link>
+          </nav>
         </div>
       </div>
     </div>
