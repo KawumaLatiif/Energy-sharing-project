@@ -3,7 +3,7 @@
 import logging
 from accounts.tasks import handle_send_email_code, handle_send_email_verification
 from utils.email import send_email
-from utils.general import generate_numeric_id, get_base_url
+from utils.general import generate_numeric_id, get_base_url, dispatch_task
 from six import text_type
 from django.utils.encoding import force_str as force_text
 from django.conf import settings
@@ -473,7 +473,7 @@ PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
 #             handle_send_email_verification(user.id)  # Call synchronously
 #         else:
 #             # Production: Use Celery
-#             handle_send_email_verification.delay(user.id)
+#             dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "success": True,
@@ -573,7 +573,8 @@ PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
 
 #         token = reset_password_token_generator.make_token(user)
 #         user_hash = b64encode_user(force_text(user.pk))
-#         url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+#         frontend_url = settings.FRONTEND_URL.rstrip('/')
+#         url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
 #         message = (
 #             f"You requested for a password reset for your account. "
 #             f"Please click the link below to continue"
@@ -720,7 +721,7 @@ PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
 #                 code=code
 #             )
 
-#         handle_send_email_code.delay(user.id, code)
+#         dispatch_task(handle_send_email_code, user.id, code)
 
 #         response_data = {
 #             "success": True,
@@ -760,7 +761,7 @@ PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
 #             raise CustomAPIException(message=error_msg)
 
 #         # send the email now
-#         handle_send_email_verification.delay(user.id)
+#         dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "message": "Verification email sent successfully!",
@@ -1102,26 +1103,41 @@ class UserProfileAPIView(GenericAPIView):
 
 class LoginAPIView(TokenObtainPairView):
     """
-    Login API. Expects an email and password
-    :returns: access and refresh token + user info
+    Login API. Expects an email and password.
+    For staff with 2FA enabled, returns requires_2fa=true + challenge_token instead of tokens.
     """
 
     serializer_class = LoginSerializer
 
     @swagger_auto_schema(responses={200: LoginResponseSerializer()})
     def post(self, request, *args, **kwargs):
-        # Call the parent to get the normal token response
+        # Validate credentials via parent serializer first
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.user
+        get_or_create_dummy_credit_signal(user)
+
+        # Staff members with 2FA enabled → issue a challenge token instead of full JWT
+        if user.is_staff_member and user.totp_enabled:
+            from django.core import signing
+            challenge_token = signing.dumps(
+                {'user_id': user.id},
+                salt='2fa_login_challenge',
+            )
+            return Response({
+                'requires_2fa': True,
+                'challenge_token': challenge_token,
+                'user': {
+                    'email': user.email,
+                    'user_role': user.user_role,
+                },
+            }, status=status.HTTP_200_OK)
+
+        # Normal flow — call parent to issue tokens
         response = super().post(request, *args, **kwargs)
 
-        # Only modify if login was successful
         if response.status_code == 200:
-            # Get the authenticated user
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)  # This will raise if invalid
-            user = serializer.user
-            get_or_create_dummy_credit_signal(user)
-
-            # Add custom user data to the response
+            redirect = '/admin/dashboard' if user.is_staff_member else '/dashboard'
             response.data.update({
                 'user': {
                     'id': user.id,
@@ -1130,7 +1146,8 @@ class LoginAPIView(TokenObtainPairView):
                     'last_name': user.last_name,
                     'user_role': user.user_role,
                     'is_admin': user.user_role == User.ADMIN,
-                    'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+                    'totp_enabled': user.totp_enabled,
+                    'redirect_to': redirect,
                 }
             })
 
@@ -1152,15 +1169,6 @@ class CreateUserAPIView(CreateAPIView):
         user = serializer.save()
 
         logger.info(f"[REGISTRATION] User {user.id} created successfully")
-
-        # For development: Send email synchronously instead of using Celery
-        if settings.DEBUG:
-            logger.info(f"[REGISTRATION] DEBUG mode: Sending email synchronously")
-            from accounts.tasks import handle_send_email_verification
-            handle_send_email_verification(user.id)  # Call synchronously
-        else:
-            # Production: Use Celery
-            handle_send_email_verification.delay(user.id)
 
         response_data = {
             "success": True,
@@ -1260,7 +1268,8 @@ class ForgotPasswordAPIView(GenericAPIView):
 
         token = reset_password_token_generator.make_token(user)
         user_hash = b64encode_user(force_text(user.pk))
-        url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
         message = (
             f"You requested for a password reset for your account. "
             f"Please click the link below to continue"
@@ -1392,7 +1401,7 @@ class SettingsAPIView(CreateAPIView):
                 code=code
             )
 
-        handle_send_email_code.delay(user.id, code)
+        dispatch_task(handle_send_email_code, user.id, code)
 
         response_data = {
             "success": True,
@@ -1432,7 +1441,7 @@ class ResendVerificationEmailAPIView(GenericAPIView):
             raise CustomAPIException(message=error_msg)
 
         # send the email now
-        handle_send_email_verification.delay(user.id)
+        dispatch_task(handle_send_email_verification, user.id)
 
         response_data = {
             "message": "Verification email sent successfully!",

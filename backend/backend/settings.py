@@ -47,23 +47,34 @@ load_dotenv(BASE_DIR / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7'
 DEBUG = get_env_variable("DEBUG", "True") == "True"
-ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1']
-ROOT_URLCONF = 'backend.urls'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+# =============================
+# Frontend URL (used in verification/reset email links)
+# Set FRONTEND_URL=https://energy-share.sun.ac.ug in production .env
+# =============================
+FRONTEND_URL = get_env_variable("FRONTEND_URL", "http://localhost:3000")
 
-AUTH_USER_MODEL = 'accounts.User'   
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:3030'
-]
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:3030'
-]
+# =============================
+# ALLOWED_HOSTS — read from env (comma-separated) or use dev defaults
+# =============================
+_extra_hosts = [h.strip() for h in get_env_variable("EXTRA_ALLOWED_HOSTS", "").split(',') if h.strip()]
+ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1'] + _extra_hosts
+
+AUTH_USER_MODEL = 'accounts.User'
+
+# =============================
+# CORS / CSRF — always allow localhost in dev; add production domain from env
+# =============================
+_prod_origin = get_env_variable("PRODUCTION_ORIGIN", "")  # e.g. https://energy-share.sun.ac.ug
+
+_base_origins = ['http://localhost:3000', 'http://localhost:3030']
+if _prod_origin:
+    _base_origins.append(_prod_origin)
+
+CSRF_TRUSTED_ORIGINS = _base_origins
+CORS_ALLOWED_ORIGINS = _base_origins
 CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = DEBUG 
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 # =============================
 MTN_MOMO_CONFIG = {
@@ -86,7 +97,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # 'admin.apps.AdminConfig',
+    'admin.apps.AdminConfig',
     'accounts',
     'loan',
     'transactions',
@@ -110,7 +121,34 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'accounts.middleware.StaffInactivityMiddleware',
 ]
+
+# Staff admin session: 30 minutes of inactivity expires access (spec Section 1.3)
+STAFF_SESSION_INACTIVITY_MINUTES = 30
+# 2FA settings
+TOTP_ISSUER_NAME = 'Gpawa Admin'
+
+# =============================
+# AMI Gateway
+# MockAMIGateway = pilot simulation; ThingsBoardAMIGateway = real networked meters
+# =============================
+AMI_GATEWAY = get_env_variable("AMI_GATEWAY", "utils.ami_gateway.MockAMIGateway")
+# CRB integration (no-op for pilot; swap to a real provider class when integrating)
+CRB_PROVIDER = get_env_variable("CRB_PROVIDER", "loan.crb.NoOpCreditBureauProvider")
+
+# =============================
+# Lending compliance (Uganda Tier 4 MFI / Money Lenders Act)
+# Statutory cap: 2.8% per month (33.6% per annum).
+# These are the legal maximums — configuring ABOVE these values requires
+# an explicit regulatory change; the application enforces them as hard ceilings.
+# =============================
+from decimal import Decimal as _D
+MAX_MONTHLY_INTEREST_RATE_PCT = _D(get_env_variable("MAX_MONTHLY_INTEREST_RATE_PCT", "2.8"))
+MAX_ANNUAL_INTEREST_RATE_PCT = MAX_MONTHLY_INTEREST_RATE_PCT * 12   # 33.6
+# No cumulative interest+penalty+fees may exceed 100% of the principal.
+MAX_CUMULATIVE_CHARGES_MULTIPLIER = _D(get_env_variable("MAX_CUMULATIVE_CHARGES_MULTIPLIER", "1.0"))
+TOTP_CHALLENGE_MAX_AGE_SECONDS = 300
 
 ROOT_URLCONF = 'backend.urls'
 
@@ -146,9 +184,9 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': get_env_variable('DB_NAME', 'project'),
+        'NAME': get_env_variable('DB_NAME', 'metering'),
         'USER': get_env_variable('DB_USER', 'postgres'),
-        'PASSWORD': get_env_variable('DB_PASSWORD', 'postgres'),
+        'PASSWORD': get_env_variable('DB_PASSWORD', 'Phaneroo1'),
         'HOST': get_env_variable('DB_HOST', 'localhost'),
         'PORT': get_env_variable('DB_PORT', 5432, cast=int),
         "ATOMIC_REQUESTS": True,
@@ -170,6 +208,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 12},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -240,6 +279,9 @@ CELERY_RESULT_BACKEND = get_env_variable("CELERY_RESULT_BACKEND", "redis://127.0
 CELERY_TIMEZONE = get_env_variable("CELERY_TIMEZONE", "Africa/Nairobi")
 # Run tasks eagerly in local dev to avoid needing Redis/Celery worker
 CELERY_TASK_ALWAYS_EAGER = get_env_variable("CELERY_TASK_ALWAYS_EAGER", "True") == "True"
+CELERY_TASK_EAGER_PROPAGATES = True
+# In dev (ALWAYS_EAGER), don't store results — avoids any backend connection
+CELERY_TASK_IGNORE_RESULT = True
 
 # JWT settings
 REST_FRAMEWORK = {
@@ -260,7 +302,7 @@ SIMPLE_JWT = {
     'AUTH_COOKIE_HTTP_ONLY': True,
     'AUTH_COOKIE_SECURE': False, 
     'AUTH_COOKIE_SAMESITE': 'Lax',
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=240),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,

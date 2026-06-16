@@ -14,15 +14,7 @@ import {
 } from "@/common/constants/auth-cookie";
 
 export const buyUnits = async (data: z.infer<typeof BuyUnitSchema>) => {
-  const res = await post<{
-    token?: string;
-    message: string;
-    "Units purchased": string;
-    payment_status?: string;
-    external_id?: string;
-    user_prompt?: string;
-    transaction_id?: string;
-  }>("meter/buy-units/", data);
+  const res = await post<BuyUnitsResponse>("meter/buy-units/", data);
 
   console.log("Buy units: ", res.data);
   return res;
@@ -40,3 +32,24 @@ export const checkPaymentStatus = async (transactionId: string) => {
 
   return res;
 };
+
+type BuyUnitsPendingResponse = {
+  status: "PENDING";
+  message: string;
+  external_id?: string;
+  user_prompt?: string;
+  transaction_id?: string | number;
+  estimated_units?: number;
+  tariff_applied?: string;
+  loan_outstanding_deduction?: number;
+};
+
+type BuyUnitsCompletedResponse = {
+  token?: string;
+  message: string;
+  "Units purchased": string;
+  payment_status?: string;
+  transaction?: unknown;
+};
+
+export type BuyUnitsResponse = BuyUnitsPendingResponse | BuyUnitsCompletedResponse;

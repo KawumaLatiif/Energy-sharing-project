@@ -17,7 +17,8 @@ from accounts.models import User, Wallet as AccountWallet
 from wallet.models import Wallet
 from meter.models import Meter, MeterToken
 from share.services import VerificationService, VerificationCode
-from utils.general import format_currency
+from utils.general import format_currency, dispatch_task
+from utils.ami_gateway import apply_units_to_meter
 from accounts.tasks import (
     handle_send_share_verification,
     handle_send_transfer_verification,
@@ -126,12 +127,8 @@ class ShareUnitsView(APIView):
                     f"Code expires: {(datetime.now() + timedelta(minutes=10)).strftime('%Y-%m-%d %H:%M:%S')}."
                     )
                     
-                    # Send verification email via Celery task
-                    handle_send_share_verification.delay(
-                        user_id=sender.id,
-                        code=verification.code,
-                        transaction_details=transaction_details
-                    )
+                    dispatch_task(handle_send_share_verification,
+                        sender.id, verification.code, transaction_details)
                     
                     logger.info(f"Generated OTP for {sender.email}: {verification.code}")
                     
@@ -210,13 +207,10 @@ class ShareUnitsView(APIView):
                             share_sender=user
                         )
                     else:
-                        # Share to another meter: credit receiver wallet directly (no token)
-                        receiver_wallet, _ = Wallet.objects.select_for_update().get_or_create(user=receiver_meter.user)
-                        receiver_wallet.add(
-                            units_to_share,
-                            description=f"Units received from {sender_meter.meter_no}",
-                            transaction_ref=transaction_ref
-                        )
+                        # Share to another meter — delivery method depends on receiver's architecture
+                        apply_units_to_meter(receiver_meter, units_to_share)
+                        # STS: units land in receiver_meter.pending_units (token needed to load)
+                        # AMI: units applied directly via gateway and added to receiver_meter.units
                     
                     # Create share record using legacy accounts wallet relation used by Share model
                     sender_account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()
@@ -261,37 +255,44 @@ class ShareUnitsView(APIView):
                         new_balance=sender_wallet.balance,
                         date=timezone.now().strftime('%Y-%m-%d %H:%M:%S')
                     )
-                    handle_send_wallet_update.delay(user.id, update_details)
+                    dispatch_task(handle_send_wallet_update, user.id, update_details)
 
                     if is_self_share and share_token:
-                        # Send token to sender (same meter)
-                        handle_send_share_token.delay(
-                            user.id,
-                            share_token,
-                            str(units_to_share),
-                            receiver_meter_no,
-                            sender_meter=sender_meter.meter_no,
-                            sender_email=user.email
-                        )
+                        dispatch_task(handle_send_share_token,
+                            user.id, share_token, str(units_to_share), receiver_meter_no,
+                            sender_meter=sender_meter.meter_no, sender_email=user.email)
                     else:
-                        # Notify receiver wallet credit (no token)
-                        receiver_update = (
-                            f"Wallet balance increased by {units_to_share} units\n"
-                            f"Transaction ID: {transaction_ref}\n"
-                            f"New Balance: {receiver_wallet.balance} units\n"
-                            f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                        )
-                        handle_send_wallet_update.delay(receiver_meter.user.id, receiver_update)
+                        receiver_meter.refresh_from_db(fields=['pending_units', 'units'])
+                        if receiver_meter.architecture == 'STS':
+                            receiver_update = (
+                                f"You have received {units_to_share} units from meter {sender_meter.meter_no}.\n"
+                                f"Transaction ID: {transaction_ref}\n"
+                                f"Action required: Log in and go to 'Activate Received Units' to generate a token "
+                                f"and load these units onto your meter.\n"
+                                f"Pending units: {receiver_meter.pending_units} kWh\n"
+                                f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                        else:
+                            receiver_update = (
+                                f"{units_to_share} units applied to your AMI meter {receiver_meter_no}.\n"
+                                f"Transaction ID: {transaction_ref}\n"
+                                f"Current meter balance: {receiver_meter.units} kWh\n"
+                                f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                            )
+                        dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
                     
                     logger.info(f"Share completed: {units_to_share} units from wallet to {receiver_meter_no}")
                     
+                    receiver_meter.refresh_from_db(fields=['pending_units', 'units', 'architecture'])
                     return Response({
                         "success": True,
                         "message": "Units shared successfully.",
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
                         "new_sender_wallet_balance": str(sender_wallet.balance),
-                        "token_sent": True if is_self_share else False,
+                        "token_sent": is_self_share,
+                        "receiver_architecture": receiver_meter.architecture,
+                        "receiver_pending_units": str(receiver_meter.pending_units) if receiver_meter.architecture == 'STS' else None,
                         "receiver_wallet_credited": False if is_self_share else True,
                         "timestamp": timezone.now().isoformat()
                     }, status=status.HTTP_200_OK)
@@ -391,12 +392,8 @@ class TransferUnitsView(APIView):
                     Code expires: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}.
                     """
                     
-                    # Send verification email via Celery
-                    handle_send_transfer_verification.delay(
-                        user_id=user.id,
-                        code=verification.code,
-                        transaction_details=transaction_details
-                    )
+                    dispatch_task(handle_send_transfer_verification,
+                        user.id, verification.code, transaction_details)
                     
                     logger.info(f"Generated transfer OTP for {user.email}: {verification.code}")
                     
@@ -486,8 +483,8 @@ class TransferUnitsView(APIView):
                     - Date: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
                     """
                     
-                    handle_send_wallet_update.delay(user.id, update_details)
-                    
+                    dispatch_task(handle_send_wallet_update, user.id, update_details)
+
                     # Clear session
                     if 'pending_transfer' in request.session:
                         del request.session['pending_transfer']

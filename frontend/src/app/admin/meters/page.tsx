@@ -2,7 +2,7 @@
 
 export const dynamic = "force-dynamic";
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Card,
   CardContent,
@@ -22,27 +22,31 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
-  Search,
-  MoreVertical,
-  Eye,
-  Edit,
-  Trash2,
-  Zap,
-  User,
-  Plus,
-  Filter,
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
   Download,
-  RefreshCw
+  Eye,
+  Plus,
+  RefreshCw,
+  Search,
+  Zap,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
-import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch';
 
 interface Meter {
   meter_id: number;
   meter_no: string;
+  label: string;
+  status: string;
   static_ip: string;
   units: number;
   user: {
@@ -50,11 +54,16 @@ interface Meter {
     email: string;
     name: string;
     phone: string;
-    account_active: boolean;
   };
   created_at: string;
   last_updated: string;
 }
+
+const STATUS_COLORS: Record<string, string> = {
+  ACTIVE: "bg-green-100 text-green-800",
+  INACTIVE: "bg-gray-100 text-gray-700",
+  SUSPENDED: "bg-red-100 text-red-800",
+};
 
 export default function MetersManagementPage() {
   const router = useRouter();
@@ -65,356 +74,336 @@ export default function MetersManagementPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalMeters, setTotalMeters] = useState(0);
-  const limit = 20;
 
-  const API_BASE = 'http://localhost:8000/api/v1';
+  // Dialogs
+  const [registerDialog, setRegisterDialog] = useState(false);
+  const [deactivateDialog, setDeactivateDialog] = useState<Meter | null>(null);
+  const [transferDialog, setTransferDialog] = useState<Meter | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
-  const fetchMeters = async () => {
+  const [registerForm, setRegisterForm] = useState({ meter_no: '', user_id: '', label: 'Home' });
+  const [deactivateReason, setDeactivateReason] = useState('');
+  const [deactivateNote, setDeactivateNote] = useState('');
+  const [transferUserId, setTransferUserId] = useState('');
+  const [transferNote, setTransferNote] = useState('');
+
+  const fetchMeters = useCallback(async () => {
+    setLoading(true);
     try {
-      setLoading(true);
-      const params = new URLSearchParams({
-        page: currentPage.toString(),
-        limit: limit.toString(),
-        ...(search && { search })
-      });
-
+      const params = new URLSearchParams({ page: String(currentPage), limit: '20' });
+      if (search) params.set('search', search);
       const res = await get<any>(`admin/meters/?${params}`);
-      
-
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
-        return;
-      }
-
-      if (res.error) throw new Error('Failed to fetch meters');
-      if(res.data && res.data.meters){
-        console.log('Data is ested as', res.data.meters);
-      // const data = await res.json();
-      setMeters(res.data.meters);
-      setTotalPages(res.data.pagination.pages);
-      setTotalMeters(res.data.pagination.total);
-      }
-      else if (res.data){
-        console.log('data is flat', res.data);
+      if (res.data?.meters) {
         setMeters(res.data.meters);
-      setTotalPages(res.data.pagination.pages);
-      setTotalMeters(res.data.pagination.total);
-      } else {
-          console.error('No data in response');
-        }
-    } catch (error) {
-      console.error('Error fetching meters:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to load meters',
-        variant: 'destructive',
-      });
+        setTotalPages(res.data.pagination?.pages ?? 1);
+        setTotalMeters(res.data.pagination?.total ?? 0);
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to load meters', variant: 'destructive' });
     } finally {
       setLoading(false);
     }
-  };
-
-  const refreshMeterData = async (meterId: number) => {
-    try {
-      toast({
-        title: 'Success',
-        description: 'Meter data refresh initiated',
-      });
-    } catch (error) {
-      console.error('Error refreshing meter data:', error);
-      toast({
-        title: 'Error',
-        description: 'Failed to refresh meter data',
-        variant: 'destructive',
-      });
-    }
-  };
-
-  const exportMeters = () => {
-    const csvContent = [
-      ['Meter ID', 'Meter Number', 'Static IP', 'Units', 'User', 'User Email', 'Status', 'Created'],
-      ...meters.map(meter => [
-        meter.meter_id,
-        meter.meter_no,
-        meter.static_ip,
-        meter.units.toString(),
-        meter.user.name,
-        meter.user.email,
-        meter.user.account_active ? 'Active' : 'Inactive',
-        new Date(meter.created_at).toLocaleDateString()
-      ])
-    ].map(row => row.join(',')).join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `meters_export_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-  };
-
-  useEffect(() => {
-    fetchMeters();
   }, [currentPage, search]);
 
-  if (loading && meters.length === 0) {
-    return <MetersManagementSkeleton />;
+  useEffect(() => { fetchMeters(); }, [fetchMeters]);
+
+  async function handleRegister() {
+    if (!registerForm.meter_no || !registerForm.user_id) return;
+    setSubmitting(true);
+    try {
+      const res = await post<any>('admin/meters/', registerForm);
+      if (res.data?.success) {
+        toast({ title: 'Success', description: 'Meter registered successfully' });
+        setRegisterDialog(false);
+        setRegisterForm({ meter_no: '', user_id: '', label: 'Home' });
+        fetchMeters();
+      } else {
+        toast({ title: 'Error', description: res.data?.error || 'Registration failed', variant: 'destructive' });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleDeactivate() {
+    if (!deactivateDialog || !deactivateReason) return;
+    setSubmitting(true);
+    try {
+      const res = await post<any>(`admin/meters/${deactivateDialog.meter_id}/deactivate/`, {
+        reason: deactivateReason,
+        note: deactivateNote,
+      });
+      if (res.data?.success) {
+        toast({ title: 'Success', description: 'Meter deactivated' });
+        setDeactivateDialog(null);
+        setDeactivateReason('');
+        setDeactivateNote('');
+        fetchMeters();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleTransfer() {
+    if (!transferDialog || !transferUserId) return;
+    setSubmitting(true);
+    try {
+      const res = await post<any>(`admin/meters/${transferDialog.meter_id}/transfer/`, {
+        new_user_id: transferUserId,
+        note: transferNote,
+      });
+      if (res.data?.success) {
+        toast({ title: 'Success', description: 'Ownership transferred' });
+        setTransferDialog(null);
+        setTransferUserId('');
+        setTransferNote('');
+        fetchMeters();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function exportCSV() {
+    const rows = [
+      ['Meter No', 'Label', 'Status', 'Units', 'User', 'Email', 'Registered'],
+      ...meters.map(m => [
+        m.meter_no, m.label, m.status, String(m.units),
+        m.user.name, m.user.email,
+        new Date(m.created_at).toLocaleDateString()
+      ])
+    ].map(r => r.join(',')).join('\n');
+    const blob = new Blob([rows], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `meters-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
   }
 
   return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Meter Management</h1>
-          <p className="text-muted-foreground">
-            Manage all registered meters ({totalMeters} total)
-          </p>
+          <h1 className="text-2xl font-bold tracking-tight">Meter Management</h1>
+          <p className="text-sm text-muted-foreground">{totalMeters} meters registered</p>
         </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-          <Button variant="outline" onClick={exportMeters} className="w-full sm:w-auto">
-            <Download className="mr-2 h-4 w-4" />
-            Export
+        <div className="flex gap-2">
+          <Button variant="outline" size="sm" onClick={exportCSV}>
+            <Download className="h-4 w-4 mr-2" /> Export
           </Button>
-          {/* <Button>
-            <Plus className="mr-2 h-4 w-4" />
-            Add New Meter
-          </Button> */}
+          <Button size="sm" onClick={() => setRegisterDialog(true)}>
+            <Plus className="h-4 w-4 mr-2" /> Register Meter
+          </Button>
         </div>
-      </div>
-
-      <div className="grid gap-6 md:grid-cols-3">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Total Meters</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{totalMeters}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Active Meters</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {meters.filter(m => m.units > 0).length}
-            </div>
-          </CardContent>
-        </Card>
-        {/* <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Unassigned Meters</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {0} 
-            </div>
-          </CardContent>
-        </Card> */}
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-sm font-medium">Avg Units/Meter</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {meters.length > 0 
-                ? Math.round(meters.reduce((acc, m) => acc + m.units, 0) / meters.length)
-                : 0
-              }
-            </div>
-          </CardContent>
-        </Card>
       </div>
 
       <Card>
         <CardHeader>
-          <div className="flex flex-col sm:flex-row gap-4">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search by meter number, user email..."
+              className="pl-9"
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
+            />
+          </div>
+        </CardHeader>
+        <CardContent>
+          {loading && meters.length === 0 ? (
+            <div className="space-y-2">{[...Array(5)].map((_, i) => <Skeleton key={i} className="h-12" />)}</div>
+          ) : (
+            <>
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Meter</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Units</TableHead>
+                      <TableHead>Owner</TableHead>
+                      <TableHead>Registered</TableHead>
+                      <TableHead className="text-right">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {meters.map((m) => (
+                      <TableRow key={m.meter_id}>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Zap className="h-4 w-4 text-primary shrink-0" />
+                            <div>
+                              <p className="font-mono font-medium text-sm">{m.meter_no}</p>
+                              <p className="text-xs text-muted-foreground">{m.label}</p>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[m.status] ?? ''}`}>
+                            {m.status}
+                          </span>
+                        </TableCell>
+                        <TableCell className="tabular-nums">{m.units.toFixed(2)} kWh</TableCell>
+                        <TableCell>
+                          <p className="font-medium text-sm">{m.user.name}</p>
+                          <p className="text-xs text-muted-foreground">{m.user.email}</p>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">
+                          {new Date(m.created_at).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button variant="ghost" size="sm" className="h-7 text-xs"
+                              onClick={() => router.push(`/admin/meters/${m.meter_id}`)}>
+                              <Eye className="h-3 w-3 mr-1" /> View
+                            </Button>
+                            <Button variant="ghost" size="sm" className="h-7 text-xs"
+                              onClick={() => setTransferDialog(m)}>
+                              Transfer
+                            </Button>
+                            {m.status === 'ACTIVE' && (
+                              <Button variant="ghost" size="sm" className="h-7 text-xs text-red-600"
+                                onClick={() => setDeactivateDialog(m)}>
+                                Deactivate
+                              </Button>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+              {totalPages > 1 && (
+                <div className="flex items-center justify-between mt-4">
+                  <p className="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</p>
+                  <div className="flex gap-2">
+                    <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.max(1, p - 1))} disabled={currentPage === 1}>Previous</Button>
+                    <Button variant="outline" size="sm" onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))} disabled={currentPage === totalPages}>Next</Button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Register meter dialog */}
+      <Dialog open={registerDialog} onOpenChange={setRegisterDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Register New Meter</DialogTitle>
+            <DialogDescription>Operator or Admin can register meters. Provide the physical meter number and the user to assign it to.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Meter Number *</label>
               <Input
-                placeholder="Search meters by number, IP, or user..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
+                placeholder="e.g. 12345678901234567890"
+                value={registerForm.meter_no}
+                onChange={(e) => setRegisterForm({ ...registerForm, meter_no: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">User ID *</label>
+              <Input
+                type="number"
+                placeholder="User's system ID"
+                value={registerForm.user_id}
+                onChange={(e) => setRegisterForm({ ...registerForm, user_id: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Label</label>
+              <Input
+                placeholder="e.g. Home, Shop"
+                value={registerForm.label}
+                onChange={(e) => setRegisterForm({ ...registerForm, label: e.target.value })}
               />
             </div>
           </div>
-        </CardHeader>
-        <CardContent>
-          <div className="rounded-md border overflow-x-auto">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Meter</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Units</TableHead>
-                  <TableHead>Assigned User</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {meters.map((meter) => (
-                  <TableRow key={meter.meter_id}>
-                    <TableCell>
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
-                          <Zap className="h-5 w-5 text-primary" />
-                        </div>
-                        <div className="flex flex-col">
-                          <span className="font-medium font-mono">
-                            {meter.meter_no}
-                          </span>
-                          <span className="text-sm text-muted-foreground font-mono">
-                            IP: {meter.static_ip}
-                          </span>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={meter.units > 0 ? "success" : "secondary"}>
-                        {meter.units > 0 ? 'Active' : 'Inactive'}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <span className="font-medium">{meter.units}</span>
-                        <span className="text-sm text-muted-foreground">units</span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {meter.user ? (
-                        <div className="flex flex-col">
-                          <span className="font-medium">{meter.user.name}</span>
-                          <span className="text-sm text-muted-foreground">
-                            {meter.user.email}
-                          </span>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge variant={meter.user.account_active ? "outline" : "secondary"}>
-                              {meter.user.account_active ? 'Active' : 'Inactive'}
-                            </Badge>
-                          </div>
-                        </div>
-                      ) : (
-                        <Badge variant="outline">Unassigned</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex flex-col">
-                        <span>{new Date(meter.created_at).toLocaleDateString()}</span>
-                        <span className="text-xs text-muted-foreground">
-                          Updated: {new Date(meter.last_updated).toLocaleDateString()}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell className="text-right">
-                      <div className="flex justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => router.push(`/admin/meters/${meter.meter_id}`)}
-                        >
-                          <Eye className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => refreshMeterData(meter.meter_id)}
-                        >
-                          <RefreshCw className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRegisterDialog(false)}>Cancel</Button>
+            <Button onClick={handleRegister} disabled={!registerForm.meter_no || !registerForm.user_id || submitting}>
+              {submitting ? "Registering…" : "Register Meter"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Deactivate dialog */}
+      <Dialog open={!!deactivateDialog} onOpenChange={() => setDeactivateDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Deactivate Meter</DialogTitle>
+            <DialogDescription>
+              Deactivate meter <strong className="font-mono">{deactivateDialog?.meter_no}</strong>. This is reversible by Admin.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Reason *</label>
+              <select
+                className="w-full border rounded-md px-3 py-2 text-sm"
+                value={deactivateReason}
+                onChange={(e) => setDeactivateReason(e.target.value)}
+              >
+                <option value="">Select reason</option>
+                <option value="Meter Stolen">Meter Stolen</option>
+                <option value="Meter Damaged">Meter Damaged</option>
+                <option value="Customer Moved Out">Customer Moved Out</option>
+                <option value="Fraud Investigation">Fraud Investigation</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Notes</label>
+              <Input value={deactivateNote} onChange={(e) => setDeactivateNote(e.target.value)} placeholder="Optional details..." />
+            </div>
           </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeactivateDialog(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={handleDeactivate} disabled={!deactivateReason || submitting}>
+              {submitting ? "Processing…" : "Deactivate"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-          {meters.length === 0 && !loading && (
-            <div className="text-center py-8">
-              <Zap className="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p className="text-muted-foreground">No meters found</p>
-              <Button className="mt-4">
-                <Plus className="mr-2 h-4 w-4" />
-                Add New Meter
-              </Button>
+      {/* Transfer dialog */}
+      <Dialog open={!!transferDialog} onOpenChange={() => setTransferDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Transfer Meter Ownership</DialogTitle>
+            <DialogDescription>
+              Transfer <strong className="font-mono">{transferDialog?.meter_no}</strong> from <strong>{transferDialog?.user.name}</strong> to a new owner.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">New Owner's User ID *</label>
+              <Input
+                type="number"
+                placeholder="User's system ID"
+                value={transferUserId}
+                onChange={(e) => setTransferUserId(e.target.value)}
+              />
             </div>
-          )}
-
-          {totalPages > 1 && (
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mt-4">
-              <div className="text-sm text-muted-foreground">
-                Page {currentPage} of {totalPages}
-              </div>
-              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                  disabled={currentPage === 1}
-                  className="w-full sm:w-auto"
-                >
-                  Previous
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                  disabled={currentPage === totalPages}
-                  className="w-full sm:w-auto"
-                >
-                  Next
-                </Button>
-              </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Notes</label>
+              <Input value={transferNote} onChange={(e) => setTransferNote(e.target.value)} placeholder="Reason for transfer..." />
             </div>
-          )}
-        </CardContent>
-      </Card>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTransferDialog(null)}>Cancel</Button>
+            <Button onClick={handleTransfer} disabled={!transferUserId || submitting}>
+              {submitting ? "Transferring…" : "Transfer Ownership"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
-
-function MetersManagementSkeleton() {
-  return (
-    <div className="container mx-auto py-6 space-y-6">
-      <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-        <div className="space-y-2">
-          <Skeleton className="h-8 w-48" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-          <Skeleton className="h-10 w-full sm:w-32" />
-          <Skeleton className="h-10 w-full sm:w-40" />
-        </div>
-      </div>
-      
-      <div className="grid gap-6 md:grid-cols-4">
-        {[...Array(4)].map((_, i) => (
-          <Card key={i}>
-            <CardHeader className="pb-2">
-              <Skeleton className="h-4 w-24" />
-            </CardHeader>
-            <CardContent>
-              <Skeleton className="h-8 w-16" />
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-      
-      <Card>
-        <CardHeader>
-          <Skeleton className="h-10 w-full" />
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-4">
-            {[...Array(5)].map((_, i) => (
-              <Skeleton key={i} className="h-16 w-full" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-

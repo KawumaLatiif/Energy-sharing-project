@@ -43,7 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { get } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch';
 
 interface AdminProfile {
   id: number;
@@ -125,9 +125,16 @@ export default function AdminAccountPage() {
     allSessions: false
   });
 
+  // 2FA state
+  const [totpStatus, setTotpStatus] = useState<{ totp_enabled: boolean } | null>(null);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; qr_uri: string } | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  const [totpLoading, setTotpLoading] = useState(false);
+
   // Fetch admin data
   useEffect(() => {
     fetchAdminData();
+    fetch2FAStatus();
   }, []);
 
   const fetchAdminData = async () => {
@@ -171,6 +178,49 @@ export default function AdminAccountPage() {
       });
     } finally {
       setLoading(prev => ({ ...prev, profile: false }));
+    }
+  };
+
+  // 2FA handlers
+  const fetch2FAStatus = async () => {
+    try {
+      const res = await get<any>('admin/2fa/status/');
+      if (res.data) setTotpStatus(res.data);
+    } catch {}
+  };
+
+  const handleStart2FASetup = async () => {
+    setTotpLoading(true);
+    try {
+      const res = await get<any>('admin/2fa/setup/');
+      if (res.data?.success) {
+        setTotpSetup({ secret: res.data.secret, qr_uri: res.data.qr_uri });
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to start 2FA setup', variant: 'destructive' });
+    } finally {
+      setTotpLoading(false);
+    }
+  };
+
+  const handleEnable2FA = async () => {
+    if (!totpCode || totpCode.length !== 6) {
+      toast({ title: 'Error', description: 'Enter the 6-digit code from your authenticator app', variant: 'destructive' });
+      return;
+    }
+    setTotpLoading(true);
+    try {
+      const res = await post<any>('admin/2fa/setup/', { code: totpCode });
+      if (res.data?.success) {
+        toast({ title: '2FA Enabled', description: 'Two-factor authentication is now active on your account.' });
+        setTotpSetup(null);
+        setTotpCode('');
+        setTotpStatus({ totp_enabled: true });
+      } else {
+        toast({ title: 'Error', description: res.data?.error || 'Invalid code', variant: 'destructive' });
+      }
+    } finally {
+      setTotpLoading(false);
     }
   };
 
@@ -437,7 +487,7 @@ export default function AdminAccountPage() {
       </div>
 
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full md:w-auto grid-cols-4">
+        <TabsList className="grid w-full md:w-auto grid-cols-5">
           <TabsTrigger value="profile" className="gap-2">
             <User className="h-4 w-4" />
             Profile
@@ -445,6 +495,10 @@ export default function AdminAccountPage() {
           <TabsTrigger value="security" className="gap-2">
             <Key className="h-4 w-4" />
             Security
+          </TabsTrigger>
+          <TabsTrigger value="2fa" className="gap-2">
+            <Shield className="h-4 w-4" />
+            2FA
           </TabsTrigger>
           <TabsTrigger value="notifications" className="gap-2">
             <Bell className="h-4 w-4" />
@@ -747,6 +801,107 @@ export default function AdminAccountPage() {
                     </>
                   )}
                 </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        {/* ── 2FA Tab ─────────────────────────────────────────────── */}
+        <TabsContent value="2fa" className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Shield className="h-5 w-5" />
+                Two-Factor Authentication (2FA)
+              </CardTitle>
+              <CardDescription>
+                Google Authenticator TOTP is mandatory for all staff accounts (spec Section 1.3).
+                Install Google Authenticator on your phone, then scan the QR code below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {totpStatus?.totp_enabled ? (
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-green-50 border border-green-200">
+                  <CheckCircle className="h-5 w-5 text-green-600 shrink-0" />
+                  <div>
+                    <p className="font-medium text-green-800">2FA is active on your account</p>
+                    <p className="text-sm text-green-700 mt-0.5">
+                      You will be prompted for a 6-digit code each time you log in.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3 p-4 rounded-lg bg-amber-50 border border-amber-200">
+                  <AlertCircle className="h-5 w-5 text-amber-600 shrink-0" />
+                  <div>
+                    <p className="font-medium text-amber-800">2FA is not enabled</p>
+                    <p className="text-sm text-amber-700 mt-0.5">
+                      Your account is at risk. Enable 2FA now to comply with the security policy.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {!totpStatus?.totp_enabled && !totpSetup && (
+                <Button onClick={handleStart2FASetup} disabled={totpLoading}>
+                  {totpLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Shield className="h-4 w-4 mr-2" />}
+                  Set Up 2FA
+                </Button>
+              )}
+
+              {totpSetup && (
+                <div className="space-y-4">
+                  <div className="p-4 border rounded-lg bg-muted/30 space-y-3">
+                    <p className="text-sm font-medium">Step 1 — Scan this QR code in Google Authenticator</p>
+                    <div className="flex justify-center">
+                      {/* QR code rendered via a public QR API — no sensitive data sent, only the otpauth URI */}
+                      <img
+                        src={`https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(totpSetup.qr_uri)}`}
+                        alt="2FA QR Code"
+                        width={200}
+                        height={200}
+                        className="rounded border"
+                      />
+                    </div>
+                    <p className="text-xs text-muted-foreground text-center">
+                      Can&apos;t scan? Enter the secret manually in your app:
+                    </p>
+                    <code className="block text-center text-sm font-mono bg-background border rounded p-2 select-all">
+                      {totpSetup.secret}
+                    </code>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Step 2 — Enter the 6-digit code shown in your app</p>
+                    <div className="flex gap-3">
+                      <Input
+                        placeholder="000000"
+                        maxLength={6}
+                        className="w-40 font-mono text-lg tracking-widest"
+                        value={totpCode}
+                        onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ''))}
+                      />
+                      <Button onClick={handleEnable2FA} disabled={totpLoading || totpCode.length !== 6}>
+                        {totpLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <CheckCircle className="h-4 w-4 mr-2" />}
+                        Verify & Enable
+                      </Button>
+                      <Button variant="ghost" onClick={() => { setTotpSetup(null); setTotpCode(''); }}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <Separator />
+              <div className="text-sm text-muted-foreground space-y-1">
+                <p className="font-medium">Security notes:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  <li>Save your backup codes in a secure location in case you lose your phone.</li>
+                  <li>Do not share your TOTP secret or QR code with anyone.</li>
+                  <li>If you lose access to your authenticator app, contact your Admin for reset.</li>
+                  <li>Admin accounts can only disable 2FA with their own TOTP code.</li>
+                </ul>
               </div>
             </CardContent>
           </Card>

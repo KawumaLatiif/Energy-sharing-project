@@ -64,6 +64,15 @@ export const login = async (data: z.infer<typeof LoginSchema>) => {
       });
     }
 
+    // Staff member with 2FA enabled — return challenge token, no JWT issued yet
+    if (parsedRes.requires_2fa) {
+      return {
+        requires_2fa: true,
+        challenge_token: parsedRes.challenge_token as string,
+        user: parsedRes.user,
+      };
+    }
+
     const redirectTo = parsedRes.user?.is_admin ? "/admin/dashboard" : "/dashboard";
 
     return { success: "Login successful", redirectTo: redirectTo, user: parsedRes.user, isAdmin: parsedRes.user?.is_admin || false };

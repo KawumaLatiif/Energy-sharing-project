@@ -111,6 +111,13 @@ interface LoanRepayment {
   payment_reference: string;
 }
 
+interface LoansDashboard {
+  total_active_loans: number;
+  loans_due_this_week: number;
+  overdue_loans: number;
+  repayment_rate_30d: number;
+}
+
 export default function LoansManagementPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -124,6 +131,10 @@ export default function LoansManagementPage() {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showLoanDetails, setShowLoanDetails] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [dashboard, setDashboard] = useState<LoansDashboard | null>(null);
+  // Penalty waiver state
+  const [waiverDialog, setWaiverDialog] = useState<Loan | null>(null);
+  const [waiverReason, setWaiverReason] = useState('');
   const limit = 10;
 
   const fetchLoans = async () => {
@@ -279,8 +290,44 @@ export default function LoansManagementPage() {
     }
   };
 
+  const fetchDashboard = async () => {
+    try {
+      const res = await get<any>('admin/loans/dashboard/');
+      if (res.data?.success) setDashboard(res.data);
+    } catch {}
+  };
+
+  const waivePenalty = async () => {
+    if (!waiverDialog || !waiverReason.trim()) return;
+    setActionLoading(true);
+    try {
+      const res = await get<any>(`admin/loans/${waiverDialog.id}/waive-penalty/`);
+      // Use POST via fetch since get() doesn't support POST body easily
+      const rawRes = await fetch(
+        `/api/v1/admin/loans/${waiverDialog.id}/waive-penalty/`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reason: waiverReason }),
+          credentials: 'include',
+        }
+      );
+      if (rawRes.ok) {
+        toast({ title: 'Success', description: 'Late penalty waived' });
+        setWaiverDialog(null);
+        setWaiverReason('');
+        fetchLoans();
+      }
+    } catch {
+      toast({ title: 'Error', description: 'Failed to waive penalty', variant: 'destructive' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchLoans();
+    fetchDashboard();
   }, [currentPage, search, statusFilter]);
 
   // Calculate stats
@@ -307,6 +354,34 @@ export default function LoansManagementPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      {/* Spec Section 5 KPI widgets */}
+      {dashboard && (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Active Loans</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{dashboard.total_active_loans}</div></CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Due This Week</CardTitle></CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{dashboard.loans_due_this_week}</div>
+            </CardContent>
+          </Card>
+          <Card className={dashboard.overdue_loans > 0 ? "border-red-200" : ""}>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Overdue</CardTitle></CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${dashboard.overdue_loans > 0 ? "text-red-600" : ""}`}>
+                {dashboard.overdue_loans}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Repayment Rate (30d)</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{dashboard.repayment_rate_30d}%</div></CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Loan Management</h1>
@@ -597,6 +672,18 @@ export default function LoansManagementPage() {
                             View Details
                           </Button>
                         )}
+
+                        {/* Penalty waiver — Admin only, for overdue active loans */}
+                        {(loan.status === 'DISBURSED' || loan.status === 'APPROVED') && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-amber-600 text-xs"
+                            onClick={() => setWaiverDialog(loan)}
+                          >
+                            Waive Penalty
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
@@ -864,6 +951,33 @@ export default function LoansManagementPage() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Penalty waiver dialog (Admin only) */}
+      <Dialog open={!!waiverDialog} onOpenChange={() => setWaiverDialog(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Waive Late Penalty</DialogTitle>
+            <DialogDescription>
+              Waive late payment penalty for loan <strong>{waiverDialog?.loan_id}</strong> — {waiverDialog?.user.name}.
+              This action will be audit-logged.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Reason for waiver *</label>
+            <Input
+              placeholder="e.g. Medical emergency, first-time offence"
+              value={waiverReason}
+              onChange={(e) => setWaiverReason(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end gap-2 mt-2">
+            <Button variant="outline" onClick={() => setWaiverDialog(null)}>Cancel</Button>
+            <Button onClick={waivePenalty} disabled={!waiverReason.trim() || actionLoading}>
+              {actionLoading ? "Processing…" : "Confirm Waiver"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>
