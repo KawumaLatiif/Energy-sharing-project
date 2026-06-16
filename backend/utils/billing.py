@@ -17,7 +17,8 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from django.db.models import Sum
+from django.db import models
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -40,7 +41,7 @@ def get_active_domestic_tariff(on_date: Optional[date] = None):
 
     # Versioned: effective_from <= on_date AND (effective_to is null OR effective_to >= on_date)
     versioned = qs.filter(effective_from__isnull=False, effective_from__lte=on_date).filter(
-        models.Q(effective_to__isnull=True) | models.Q(effective_to__gte=on_date)
+        Q(effective_to__isnull=True) | Q(effective_to__gte=on_date)
     ).order_by('-effective_from').first()
 
     if versioned:
@@ -248,5 +249,3 @@ def calculate_cost_from_units(
     return total_cost.quantize(Decimal('0.01')), lifeline_applied
 
 
-# avoid circular import in get_active_domestic_tariff
-from django.db import models

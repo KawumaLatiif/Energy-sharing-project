@@ -9,10 +9,25 @@ from meter.models import Meter
 class MeterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Meter
-        fields = ["meter_no", "static_ip", "units"]
+        fields = ["meter_no", "static_ip", "units", "architecture"]
         extra_kwargs = {
-            "units": {"read_only": True}
+            "units": {"read_only": True},
+            "static_ip": {"required": False, "allow_null": True, "allow_blank": True},
         }
+
+    def validate(self, data):
+        # Determine effective architecture (fall back to instance value on partial update)
+        arch = data.get("architecture")
+        if arch is None and self.instance:
+            arch = self.instance.architecture
+        arch = arch or Meter.ARCH_STS
+
+        static_ip = data.get("static_ip")
+        if arch == Meter.ARCH_AMI and not static_ip:
+            raise serializers.ValidationError(
+                {"static_ip": "IP address is required for AMI meters."}
+            )
+        return data
 
 
 

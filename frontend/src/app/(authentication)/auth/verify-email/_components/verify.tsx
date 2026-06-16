@@ -1,158 +1,151 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { useParams, useSearchParams } from 'next/navigation';
+import { useParams, useSearchParams, useRouter } from 'next/navigation';
+import { CheckCircle2, XCircle, Loader2, Mail } from 'lucide-react';
 import { verifyEmail } from '../../../../ck/verify/email/verify';
 import { resendVerificationEmail } from '../../resend';
-
-interface VerifyEmailProps {
-  uid?: string;
-  token?: string;
-}
+import { Button } from '@/components/ui/button';
+import { GpawaLogo } from '@/components/common/gpawa-logo';
 
 const asString = (value: string | string[] | undefined): string | undefined =>
   typeof value === 'string' ? value : undefined;
 
-export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEmailProps = {}) {
+export default function VerifyEmail({ uid: propUid, token: propToken }: { uid?: string; token?: string } = {}) {
   const searchParams = useSearchParams();
   const params = useParams();
-  
-  // Get uid and token from props, URL params, or search params
-  const uid = propUid || asString(params?.uid) || searchParams.get('uid');
-  const token = propToken || asString(params?.token) || searchParams.get('token');
-  const email = searchParams.get('email');
-  
-  const [status, setStatus] = useState<'idle' | 'verifying' | 'success' | 'error' | 'resending'>('idle');
+  const router = useRouter();
+
+  const uid   = propUid   || asString(params?.uid)   || searchParams.get('uid')   || undefined;
+  const token = propToken || asString(params?.token) || searchParams.get('token') || undefined;
+  const email = searchParams.get('email') || undefined;
+
+  const [status, setStatus]   = useState<'idle' | 'verifying' | 'success' | 'error' | 'resending'>('idle');
   const [message, setMessage] = useState('');
   const [showResend, setShowResend] = useState(false);
-  const isResending = status === 'resending';
 
   useEffect(() => {
-    // Only auto-verify if we have both uid and token
     if (uid && token) {
-      void handleVerifyEmail();
-    } else if (email) {
-      // If we only have email, show message to check inbox
-      setStatus('idle');
-      setMessage(`Please check your email (${email}) for the verification link.`);
+      handleVerify();
     }
-  }, [uid, token, email]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const handleVerifyEmail = async () => {
+  async function handleVerify() {
     if (!uid || !token) {
       setStatus('error');
-      setMessage('Missing verification parameters');
+      setMessage('Missing verification parameters — please use the link from your email.');
       return;
     }
-    
     setStatus('verifying');
     try {
       const result = await verifyEmail(uid, token);
-      
       if (result.success) {
         setStatus('success');
         setMessage(result.message || 'Email verified successfully');
-        // Redirect after a delay
-        setTimeout(() => {
-          window.location.href = '/auth/login';
-        }, 3000);
+        // Redirect to login after 2 s; router.push works more reliably than window.location
+        setTimeout(() => router.push('/auth/login'), 2000);
       } else {
         setStatus('error');
-        setMessage(result.error || 'Invalid or expired verification link');
+        setMessage(result.error || 'Invalid or expired verification link.');
         setShowResend(true);
       }
     } catch {
       setStatus('error');
-      setMessage('An unexpected error occurred during verification');
+      setMessage('An unexpected error occurred during verification.');
       setShowResend(true);
     }
-  };
+  }
 
-  const handleResendEmail = async () => {
+  async function handleResend() {
     if (!email) {
-      setMessage('No email address available for resending');
+      setMessage('No email address available. Please register again.');
       return;
     }
-    
     setStatus('resending');
     try {
       const result = await resendVerificationEmail(email);
-      
       if (result.success) {
         setStatus('success');
-        setMessage(result.message || 'Verification email sent successfully');
+        setMessage(result.message || 'Verification email resent — check your inbox (and spam folder).');
       } else {
         setStatus('error');
-        setMessage(result.error || 'Failed to resend verification email');
+        setMessage(result.error || 'Failed to resend verification email.');
       }
     } catch {
       setStatus('error');
-      setMessage('Failed to resend verification email');
+      setMessage('Failed to resend verification email.');
     }
-  };
+  }
 
   return (
-    <div className="flex min-h-full flex-col justify-center py-8 px-3 sm:px-6 lg:px-8">
-      <div className="w-full sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-4 text-center text-2xl font-bold tracking-tight text-gray-900 sm:mt-6 sm:text-3xl">
-          Email Verification
-        </h2>
-      </div>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-950 px-4">
+      <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200/80 dark:border-slate-800 p-8 space-y-6 text-center">
+        <GpawaLogo href="/" textSize="xl" logoSize={44} className="justify-center" />
 
-      <div className="mt-5 w-full sm:mx-auto sm:mt-8 sm:w-full sm:max-w-md">
-        <div className="bg-white py-6 px-4 shadow sm:rounded-lg sm:px-10">
-          {status === 'verifying' && (
-            <div className="text-center">
-              <p>Verifying your email address...</p>
-            </div>
-          )}
+        <h1 className="text-xl font-bold text-gray-900 dark:text-white">Email Verification</h1>
 
-          {status === 'resending' && (
-            <div className="text-center">
-              <p>Resending verification email...</p>
-            </div>
-          )}
-          
-          {status === 'success' && (
-            <div className="text-center text-green-600">
-              <p>{message}</p>
-              <p>Redirecting to login page...</p>
-            </div>
-          )}
-          
-          {status === 'error' && (
-            <div className="text-center text-red-600">
-              <p>{message}</p>
-              {showResend && email && (
-                <button
-                  onClick={handleResendEmail}
-                  disabled={isResending}
-                  className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
-                >
-                  {isResending ? 'Sending...' : 'Resend Verification Email'}
-                </button>
-              )}
-            </div>
-          )}
-          
-          {(status === 'idle' || (!uid && !token)) && (
-            <div className="text-center">
-              <p>{message || 'Please check your email for a verification link.'}</p>
-              {email && (
-                <>
-                  <p className="mt-2">Sent to: {email}</p>
-                  <button
-                    onClick={handleResendEmail}
-                    disabled={isResending}
-                    className="mt-4 px-4 py-2 bg-blue-600 text-white rounded disabled:bg-gray-400"
-                  >
-                    {isResending ? 'Sending...' : 'Resend Verification Email'}
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
+        {status === 'verifying' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Verifying your email address…</p>
+          </div>
+        )}
+
+        {status === 'resending' && (
+          <div className="flex flex-col items-center gap-3 py-4">
+            <Loader2 className="h-10 w-10 animate-spin text-primary" />
+            <p className="text-sm text-muted-foreground">Sending verification email…</p>
+          </div>
+        )}
+
+        {status === 'success' && (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <CheckCircle2 className="h-12 w-12 text-green-500" />
+            <p className="text-green-700 dark:text-green-400 font-medium">{message}</p>
+            <p className="text-sm text-muted-foreground">Redirecting to login…</p>
+            <Button
+              onClick={() => router.push('/auth/login')}
+              className="w-full gpawa-gradient text-white mt-2"
+            >
+              Go to Login now
+            </Button>
+          </div>
+        )}
+
+        {status === 'error' && (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <XCircle className="h-12 w-12 text-destructive" />
+            <p className="text-destructive text-sm">{message}</p>
+            {showResend && email && (
+              <Button onClick={handleResend} className="w-full mt-2">
+                Resend Verification Email
+              </Button>
+            )}
+            <Button variant="outline" onClick={() => router.push('/auth/login')} className="w-full">
+              Back to Login
+            </Button>
+          </div>
+        )}
+
+        {(status === 'idle') && !uid && (
+          <div className="flex flex-col items-center gap-3 py-2">
+            <Mail className="h-12 w-12 text-blue-500" />
+            <p className="text-sm text-gray-600 dark:text-gray-300">
+              {email
+                ? <>Check your inbox at <strong>{email}</strong> for the verification link. Also check your spam folder.</>
+                : 'Please check your email for a verification link.'}
+            </p>
+            {email && (
+              <Button onClick={handleResend} variant="outline" className="w-full">
+                Resend Verification Email
+              </Button>
+            )}
+            <Button variant="ghost" onClick={() => router.push('/auth/login')} className="w-full text-sm">
+              Already verified? Sign in
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

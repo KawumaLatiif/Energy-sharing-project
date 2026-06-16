@@ -6,6 +6,7 @@ from .views import (
     BuyUnitsView,
     CheckPaymentStatusView,
     EstimateUnitsView,
+    GenerateTokenFromWalletView,
     MeterPushTestView,
     MeterRegisterView,
     ReceiveUnitsView,
@@ -29,6 +30,8 @@ urlpatterns = [
     path('update/', update_meter, name='update-meter'),
     # STS: generate token for pending (received/shared) units
     path('activate-received-units/', ActivateReceivedUnitsView.as_view(), name='activate-received-units'),
+    # STS: generate token by drawing from wallet balance (for purchased units)
+    path('generate-token/', GenerateTokenFromWalletView.as_view(), name='generate-token'),
     # Estimate kWh yield for a given UGX amount (no side effects)
     path('estimate-units/', EstimateUnitsView.as_view(), name='estimate-units'),
 ]

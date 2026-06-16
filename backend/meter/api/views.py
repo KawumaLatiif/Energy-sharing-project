@@ -57,7 +57,9 @@ def check_user_meter(request):
                 'has_meter': True,
                 'meter_number': meter.meter_no,
                 'static_ip': meter.static_ip,
-                'units': meter.units
+                'units': float(meter.units),
+                'architecture': meter.architecture,
+                'pending_units': float(meter.pending_units),
             }
         })
     except Meter.DoesNotExist:
@@ -153,16 +155,7 @@ class MeterRegisterView(generics.CreateAPIView):
             
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            
-            # Validate IP address format
-            static_ip = request.data.get('static_ip')
-            if not self._validate_ip_address(static_ip):
-                return Response({
-                    "success": False,
-                    "error": "Invalid IP Address",
-                    "message": "Please provide a valid IP address (e.g., 192.168.1.100)"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Check if meter number already exists
             meter_no = request.data.get('meter_no')
             if Meter.objects.filter(meter_no=meter_no).exists():
@@ -572,6 +565,96 @@ class ActivateReceivedUnitsView(APIView):
         except Exception as exc:
             logger.error("ActivateReceivedUnitsView error: %s", exc, exc_info=True)
             return Response({"error": "Failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+class GenerateTokenFromWalletView(APIView):
+    """
+    POST /api/v1/meter/generate-token/
+
+    STS meters: draws `amount` kWh from the user's unit wallet and returns
+    a 10-digit token the user enters on the physical meter keypad.
+    AMI meters receive balance updates over the network — no token needed.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        try:
+            meter = Meter.objects.get(user=user)
+        except Meter.DoesNotExist:
+            return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if meter.architecture == Meter.ARCH_AMI:
+            return Response(
+                {"error": "AMI meter — units are applied automatically over the network. No token needed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        raw = request.data.get("amount")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "Provide a positive numeric kWh amount."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        unit_wallet = UnitWallet.objects.filter(user=user).first()
+        if not unit_wallet:
+            return Response(
+                {"error": "No unit wallet found. Buy units first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if unit_wallet.balance < amount:
+            return Response(
+                {
+                    "error": f"Insufficient wallet balance. Available: {float(unit_wallet.balance):.2f} kWh.",
+                    "available": float(unit_wallet.balance),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                locked_wallet = UnitWallet.objects.select_for_update().get(user=user)
+                if locked_wallet.balance < amount:
+                    return Response(
+                        {"error": "Insufficient wallet balance."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                locked_wallet.balance -= amount
+                locked_wallet.save(update_fields=["balance"])
+
+                token_value = generate_numeric_token()
+                MeterToken.objects.create(
+                    user=user,
+                    token=token_value,
+                    units=amount,
+                    meter=meter,
+                    source="PURCHASE",
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "token": token_value,
+                    "units": float(amount),
+                    "remaining_balance": float(locked_wallet.balance),
+                    "message": (
+                        f"Enter this token on your meter keypad to load {float(amount):.2f} kWh."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.error("GenerateTokenFromWalletView error: %s", exc, exc_info=True)
+            return Response(
+                {"error": "Failed to generate token."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 class BuyUnitsView(GenericAPIView):

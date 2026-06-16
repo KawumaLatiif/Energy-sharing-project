@@ -78,6 +78,11 @@ const request = async <T>(
         const parsedBody = await parseResponseBody(res);
 
         if (!res.ok) {
+            // Session expired — redirect to login
+            if (res.status === 401) {
+                const { redirect } = await import("next/navigation");
+                redirect("/auth/login");
+            }
             return buildErrorResponse(parsedBody, res.status);
         }
 

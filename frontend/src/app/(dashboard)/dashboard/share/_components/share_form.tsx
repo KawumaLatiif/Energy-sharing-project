@@ -4,7 +4,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
-import { Loader2, Shield, CheckCircle, AlertCircle } from "lucide-react";
+import { Loader2, Shield, CheckCircle, Zap } from "lucide-react";
 import {
   Form,
   FormControl,
@@ -23,7 +23,8 @@ import { get, post } from "@/lib/fetch";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
+import { BreakdownCard } from "@/components/ui/breakdown-card";
+import { InfoBanner } from "@/components/ui/info-banner";
 
 const ShareSchema = z.object({
   meter_number: z
@@ -42,12 +43,15 @@ type WalletBalanceResponse = {
   success: boolean;
   wallet?: { balance?: string };
   meters?: Array<{ is_active?: boolean; balance?: string; meter_number?: string }>;
+  primary_meter?: { meter_number?: string; balance?: string; is_active?: boolean };
+  total_meter_units?: string;
 };
 
 type ShareUnitsResponse = {
   success?: boolean;
   error?: string;
   transaction_ref?: string;
+  receiver_architecture?: string;
 };
 
 interface ShareFormProps {
@@ -59,43 +63,37 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, setIsPending] = useState(false);
-  const [userBalance, setUserBalance] = useState<number | null>(null);
+  const [totalUnits, setTotalUnits] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [verificationStep, setVerificationStep] = useState(0);
   const [verificationCode, setVerificationCode] = useState("");
   const [transactionRef, setTransactionRef] = useState<string | null>(null);
-  const [userMeters, setUserMeters] = useState<any[]>([]);
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
 
   const router = useRouter();
 
   const fetchBalance = async () => {
-  try {
-    const response = await get<WalletBalanceResponse>("wallet/balance");
+    try {
+      const response = await get<WalletBalanceResponse>("wallet/balance");
 
-    if (!response.error && response.data?.success) {
-      const apiData = response.data;
-      const meters = apiData.meters || [];
-      setUserMeters(meters);
-
-      const walletBalance = parseFloat(apiData.wallet?.balance || "0");
-      setUserBalance(walletBalance);
-    } else {
-      console.error(
-        "Balance fetch failed:",
-        response.error || "Unknown error"
-      );
-      setError(
-        getApiErrorMessage(response.error, "Failed to load balance. Please refresh.")
-      );
+      if (!response.error && response.data?.success) {
+        const apiData = response.data;
+        // Use primary_meter.balance (unit balance) as source of truth.
+        // Fallback: total_meter_units, then first meter in array.
+        const unitBalance =
+          parseFloat(apiData.primary_meter?.balance || "0") ||
+          parseFloat(apiData.total_meter_units || "0") ||
+          parseFloat((apiData.meters?.[0] as any)?.balance || "0");
+        setTotalUnits(unitBalance);
+      } else {
+        setError(getApiErrorMessage(response.error, "Failed to load balance. Please refresh."));
+      }
+    } catch {
+      setError("Network error. Please check your connection and try again.");
+    } finally {
+      setIsLoadingBalance(false);
     }
-  } catch (error) {
-    console.error("Failed to fetch balance:", error);
-    setError("Network error. Please check your connection and try again.");
-  } finally {
-    setIsLoadingBalance(false);
-  }
-};
+  };
 
   useEffect(() => {
     fetchBalance();
@@ -109,10 +107,9 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
     },
   });
 
-  // Step 1: Submit initial share request
   const handleInitialSubmit = async (data: ShareFormValues) => {
-    if (userBalance !== null && data.units > userBalance) {
-      setError("Insufficient units in your wallet");
+    if (data.units > totalUnits) {
+      setError(`You only have ${totalUnits.toFixed(2)} kWh available to share.`);
       return;
     }
 
@@ -127,32 +124,29 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       });
 
       if (response.data?.success === true) {
-        // Store transaction details for verification step
         setTransactionRef(response.data.transaction_ref || null);
         setTransactionDetails({
           meter_number: data.meter_number,
           units: data.units,
-          newBalance: userBalance! - data.units,
+          newBalance: totalUnits - data.units,
+          receiverArch: response.data.receiver_architecture || null,
         });
-        
+
         setSuccess("Verification code sent to your email!");
         setVerificationStep(1);
       } else {
-        console.error("Initial share failed:", response);
         setError(
           response.data?.error ||
           getApiErrorMessage(response.error, "Failed to initiate share")
         );
       }
     } catch (error: any) {
-      console.error("Initial share error:", error);
       setError(error.message || "An error occurred");
     } finally {
       setIsPending(false);
     }
   };
 
-  // Step 2: Submit verification code
   const handleVerificationSubmit = async () => {
     if (verificationCode.length !== 6) {
       setError("Please enter a 6-digit verification code");
@@ -179,13 +173,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
       if (response.status >= 200 && response.status < 300 && response.data?.success) {
         setSuccess("Units shared successfully!");
         setVerificationStep(2);
+        setTotalUnits(transactionDetails.newBalance);
 
-        // Update local balance
-        if (userBalance !== null) {
-          setUserBalance(userBalance - transactionDetails.units);
-        }
-
-        // Reset after success
         setTimeout(() => {
           form.reset();
           setVerificationStep(0);
@@ -193,17 +182,15 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           setTransactionRef(null);
           setTransactionDetails(null);
           if (onSuccess) onSuccess();
-          fetchBalance(); // Refresh balance
+          fetchBalance();
         }, 3000);
       } else {
         setError(
           response.data?.error ||
           getApiErrorMessage(response.error, "Failed to verify code")
         );
-        // Stay on verification step to retry
       }
     } catch (error: any) {
-      console.error("Verification error:", error);
       setError(error.message || "An error occurred");
     } finally {
       setIsPending(false);
@@ -219,18 +206,22 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   };
 
   return (
-    <CardWrapper title="Share Units to Receiver Meter">
-      <div className="mb-4 space-y-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-muted-foreground">Your Balance:</span>
-          {isLoadingBalance ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <Badge variant="secondary" className="text-sm font-medium">
-              {userBalance !== null ? `${userBalance.toFixed(2)} units` : "N/A"}
-            </Badge>
-          )}
-        </div>
+    <CardWrapper title="Share Units">
+      {/* Balance display */}
+      <div className="mb-4 space-y-3">
+        {isLoadingBalance ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" /> Loading balance…
+          </div>
+        ) : (
+          <div className="flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Zap className="w-4 h-4 text-primary" />
+              Available to share
+            </div>
+            <span className="font-bold text-base tabular-nums">{totalUnits.toFixed(2)} kWh</span>
+          </div>
+        )}
         <Separator />
       </div>
 
@@ -242,7 +233,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
               name="meter_number"
               render={({ field }) => (
                 <FormItem>
-                  <FormLabel>Receiver's Meter Number</FormLabel>
+                  <FormLabel>Receiver&apos;s Meter Number</FormLabel>
                   <FormControl>
                     <Input
                       placeholder="e.g., 0838123456"
@@ -266,7 +257,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                       <Input
                         type="number"
                         min="2"
-                        max="1000"
+                        max={totalUnits}
                         step="0.01"
                         placeholder="Enter Units"
                         {...field}
@@ -276,7 +267,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                       />
                       <div className="flex items-center gap-2 text-xs text-muted-foreground">
                         <Shield className="h-3 w-3" />
-                        <span>Minimum: 2 units | Maximum: 1000 units</span>
+                        <span>Min: 2 kWh · Max: {totalUnits.toFixed(2)} kWh (your balance)</span>
                       </div>
                     </div>
                   </FormControl>
@@ -284,12 +275,6 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                 </FormItem>
               )}
             />
-
-            {userBalance !== null && (
-              <div className="text-sm text-muted-foreground">
-                Available: {userBalance.toFixed(2)} units
-              </div>
-            )}
 
             <FormError message={error} />
             <FormSuccess message={success} />
@@ -306,7 +291,11 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
                   Cancel
                 </Button>
               )}
-              <Button type="submit" disabled={isPending} className="flex-1">
+              <Button
+                type="submit"
+                disabled={isPending || totalUnits < 2}
+                className="flex-1 gpawa-gradient text-white"
+              >
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -326,7 +315,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              <strong className="text-red-800">Security Verification Required</strong>
+              <strong>Security Verification Required</strong>
               <p className="mt-1 text-sm text-muted-foreground">
                 A verification code has been sent to your registered email address.
                 Please enter the 6-digit code below to complete the transaction.
@@ -352,19 +341,28 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           </div>
 
           {transactionDetails && (
-            <div className="bg-muted p-4 rounded-md text-sm">
-              <p className="font-medium mb-2">Transaction Details:</p>
-              <div className="grid grid-cols-2 gap-2">
-                <span className="text-muted-foreground">To Meter:</span>
-                <span className="font-medium">{transactionDetails.meter_number}</span>
-                <span className="text-muted-foreground">Units:</span>
-                <span className="font-medium">{transactionDetails.units} units</span>
-                <span className="text-muted-foreground">Your New Balance:</span>
-                <span className="font-medium">
-                  {transactionDetails.newBalance.toFixed(2)} units
-                </span>
-              </div>
-            </div>
+            <BreakdownCard
+              rows={[
+                { label: "To Meter", value: transactionDetails.meter_number },
+                { label: "Units", value: `${transactionDetails.units} kWh` },
+                { label: "Your Remaining", value: `${transactionDetails.newBalance.toFixed(2)} kWh` },
+              ]}
+              totalLabel="Total Shared"
+              totalValue={`${transactionDetails.units} kWh`}
+              subline={
+                transactionDetails.receiverArch === "STS"
+                  ? "Receiver has an STS meter — they will need to activate a token to load units."
+                  : transactionDetails.receiverArch === "AMI"
+                  ? "Receiver has an AMI meter — units will be applied automatically."
+                  : undefined
+              }
+            />
+          )}
+
+          {transactionDetails?.receiverArch === "STS" && (
+            <InfoBanner variant="info">
+              The recipient will need to generate a token (via &quot;Activate Units&quot;) and enter it on their keypad to load these units.
+            </InfoBanner>
           )}
 
           <FormError message={error} />
@@ -404,8 +402,8 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
           <h3 className="text-lg font-semibold">Success!</h3>
           <p className="text-muted-foreground">
-            {transactionDetails?.units} units have been successfully
-            shared to meter {transactionDetails?.meter_number}
+            {transactionDetails?.units} units have been successfully shared to meter{" "}
+            {transactionDetails?.meter_number}
           </p>
           <div className="flex gap-2">
             <Button
