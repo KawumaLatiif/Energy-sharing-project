@@ -5,7 +5,6 @@ import PublicHeader from "@/components/common/public-header";
 import Image from "next/image";
 import Link from "next/link";
 import { motion } from "framer-motion";
-import image from "@/assets/images/image.png";
 import { CheckCircle2 } from "lucide-react";
 
 export default function Home() {
@@ -111,7 +110,7 @@ export default function Home() {
             >
               <div className="absolute inset-0 bg-gradient-to-br from-blue-500/15 to-emerald-500/15 rounded-3xl blur-2xl" />
               <Image
-                src={image}
+                src="/hero-network.png"
                 alt="Community energy grid sharing"
                 fill
                 className="object-cover rounded-3xl shadow-2xl ring-1 ring-white/60 dark:ring-slate-800/70"
