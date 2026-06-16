@@ -89,7 +89,7 @@ def render_ussd_screen(title: str, body: str, path: Path, footer: str = "") -> b
             continue
         y += line_height
 
-    draw.text((28, height - 32), "Energy Share USSD", fill=(100, 100, 100), font=font)
+    draw.text((28, height - 32), "gPawa USSD", fill=(100, 100, 100), font=font)
     path.parent.mkdir(parents=True, exist_ok=True)
     img.save(path)
     return True
@@ -238,14 +238,14 @@ def build_document(api_shots: dict[str, Path], sim_shots: dict[str, Path]) -> No
     # Title page
     title = doc.add_paragraph()
     title.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    t_run = title.add_run("Energy Share\nUSSD Integration\nFeatures Report")
+    t_run = title.add_run("gPawa\nUSSD Integration\nFeatures Report")
     t_run.bold = True
     t_run.font.size = Pt(26)
 
     sub = doc.add_paragraph()
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     sub.add_run(f"Generated: {datetime.now().strftime('%d %B %Y')}\n")
-    sub.add_run("Project: Energy Sharing (Power Cred)\n")
+    sub.add_run("Project: gPawa (gPawa)\n")
     sub.add_run(f"Test handset: {PHONE}")
 
     doc.add_page_break()
@@ -253,7 +253,7 @@ def build_document(api_shots: dict[str, Path], sim_shots: dict[str, Path]) -> No
     add_heading(doc, "1. Executive Summary", 1)
     add_para(
         doc,
-        "This report documents the USSD channel implemented for Energy Share. "
+        "This report documents the USSD channel implemented for gPawa. "
         "Subscribers dial a short code (e.g. *123#) and navigate text menus to view wallet "
         "and meter information, buy electricity units, manage loans, share units with OTP "
         "verification, and list active meter tokens. The backend exposes a single entry "
@@ -289,7 +289,7 @@ def build_document(api_shots: dict[str, Path], sim_shots: dict[str, Path]) -> No
     add_heading(doc, "4. Main Menu", 1)
     add_para(doc, "Opening the session (empty text) returns:", bold=True)
     menu_lines = (
-        "Energy Share\n"
+        "gPawa\n"
         "1. Wallet & Meter\n"
         "2. Buy Units\n"
         "3. Loans\n"

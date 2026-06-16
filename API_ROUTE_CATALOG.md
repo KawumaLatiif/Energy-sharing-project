@@ -1,4 +1,4 @@
-# Energy Sharing Project API Route Catalog
+# gPawa Project API Route Catalog
 
 This catalog summarizes backend API endpoints by route group, including method(s), auth level, and purpose.
 

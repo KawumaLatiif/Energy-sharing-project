@@ -2,7 +2,6 @@
 import { Disclosure, Menu } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
-import logo from "@/assets/images/logo.jpg";
 import Spinner from "@/components/common/spinner";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
@@ -27,15 +26,15 @@ export default function PublicHeader() {
               <div className="flex items-center">
                 <Link href="/" className="flex items-center space-x-2">
                   <Image
-                    src={logo}
-                    width={48}
-                    height={48}
-                    alt="EnergyShare"
-                    className="h-10 w-auto rounded-xl shadow-md ring-1 ring-white/50 dark:ring-slate-800/60"
+                    src="/gpawa-mark-tight.png"
+                    width={52}
+                    height={52}
+                    alt="gPawa"
+                    className="h-11 w-11 object-contain"
                   />
-                  <span className="hidden sm:block text-2xl font-bold text-gray-900 dark:text-white tracking-tight">
-                    <span className="text-blue-600">Energy</span>
-                    <span className="text-gray-900 dark:text-white">Share</span>
+                  <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                    <span className="text-blue-600">g</span>
+                    <span>Pawa</span>
                   </span>
                 </Link>
               </div>

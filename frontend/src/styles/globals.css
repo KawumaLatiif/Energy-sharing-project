@@ -95,6 +95,7 @@
   }
   html {
     scroll-behavior: smooth;
+    overflow-x: hidden;
   }
   body {
     background: var(--color-background);
@@ -105,6 +106,14 @@
       radial-gradient(900px circle at 10% -10%, hsl(var(--primary) / 0.08), transparent 60%),
       radial-gradient(800px circle at 90% 0%, hsl(var(--accent) / 0.14), transparent 55%);
     background-attachment: fixed;
+    overflow-x: hidden;
+  }
+  img,
+  svg,
+  video,
+  canvas {
+    max-width: 100%;
+    height: auto;
   }
   h1,
   h2,

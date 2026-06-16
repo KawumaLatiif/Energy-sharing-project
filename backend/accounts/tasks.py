@@ -175,7 +175,7 @@ def handle_send_share_verification(user_id, code, transaction_details):
                 <p style="margin: 14px 0 6px 0;">This code expires in <strong>10 minutes</strong>.</p>
                 <p style="margin: 0 0 14px 0; color:#dc2626;">If you didn't initiate this transaction, contact support immediately.</p>
 
-                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+                <p style="margin: 0;">Best regards,<br/>gPawa Team</p>
             </div>
             <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share this code with anyone.</p>
         </div>
@@ -235,7 +235,7 @@ def handle_send_transfer_verification(user_id, code, transaction_details):
         If you didn't initiate this transfer, please contact support immediately.
         
         Best regards,
-        Energy Sharing Team
+        gPawa Team
         """
         
         logger.info(f"[TRANSFER VERIFICATION] About to send email to {user.email}")
@@ -287,7 +287,7 @@ def handle_send_wallet_update(user_id, transaction_details):
                 </div>
 
                 <p style="margin: 14px 0 6px 0; color:#dc2626;">If you didn't authorize this transaction, contact support immediately.</p>
-                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+                <p style="margin: 0;">Best regards,<br/>gPawa Team</p>
             </div>
             <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share sensitive information from this email.</p>
         </div>
@@ -352,7 +352,7 @@ def handle_send_share_token(user_id, token, units, meter_number, sender_meter=No
                 <p style="margin: 0 0 12px 0;">Use this token to load the units onto your meter.</p>
                 <p style="margin: 0 0 14px 0; color:#dc2626;">If you did not expect this token, contact support immediately.</p>
 
-                <p style="margin: 0;">Best regards,<br/>Energy Sharing Team</p>
+                <p style="margin: 0;">Best regards,<br/>gPawa Team</p>
             </div>
             <p style="font-size:12px; color:#6b7280; margin-top:12px;">Do not share this token with anyone else.</p>
         </div>

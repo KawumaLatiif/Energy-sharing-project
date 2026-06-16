@@ -31,7 +31,7 @@ export default function Home() {
               <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold tracking-tight">
                 <span className="block text-gray-900 dark:text-gray-100">Empower</span>
                 <span className="block bg-gradient-to-r from-blue-600 via-emerald-500 to-blue-700 bg-clip-text text-transparent">
-                  Energy Sharing
+                  gPawa
                 </span>
               </h1>
 

@@ -219,7 +219,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
   };
 
   return (
-    <CardWrapper title="Share Units to your friend">
+    <CardWrapper title="Share Units to Receiver Meter">
       <div className="mb-4 space-y-2">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Your Balance:</span>

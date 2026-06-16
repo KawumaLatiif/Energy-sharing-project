@@ -1,4 +1,4 @@
-# Energy Sharing Project API Payload Examples
+# gPawa Project API Payload Examples
 
 This document provides practical request/response examples for key flows.
 All examples assume base URL prefix: `/api/v1`.

@@ -1,4 +1,4 @@
--- Energy Share HEAVY sample data dump (PostgreSQL)
+-- gPawa HEAVY sample data dump (PostgreSQL)
 -- Use after Django migrations.
 -- This variant provides broader scenarios for QA:
 -- - More users

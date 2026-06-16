@@ -64,7 +64,7 @@ export default function LoginForm() {
   return (
     <CardWrapper title="Sign in to your account" variant="auth">
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
           {showTwoFactor && (
             <FormField
               control={form.control}
@@ -108,7 +108,7 @@ export default function LoginForm() {
                   </FormItem>
                 )}
               />
-              <div className="flex items-center justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center">
                   <input
                     id="remember-me"
@@ -141,7 +141,7 @@ export default function LoginForm() {
         <div className="error-message">
           {/* {error} */}
           {showResend && (
-            <Button onClick={handleResendVerification} className="ml-2 text-blue-600">
+            <Button onClick={handleResendVerification} className="mt-3 w-full text-blue-600 sm:mt-0 sm:ml-2 sm:w-auto">
               Resend verification email
             </Button>
           )}

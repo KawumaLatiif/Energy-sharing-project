@@ -18,7 +18,6 @@ import {
 import Link from "next/link";
 import Image from "next/image";
 
-import logo from "@/assets/images/logo.jpg";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { User } from "@/interface/user.interface";
@@ -40,13 +39,13 @@ export default function DesktopSidebar() {
         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold">
             <Image
-              src={logo}
-              width={40}
-              height={400}
-              className="w-18 auto"
-              alt="Reload Mobile"
+              src="/gpawa-mark-tight.png"
+              width={42}
+              height={42}
+              className="h-10 w-10 object-contain"
+              alt="gPawa"
             />
-            <span className="">Energy Share</span>
+            <span className="text-lg font-semibold tracking-tight text-foreground">gPawa</span>
           </Link>
         </div>
         <div className="flex-1">

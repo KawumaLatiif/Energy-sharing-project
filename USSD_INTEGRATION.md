@@ -42,7 +42,7 @@ Authentication on the USSD endpoint: **none** (`AllowAny`). The user is identifi
 Plain text body (not JSON), for example:
 
 ```text
-CON Energy Share
+CON gPawa
 1. Wallet & Meter
 2. Buy Units
 ...
@@ -70,7 +70,7 @@ CON Energy Share
 ## Main menu (`text` empty)
 
 ```text
-Energy Share
+gPawa
 1. Wallet & Meter
 2. Buy Units
 3. Loans

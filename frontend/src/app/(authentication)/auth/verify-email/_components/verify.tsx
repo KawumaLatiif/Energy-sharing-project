@@ -92,15 +92,15 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
   };
 
   return (
-    <div className="flex min-h-full flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md">
-        <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-gray-900">
+    <div className="flex min-h-full flex-col justify-center py-8 px-3 sm:px-6 lg:px-8">
+      <div className="w-full sm:mx-auto sm:w-full sm:max-w-md">
+        <h2 className="mt-4 text-center text-2xl font-bold tracking-tight text-gray-900 sm:mt-6 sm:text-3xl">
           Email Verification
         </h2>
       </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+      <div className="mt-5 w-full sm:mx-auto sm:mt-8 sm:w-full sm:max-w-md">
+        <div className="bg-white py-6 px-4 shadow sm:rounded-lg sm:px-10">
           {status === 'verifying' && (
             <div className="text-center">
               <p>Verifying your email address...</p>

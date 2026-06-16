@@ -1,4 +1,4 @@
-# Energy Sharing Project Overview
+# gPawa Project Overview
 
 ## What This Project Does
 

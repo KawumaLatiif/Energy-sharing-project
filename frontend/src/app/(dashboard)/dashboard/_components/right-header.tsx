@@ -39,7 +39,6 @@ import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import logout from "../logout";
 import Image from "next/image";
-import logo from "@/assets/images/logo.jpg";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import { ModeToggle } from "@/components/theme-toggle";
@@ -80,17 +79,16 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
             <span className="sr-only">Toggle navigation menu</span>
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="flex flex-col">
+        <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
           <nav className="grid gap-2 text-lg font-medium">
             <Link href="/" className="flex items-center gap-2 font-semibold">
               <Image
-                src={logo}
-                width={40}
-                height={400}
-                className="w-18 auto"
-                alt="Reload Mobile"
+                src="/gpawa-mark-tight.png"
+                width={42}
+                height={42}
+                className="h-10 w-10 object-contain"
+                alt="gPawa"
               />
-              <span className="">Energy Share</span>
             </Link>
             <Link
               href="/dashboard"

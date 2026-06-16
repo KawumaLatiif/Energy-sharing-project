@@ -1,16 +1,16 @@
-# Energy Sharing Platform - Comprehensive Technical Documentation
+# gPawa Platform - Comprehensive Technical Documentation
 
 ## 1. Overview
 
 ### Project Purpose
-The Energy Sharing Platform (branded as "Energy Share") is a comprehensive web application designed to facilitate energy sharing, trading, and financing in developing markets, with a particular focus on Uganda. The platform enables users to share electricity units between meters, purchase energy units, apply for energy loans based on credit scoring, and manage their energy consumption.
+The gPawa Platform (branded as "gPawa") is a comprehensive web application designed to facilitate gPawa, trading, and financing in developing markets, with a particular focus on Uganda. The platform enables users to share electricity units between meters, purchase energy units, apply for energy loans based on credit scoring, and manage their energy consumption.
 
 ### Primary Purpose
-The system addresses energy access challenges in developing regions by creating a peer-to-peer energy sharing ecosystem with integrated financial services. It allows users with excess electricity to share it with those in need, while providing financing options for energy purchases through a sophisticated credit scoring system.
+The system addresses energy access challenges in developing regions by creating a peer-to-peer gPawa ecosystem with integrated financial services. It allows users with excess electricity to share it with those in need, while providing financing options for energy purchases through a sophisticated credit scoring system.
 
 ### Real-World Problem
 In many developing regions, particularly in East Africa, energy access is inconsistent and expensive. Many households experience energy poverty despite being connected to the grid due to inability to afford regular purchases. This platform solves this problem by:
-1. Enabling peer-to-peer energy sharing between users
+1. Enabling peer-to-peer gPawa between users
 2. Providing micro-loans specifically for energy purchases
 3. Creating a credit scoring system based on energy usage patterns
 4. Integrating with mobile money systems common in these regions
@@ -265,7 +265,7 @@ The frontend follows a modern Next.js application structure:
 - **Relationships**: Belongs to a User and a Meter
 
 #### `ShareTransaction` (backend/share/models.py)
-- **Responsibility**: Tracks energy sharing between users
+- **Responsibility**: Tracks gPawa between users
 - **Attributes**: Transaction ID, sender, receiver, units, meters, status
 - **Methods**: String representation
 - **Inheritance**: Extends TimestampMixin
@@ -311,7 +311,7 @@ The frontend follows a modern Next.js application structure:
 6. On successful payment, a MeterToken is generated
 7. User receives the token to load onto their meter
 
-### Energy Sharing Flow
+### gPawa Flow
 1. User navigates to the share section
 2. User selects recipient and amount to share
 3. Frontend makes API call to initiate sharing
@@ -422,7 +422,7 @@ The frontend follows a modern Next.js application structure:
 ### Components
 1. **User Management**: Authentication, profiles, roles
 2. **Meter Management**: Registration, monitoring, tokens
-3. **Energy Sharing**: Peer-to-peer unit transfers
+3. **gPawa**: Peer-to-peer unit transfers
 4. **Financial System**: Wallets, transactions, mobile money
 5. **Loan System**: Applications, credit scoring, disbursements
 6. **Admin Interface**: User management, loan approvals
@@ -453,7 +453,7 @@ The frontend follows a modern Next.js application structure:
 
 ## 10. Simplified Explanation
 
-The Energy Share platform is an innovative solution that helps people in developing countries like Uganda share and finance electricity. Think of it as a combination of Venmo and a micro-loan service, but specifically for electricity.
+The gPawa platform is an innovative solution that helps people in developing countries like Uganda share and finance electricity. Think of it as a combination of Venmo and a micro-loan service, but specifically for electricity.
 
 Here's how it works:
 

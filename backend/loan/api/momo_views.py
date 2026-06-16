@@ -10,6 +10,7 @@ from django.conf import settings  # Add this import
 
 from loan.models import LoanApplication, LoanRepayment
 from meter.models import Meter
+from meter.services import push_units_to_thingsboard
 from mtn_momo.services import MTNMoMoService
 
 logger = logging.getLogger(__name__)
@@ -151,6 +152,13 @@ class MoMoPaymentView(APIView):
                 meter = Meter.objects.get(user=loan.user)
                 meter.units += repayment.units_paid
                 meter.save()
+                push_ok, push_msg = push_units_to_thingsboard(
+                    meter=meter,
+                    units=repayment.units_paid,
+                    reference_id=repayment.payment_reference,
+                )
+                if not push_ok:
+                    logger.warning("ThingsBoard push failed for sandbox repayment %s: %s", repayment.payment_reference, push_msg)
                 
                 logger.info(f"Sandbox: Loan payment completed. Loan: {loan.loan_id}, Amount: {amount}, Units: {repayment.units_paid}")
                 
@@ -382,6 +390,13 @@ class PaymentStatusView(APIView):
                 meter = Meter.objects.get(user=repayment.loan.user)
                 meter.units += units_equivalent
                 meter.save()
+                push_ok, push_msg = push_units_to_thingsboard(
+                    meter=meter,
+                    units=units_equivalent,
+                    reference_id=repayment.payment_reference,
+                )
+                if not push_ok:
+                    logger.warning("ThingsBoard push failed for repayment %s: %s", repayment.payment_reference, push_msg)
 
                 # Check loan completion
                 if repayment.loan.outstanding_balance <= 0:

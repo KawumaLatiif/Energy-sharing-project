@@ -9,7 +9,7 @@ export default function Features() {
   const features = [
     {
       icon: CheckCircleIcon,
-      title: "Secure Energy Sharing",
+      title: "Secure gPawa",
       desc: "Blockchain-secured transactions ensure tamper-proof energy transfers between neighbors and communities, with zero risk of fraud or disputes.",
     },
     {
@@ -40,7 +40,7 @@ export default function Features() {
           className="text-center mb-16"
         >
           <h3 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-4">
-            Why Choose EnergyShare?
+            Why Choose gPawa?
           </h3>
           <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
             Join a network that's revolutionizing energy distribution - simple,
