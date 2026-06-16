@@ -15,9 +15,10 @@ export default function PublicHeader() {
   const { loading, auth } = useAuth();
 
   return (
+    <>
     <Disclosure
       as="nav"
-      className="sticky top-0 z-50 bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-800/60 shadow-sm"
+      className="fixed top-0 left-0 right-0 z-50 w-full bg-white/90 dark:bg-slate-950/80 backdrop-blur-xl border-b border-gray-200/60 dark:border-slate-800/60 shadow-sm"
     >
       {({ open }) => (
         <>
@@ -142,5 +143,7 @@ export default function PublicHeader() {
         </>
       )}
     </Disclosure>
+    <div className="h-16 shrink-0" aria-hidden="true" />
+    </>
   );
 }
