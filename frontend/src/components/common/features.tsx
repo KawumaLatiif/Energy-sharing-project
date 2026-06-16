@@ -9,18 +9,23 @@ export default function Features() {
   const features = [
     {
       icon: CheckCircleIcon,
-      title: "Secure gPawa",
-      desc: "Blockchain-secured transactions ensure tamper-proof energy transfers between neighbors and communities, with zero risk of fraud or disputes.",
+      title: "Secure Energy Sharing",
+      desc: "Every transaction is cryptographically verified and audit-logged. Share kWh between meters with email-verified two-step confirmation.",
     },
     {
       icon: BoltIcon,
-      title: "Another one",
-      desc: "the description comes along.",
+      title: "Instant STS Token Delivery",
+      desc: "Purchase prepaid tokens via MTN Mobile Money in seconds. Tokens conform to IEC 62055-41 and work on compatible UEDCL meters.",
     },
     {
       icon: ChartBarIcon,
-      title: "another one",
-      desc: "its description.",
+      title: "Peer-to-Peer Unit Transfer",
+      desc: "Send electricity units directly from your meter to a neighbor's. STS meters receive keypad tokens while AMI meters auto-update.",
+    },
+    {
+      icon: CheckCircleIcon,
+      title: "Compliant Micro-Finance",
+      desc: "gPawa credit engine offers instant micro-loans capped at Uganda's statutory 2.8% per month, with no paperwork or branch visit.",
     },
   ];
 
@@ -40,14 +45,13 @@ export default function Features() {
           className="text-center mb-16"
         >
           <h3 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-4">
-            Why Choose gPawa?
+            Built for communities that share power
           </h3>
           <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
-            Join a network that's revolutionizing energy distribution - simple,
-            green, and rewarding for everyone involved.
+            From Soroti to every campus grid - gPawa makes peer-to-peer electricity sharing simple, transparent, and fair.
           </p>
         </motion.div>
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2">
           {features.map((item, idx) => (
             <motion.div
               key={idx}
