@@ -20,9 +20,9 @@ export default function Home() {
   return (
     <>
       <PublicHeader />
-      
+
       {/* Hero Section */}
-      <section className="relative overflow-hidden bg-gradient-to-br from-sky-50 via-emerald-50 to-blue-100 dark:from-slate-950 dark:via-emerald-950/30 dark:to-slate-900 py-12 sm:py-16 md:py-20 lg:py-24">
+      <section className="relative overflow-hidden bg-gradient-to-br from-sky-50 via-emerald-50 to-blue-100 dark:from-slate-950 dark:via-emerald-950/30 dark:to-slate-900 pt-6 pb-12 sm:pt-8 sm:pb-14 md:pt-10 md:pb-16 lg:pt-12 lg:pb-20">
         <div className="pointer-events-none absolute inset-0">
           <div className="absolute -top-24 -left-24 h-72 w-72 rounded-full bg-emerald-400/20 blur-3xl" />
           <div className="absolute bottom-0 right-0 h-80 w-80 rounded-full bg-blue-500/20 blur-3xl" />
