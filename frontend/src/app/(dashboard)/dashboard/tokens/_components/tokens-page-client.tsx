@@ -1,11 +1,11 @@
 "use client";
 
 import { Suspense, useEffect, useState } from "react";
-import TokenList from "./_components/tokenslist";
-import GenerateTokenCard from "./_components/generate-token-card";
-import AmiStatusCard from "../_components/ami-status-card";
-import MeterSelector from "../_components/meter-selector";
-import { useSelectedMeter } from "../_components/selected-meter-context";
+import TokenList from "./tokenslist";
+import GenerateTokenCard from "./generate-token-card";
+import AmiStatusCard from "../../_components/ami-status-card";
+import MeterSelector from "../../_components/meter-selector";
+import { useSelectedMeter } from "../../_components/selected-meter-context";
 import { get } from "@/lib/fetch";
 import { Token } from "@/interface/token.interface";
 
