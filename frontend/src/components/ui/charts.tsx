@@ -49,6 +49,15 @@ export const CHART_COLORS = {
 
 export type ChartColor = keyof typeof CHART_COLORS;
 
+function formatTooltipNumber(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
 interface BaseChartProps {
   data: any[];
   className?: string;
@@ -237,7 +246,7 @@ export const BarChart: React.FC<
                 boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
               }}
               labelStyle={{ color: "#374151", fontWeight: 600 }}
-              formatter={(value: number | undefined) => [value ?? 0, ""]}
+              formatter={(value) => [formatTooltipNumber(value), ""]}
             />
           )}
           {showLegend && <Legend />}
@@ -337,7 +346,10 @@ export const PieChart: React.FC<
                 borderRadius: "6px",
                 boxShadow: "0 4px 6px -1px rgb(0 0 0 / 0.1)",
               }}
-              formatter={(value: number | undefined, name: string | undefined) => [value ?? 0, name ?? ""]}
+              formatter={(value, name) => [
+                formatTooltipNumber(value),
+                typeof name === "string" ? name : "",
+              ]}
             />
           )}
           {showLegend && <Legend />}
