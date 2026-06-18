@@ -210,78 +210,23 @@ class LoanApplication(TimeStampedModel):
         return 0
     
     def calculate_units_from_amount(self, amount=None):
-        """Calculate how many kWh units a given amount can purchase based on tariff block rates"""
-        loan_amount = float(amount or self.amount_approved)
-        
-        if not self.tariff:
-            return loan_amount / 500
-        
-        # Get tariff blocks in order
-        blocks = self.tariff.blocks.all().order_by('block_order')
-        
-        if not blocks.exists():
-            return loan_amount / 500
-        
-        remaining_amount = loan_amount
-        total_units = 0
-        
-        for block in blocks:
-            if remaining_amount <= 0:
-                break
-                
-            # Calculate how many units are available in this block
-            if block.max_units:
-                block_units_available = block.max_units - block.min_units + 1
-            else:
-                # Last block (unlimited)
-                block_units_available = float('inf')
-            
-            # Calculate how much money is needed for this block
-            if block_units_available == float('inf'):
-                # Last block - use all remaining money
-                units_from_block = remaining_amount / float(block.rate_per_unit)
-                total_units += units_from_block
-                break
-            else:
-                block_cost = block_units_available * float(block.rate_per_unit)
-                
-                if remaining_amount >= block_cost:
-                    # Can afford entire block
-                    total_units += block_units_available
-                    remaining_amount -= block_cost
-                else:
-                    # Can afford partial block
-                    units_from_block = remaining_amount / float(block.rate_per_unit)
-                    total_units += units_from_block
-                    remaining_amount = 0
-                    break
-        
-        return round(total_units)
-    
+        """Calculate kWh purchasable for a UGX amount (ERA billing incl. service + VAT)."""
+        from utils.billing import calculate_units_from_payment
+
+        loan_amount = Decimal(str(amount or self.amount_approved))
+        units, _ = calculate_units_from_payment(
+            loan_amount,
+            self.user,
+            apply_deductions=False,
+        )
+        return float(units)
+
     def calculate_cost_for_units(self, units):
-        """Calculate the cost for a specific number of units based on tariff blocks"""
-        if not self.tariff:
-            return units * 500 
-        
-        blocks = self.tariff.blocks.all().order_by('block_order')
-        remaining_units = units
-        total_cost = 0
-        
-        for block in blocks:
-            if remaining_units <= 0:
-                break
-                
-            if block.max_units:
-                block_units_available = block.max_units - block.min_units + 1
-                units_in_block = min(remaining_units, block_units_available)
-            else:
-                # Last block (unlimited)
-                units_in_block = remaining_units
-            
-            total_cost += units_in_block * float(block.rate_per_unit)
-            remaining_units -= units_in_block
-        
-        return total_cost
+        """Total UGX payable (energy + service + VAT) for a given kWh amount."""
+        from utils.billing import calculate_cost_from_units
+
+        cost, _ = calculate_cost_from_units(Decimal(str(units)), self.user)
+        return float(cost)
 
     def __str__(self):
         tier_display = f" ({self.loan_tier})" if self.loan_tier else ""

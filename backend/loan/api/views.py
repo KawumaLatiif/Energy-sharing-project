@@ -73,11 +73,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
 
-            try:
-                tariff = ElectricityTariff.objects.get(tariff_code="CODE10.1", is_active=True)
-            except ElectricityTariff.DoesNotExist:
-                # Fallback to first active tariff or None
-                tariff = ElectricityTariff.objects.filter(is_active=True).first()
+            from utils.billing import get_active_domestic_tariff
+
+            tariff = get_active_domestic_tariff()
 
             # Collect third-party credit signals (dummy for now) and score user
             credit_signal = get_or_create_dummy_credit_signal(request.user)

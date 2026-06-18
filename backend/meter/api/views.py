@@ -764,57 +764,28 @@ class BuyUnitsView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
 
     def _get_active_tariff(self):
-        tariff = ElectricityTariff.objects.filter(
-            tariff_code="CODE10.1",
-            is_active=True
-        ).first()
-        if tariff:
-            return tariff
-        return ElectricityTariff.objects.filter(is_active=True).order_by('-effective_date').first()
+        from utils.billing import get_active_domestic_tariff
+        return get_active_domestic_tariff()
 
-    def _calculate_units_from_tariff(self, amount):
+    def _calculate_units_from_tariff(self, amount, user=None):
         """
-        Calculate purchasable units from amount using tariff blocks.
-        Falls back to legacy flat rate (500 UGX/unit) if no active tariff exists.
+        Calculate purchasable kWh from a UGX payment using ERA domestic billing
+        (tiered blocks + service charge + 18% VAT).
         """
-        tariff = self._get_active_tariff()
-        fallback_rate = Decimal("500")
+        from utils.billing import calculate_units_from_payment, get_active_domestic_tariff
 
-        if not tariff:
-            return (amount / fallback_rate).quantize(Decimal("0.01")), None
+        if user is None:
+            fallback_rate = Decimal("756.2")
+            return (Decimal(str(amount)) / fallback_rate).quantize(Decimal("0.01")), None
 
-        blocks = tariff.blocks.all().order_by('block_order')
-        if not blocks.exists():
-            return (amount / fallback_rate).quantize(Decimal("0.01")), tariff
-
-        remaining_amount = Decimal(str(amount))
-        total_units = Decimal("0")
-
-        for block in blocks:
-            if remaining_amount <= 0:
-                break
-
-            rate = Decimal(str(block.rate_per_unit))
-            if rate <= 0:
-                continue
-
-            if block.max_units is None:
-                total_units += remaining_amount / rate
-                remaining_amount = Decimal("0")
-                break
-
-            block_units_available = Decimal(block.max_units - block.min_units + 1)
-            block_cost = block_units_available * rate
-
-            if remaining_amount >= block_cost:
-                total_units += block_units_available
-                remaining_amount -= block_cost
-            else:
-                total_units += remaining_amount / rate
-                remaining_amount = Decimal("0")
-                break
-
-        return total_units.quantize(Decimal("0.01")), tariff
+        tariff = get_active_domestic_tariff()
+        units, breakdown = calculate_units_from_payment(
+            Decimal(str(amount)),
+            user,
+            tariff=tariff,
+            apply_deductions=False,
+        )
+        return units, tariff
 
     def _get_active_loan_balances(self, user):
         loans_with_balance = []
@@ -906,7 +877,7 @@ class BuyUnitsView(GenericAPIView):
 
             _, total_outstanding = self._get_active_loan_balances(user)
             estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
-            estimated_units, tariff = self._calculate_units_from_tariff(estimated_buy_amount)
+            estimated_units, tariff = self._calculate_units_from_tariff(estimated_buy_amount, user)
             
             if settings.MTN_MOMO_CONFIG.get('ENVIRONMENT', 'sandbox') == 'sandbox':
                 # Generate external ID for tracking
@@ -969,7 +940,7 @@ class BuyUnitsView(GenericAPIView):
             with db_transaction.atomic():
                 amount_decimal = Decimal(str(amount))
                 amount_for_units, repaid_to_loans = self._apply_auto_loan_repayment(user, amount_decimal)
-                units_purchased, tariff = self._calculate_units_from_tariff(amount_for_units)
+                units_purchased, tariff = self._calculate_units_from_tariff(amount_for_units, user)
 
                 # Add purchased/credited units to unit wallet (not meter)
                 unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
@@ -1190,8 +1161,8 @@ class EstimateUnitsView(APIView):
     """
     GET /api/v1/meter/estimate-units/?amount=5000
 
-    Returns the estimated kWh purchasable for the given UGX amount using the
-    active ERA domestic tariff blocks. No side effects.
+    Returns estimated kWh for a UGX payment using ERA domestic billing
+    (tiered blocks + service charge + 18% VAT). No side effects.
     """
     permission_classes = [IsAuthenticated]
 
@@ -1204,37 +1175,31 @@ class EstimateUnitsView(APIView):
         except (InvalidOperation, ValueError):
             return Response({"error": "Provide a positive numeric amount."}, status=status.HTTP_400_BAD_REQUEST)
 
-        tariff = ElectricityTariff.objects.filter(is_active=True).order_by('-effective_date').first()
-        fallback_rate = Decimal("500")
+        from utils.billing import (
+            calculate_units_from_payment,
+            get_active_domestic_tariff,
+            get_outstanding_deductions,
+        )
 
-        if not tariff or not tariff.blocks.exists():
-            estimated = (amount / fallback_rate).quantize(Decimal("0.01"))
-            return Response({"estimated_units": float(estimated), "tariff": None})
-
-        blocks = tariff.blocks.all().order_by('block_order')
-        remaining = amount
-        total_units = Decimal("0")
-        for block in blocks:
-            if remaining <= 0:
-                break
-            rate = Decimal(str(block.rate_per_unit))
-            if rate <= 0:
-                continue
-            if block.max_units is None:
-                total_units += remaining / rate
-                remaining = Decimal("0")
-                break
-            available = Decimal(str(block.max_units - block.min_units + 1))
-            cost = available * rate
-            if remaining >= cost:
-                total_units += available
-                remaining -= cost
-            else:
-                total_units += remaining / rate
-                remaining = Decimal("0")
-                break
+        deductions = get_outstanding_deductions(request.user)
+        net_amount = max(Decimal("0"), amount - deductions)
+        tariff = get_active_domestic_tariff()
+        units, breakdown = calculate_units_from_payment(
+            amount,
+            request.user,
+            tariff=tariff,
+            outstanding_bills=deductions,
+            apply_deductions=False,
+        )
 
         return Response({
-            "estimated_units": float(total_units.quantize(Decimal("0.01"))),
+            "estimated_units": float(units),
             "tariff": tariff.tariff_code if tariff else None,
+            "gross_amount": float(amount),
+            "deductions": float(deductions),
+            "net_amount": float(net_amount),
+            "service_charge": float(breakdown.service_charge),
+            "vat": float(breakdown.vat),
+            "energy_cost": float(breakdown.energy_cost),
+            "total_bill": float(breakdown.total),
         })

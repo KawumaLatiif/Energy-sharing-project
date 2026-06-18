@@ -44,6 +44,44 @@ function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
 }
 
+interface UnitEstimate {
+  estimated_units: number;
+  tariff?: string | null;
+  gross_amount?: number;
+  deductions?: number;
+  net_amount?: number;
+  energy_cost?: number;
+  service_charge?: number;
+  vat?: number;
+  total_bill?: number;
+}
+
+function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
+  const rows: { label: string; value: string; muted?: boolean }[] = [
+    { label: "Payment amount", value: formatUGX(grossAmount) },
+  ];
+
+  if (estimate.deductions && estimate.deductions > 0) {
+    rows.push({ label: "Loan repayment", value: `− ${formatUGX(estimate.deductions)}` });
+    rows.push({
+      label: "Net for energy",
+      value: formatUGX(estimate.net_amount ?? grossAmount - estimate.deductions),
+    });
+  }
+
+  if (estimate.energy_cost != null) {
+    rows.push({ label: "Energy charge", value: formatUGX(estimate.energy_cost) });
+  }
+  if (estimate.service_charge != null) {
+    rows.push({ label: "Service charge", value: formatUGX(estimate.service_charge) });
+  }
+  if (estimate.vat != null) {
+    rows.push({ label: "VAT (18%)", value: formatUGX(estimate.vat) });
+  }
+
+  return rows;
+}
+
 export default function BuyUnitsForm() {
   const formatter = formatCurrency("USD");
   const [error, setError] = useState<string | undefined>("");
@@ -63,7 +101,7 @@ export default function BuyUnitsForm() {
   const [pollingCount, setPollingCount] = useState(0);
 
   // Estimate state
-  const [estimatedUnits, setEstimatedUnits] = useState<number | null>(null);
+  const [estimate, setEstimate] = useState<UnitEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
   const estimateTimeout = useRef<NodeJS.Timeout | null>(null);
@@ -123,13 +161,23 @@ export default function BuyUnitsForm() {
 
   // Debounced estimate on amount change
   const fetchEstimate = useCallback(async (amount: number) => {
-    if (amount < 100) { setEstimatedUnits(null); return; }
+    if (amount < 100) {
+      setEstimate(null);
+      return;
+    }
     setEstimating(true);
     try {
-      const res = await get<{ estimated_units: number }>(`meter/estimate-units/?amount=${amount}`);
-      if (res.data?.estimated_units != null) setEstimatedUnits(res.data.estimated_units);
-    } catch { /* ignore */ }
-    finally { setEstimating(false); }
+      const res = await get<UnitEstimate>(`meter/estimate-units/?amount=${amount}`);
+      if (res.data?.estimated_units != null) {
+        setEstimate(res.data);
+      } else {
+        setEstimate(null);
+      }
+    } catch {
+      setEstimate(null);
+    } finally {
+      setEstimating(false);
+    }
   }, []);
 
   const handleAmountChange = (value: number) => {
@@ -253,7 +301,7 @@ export default function BuyUnitsForm() {
   const handleReviewClick = async () => {
     const valid = await form.trigger();
     if (!valid) return;
-    if (!estimatedUnits && amount >= 100) await fetchEstimate(Number(amount));
+    if (!estimate && amount >= 100) await fetchEstimate(Number(amount));
     setShowConfirm(true);
   };
 
@@ -307,7 +355,7 @@ export default function BuyUnitsForm() {
                     setShowSuccessModal(false);
                     form.reset();
                     setPaymentStatus("idle");
-                    setEstimatedUnits(null);
+                    setEstimate(null);
                   }}
                   className="flex-1 gpawa-gradient text-white"
                 >
@@ -318,7 +366,7 @@ export default function BuyUnitsForm() {
                     setShowSuccessModal(false);
                     form.reset();
                     setPaymentStatus("idle");
-                    setEstimatedUnits(null);
+                    setEstimate(null);
                   }}
                   variant="outline"
                   className="flex-1"
@@ -343,16 +391,19 @@ export default function BuyUnitsForm() {
         >
           <BreakdownCard
             rows={[
-              { label: "Amount", value: formatUGX(Number(amount)) },
+              ...(estimate
+                ? buildEstimateRows(estimate, Number(amount))
+                : [{ label: "Payment amount", value: formatUGX(Number(amount)) }]),
               { label: "Payment Method", value: "MTN Mobile Money" },
               { label: "Phone", value: phone || "—" },
-              ...(estimatedUnits != null
-                ? [{ label: "Estimated Yield", value: `${estimatedUnits} kWh` }]
-                : []),
             ]}
             totalLabel="You Pay"
             totalValue={formatUGX(Number(amount))}
-            subline={estimatedUnits != null ? `Estimated yield: ${estimatedUnits} kWh` : undefined}
+            subline={
+              estimate
+                ? `Estimated yield: ${estimate.estimated_units} kWh (ERA Code 10.1)`
+                : undefined
+            }
           />
         </BottomSheet>
 
@@ -461,18 +512,20 @@ export default function BuyUnitsForm() {
                 />
 
                 {/* Live estimate */}
-                {(estimating || estimatedUnits != null) && Number(amount) >= 100 && (
+                {(estimating || estimate != null) && Number(amount) >= 100 && (
                   <BreakdownCard
-                    rows={[
-                      { label: "Amount", value: formatUGX(Number(amount)) },
-                      {
-                        label: "Estimated Yield",
-                        value: estimating ? "Calculating…" : `${estimatedUnits} kWh`,
-                      },
-                    ]}
+                    rows={
+                      estimate
+                        ? buildEstimateRows(estimate, Number(amount))
+                        : [{ label: "Payment amount", value: formatUGX(Number(amount)) }]
+                    }
                     totalLabel="You Get"
-                    totalValue={estimating ? "…" : `${estimatedUnits} kWh`}
-                    subline="Based on ERA domestic tariff (ERA Code 10.1)"
+                    totalValue={estimating ? "…" : `${estimate?.estimated_units ?? 0} kWh`}
+                    subline={
+                      estimate?.tariff
+                        ? `ERA domestic tariff (${estimate.tariff}) — tiered blocks incl. service & VAT`
+                        : "Based on ERA domestic tariff (Code 10.1)"
+                    }
                   />
                 )}
 

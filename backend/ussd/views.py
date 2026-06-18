@@ -140,7 +140,7 @@ def _start_buy_units(user, phone_number: str, amount_raw: str):
     buy_view = BuyUnitsView()
     _, total_outstanding = buy_view._get_active_loan_balances(user)
     estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
-    estimated_units, tariff = buy_view._calculate_units_from_tariff(estimated_buy_amount)
+    estimated_units, tariff = buy_view._calculate_units_from_tariff(estimated_buy_amount, user)
 
     try:
         tx = Transaction.objects.create(
