@@ -31,9 +31,9 @@ export default function PublicHeader() {
                     width={52}
                     height={52}
                     alt="gPawa"
-                    className="h-11 w-11 object-contain"
+                    className="h-9 w-9 object-contain sm:h-11 sm:w-11"
                   />
-                  <span className="text-2xl font-bold tracking-tight text-gray-900 dark:text-white">
+                  <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-2xl">
                     <span className="text-blue-600">g</span>
                     <span>Pawa</span>
                   </span>
@@ -61,13 +61,13 @@ export default function PublicHeader() {
                   </Link>
                 </div>
               </div>
-              <div className="ml-4 flex items-center md:ml-6 gap-2">
+              <div className="ml-2 flex items-center gap-1.5 sm:ml-4 sm:gap-2 md:ml-6">
                 {!auth && (
-                  <>
+                  <div className="hidden sm:flex items-center gap-2">
                     <motion.div whileHover={{ scale: 1.02 }}>
                       <Link
                         href="/auth/register"
-                        className="px-4 py-2 text-sm font-semibold text-blue-600 bg-blue-100/70 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/40 rounded-xl transition-all"
+                        className="px-3 py-1.5 text-sm font-semibold text-blue-600 bg-blue-100/70 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-800/40 rounded-xl transition-all sm:px-4 sm:py-2"
                       >
                         Sign Up
                       </Link>
@@ -75,23 +75,23 @@ export default function PublicHeader() {
                     <motion.div whileHover={{ scale: 1.02 }}>
                       <Link
                         href="/auth/login"
-                        className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
+                        className="px-3 py-1.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20 sm:px-4 sm:py-2"
                       >
                         Sign In
                       </Link>
                     </motion.div>
-                  </>
+                  </div>
                 )}
                 {auth && (
                   <Link
                     href="/dashboard"
-                    className="px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20"
+                    className="hidden sm:inline-flex px-3 py-1.5 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-emerald-600 hover:from-blue-700 hover:to-emerald-700 rounded-xl transition-all shadow-md shadow-blue-500/20 sm:px-4 sm:py-2"
                   >
                     Dashboard
                   </Link>
                 )}
                 <ModeToggle />
-                <Disclosure.Button className="md:hidden ml-2 inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-500 dark:hover:text-gray-300">
+                <Disclosure.Button className="md:hidden inline-flex items-center justify-center rounded-md p-2 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-500 dark:hover:text-gray-300">
                   {open ? (
                     <XMarkIcon className="h-6 w-6" />
                   ) : (

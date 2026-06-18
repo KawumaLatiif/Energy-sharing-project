@@ -2,8 +2,8 @@
 import type { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
 import { useState, useTransition } from "react";
-// import 'react-phone-number-input/style.css'
 import PhoneInput from 'react-phone-number-input'
+import 'react-phone-number-input/style.css'
 
 import {
   Form,
@@ -35,6 +35,7 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from "@/lib/api-response";
+import { Eye, EyeOff } from "lucide-react";
 
 
 export default function RegisterForm() {
@@ -44,6 +45,8 @@ export default function RegisterForm() {
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
   const [redirectNote, setRedirectNote] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const form = useForm<z.infer<typeof createAccountSchema>>({
     resolver: zodResolver(createAccountSchema),
@@ -84,9 +87,9 @@ export default function RegisterForm() {
       <CardWrapper title="Create an account" variant="auth">
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2.5 sm:space-y-3">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
-            <div className="mt-1">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="first_name"
@@ -95,15 +98,13 @@ export default function RegisterForm() {
                     <FormLabel>First name</FormLabel>
                     <FormControl>
                       <Input disabled={isPending}
-                        type="first_name" placeholder="John" {...field} />
+                        type="text" placeholder="John" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
-            </div>
 
-            <div className="mt-1">
               <FormField
                 control={form.control}
                 name="last_name"
@@ -112,7 +113,7 @@ export default function RegisterForm() {
                     <FormLabel>Last name</FormLabel>
                     <FormControl>
                       <Input disabled={isPending}
-                        type="last_name" placeholder="Doe" {...field} />
+                        type="text" placeholder="Doe" {...field} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -120,108 +121,140 @@ export default function RegisterForm() {
               />
             </div>
 
-            <div className="mt-1">
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input disabled={isPending}
-                        type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input disabled={isPending}
+                      type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-            <div className="flex flex-col space-y-1.5">
-              <FormField
-                control={form.control}
-                name="phone_number"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel className="font-semibold">Phone number</FormLabel>
+            <FormField
+              control={form.control}
+              name="phone_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone number</FormLabel>
+                  <FormControl>
+                    <PhoneInput
+                      className="phone-input w-full"
+                      international
+                      defaultCountry="UG"
+                      {...field}
+                      inputComponent={ShadIput}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="gender"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Gender</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <PhoneInput
-                        className="phone-input w-full"
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="MALE">Male</SelectItem>
+                      <SelectItem value="FEMALE">Female</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <ShadIput
+                        disabled={isPending}
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="Password"
+                        className="pr-10"
                         {...field}
-                        inputComponent={ShadIput}
                       />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        tabIndex={-1}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-            <div className="flex flex-col space-y-1.5">
-              <FormField
-                control={form.control}
-                name="gender"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Gender</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="MALE">
-                          <div className="flex items-center gap-4 justify-between">
-                            <span>Male</span>
-                          </div>
-                        </SelectItem>
-                        <SelectItem value="FEMALE">
-                          <div className="flex items-center gap-4 justify-between">
-                            <span>Female</span>
-                          </div>
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
+            <FormField
+              control={form.control}
+              name="confirm_password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <ShadIput
+                        disabled={isPending}
+                        type={showConfirmPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="Confirm password"
+                        className="pr-10"
+                        {...field}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowConfirmPassword((prev) => !prev)}
+                        tabIndex={-1}
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-            <div className="mt-1">
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input disabled={isPending} type="password" autoComplete="password" placeholder="Password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="mt-1">
-              <FormField
-                control={form.control}
-                name="confirm_password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Confirm Password</FormLabel>
-                    <FormControl>
-                      <Input disabled={isPending} type="password" autoComplete="password" placeholder="Confirm password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center">
                 <input
                   id="remember-me"

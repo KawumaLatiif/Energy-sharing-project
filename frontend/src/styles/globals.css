@@ -204,33 +204,47 @@
 
 .phone-input {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 0.5rem;
   width: 100%;
 }
 
 .phone-input .PhoneInputCountry {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 0.25rem;
+  flex-shrink: 0;
+  padding: 0 0.5rem;
+  border: 1px solid hsl(var(--border));
+  border-radius: 0.5rem;
+  background: hsl(var(--background));
+  min-height: 2.5rem;
 }
 
 .phone-input .PhoneInputCountrySelect {
-  height: 2rem;
-  width: 2.25rem;
-  padding-right: 0.75rem;
-  font-size: 0;
-  color: transparent;
-  background: hsl(var(--background));
-  border: 1px solid hsl(var(--border));
-  border-radius: 0.5rem;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+  border: none;
+  background: transparent;
   appearance: none;
 }
 
 .phone-input .PhoneInputCountryIcon {
-  width: 1rem;
+  width: 1.25rem;
   height: 1rem;
   border-radius: 0.25rem;
+  overflow: hidden;
+}
+
+.phone-input .PhoneInputCountryIconImg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
 }
 
 .phone-input .PhoneInputInput {
@@ -239,9 +253,10 @@
   width: 100%;
 }
 
-.phone-input .PhoneInputCountrySelect option {
-  font-size: 0.875rem;
-  color: initial;
+.phone-input .PhoneInputCountrySelectArrow {
+  margin-left: 0.25rem;
+  opacity: 0.6;
+  border-color: hsl(var(--muted-foreground));
 }
 
 .embla { overflow: hidden; }
