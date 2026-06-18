@@ -6,21 +6,43 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { post } from "@/lib/fetch";
 import { getApiErrorMessage } from "@/lib/api-response";
-import { cn } from "@/lib/utils";
+import type { UserMeter } from "@/interface/meter.interface";
 
 interface GenerateTokenCardProps {
   architecture: "STS" | "AMI";
   walletBalance: number;
+  meterNo?: string;
+  stsMeters?: UserMeter[];
+  onTokenGenerated?: () => void;
 }
 
-export default function GenerateTokenCard({ architecture, walletBalance }: GenerateTokenCardProps) {
+export default function GenerateTokenCard({
+  architecture,
+  walletBalance,
+  meterNo,
+  stsMeters = [],
+  onTokenGenerated,
+}: GenerateTokenCardProps) {
   const [amount, setAmount] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ token: string; units: number; remaining: number } | null>(null);
+  const [result, setResult] = useState<{ token: string; units: number; remaining: number } | null>(
+    null
+  );
   const [copied, setCopied] = useState(false);
+  const [targetMeterNo, setTargetMeterNo] = useState(meterNo ?? stsMeters[0]?.meter_number ?? "");
+
+  const effectiveMeterNo = meterNo || targetMeterNo;
+  const showMeterPicker = !meterNo && stsMeters.length > 1;
 
   // AMI meters: units applied automatically over the network
   if (architecture === "AMI") {
@@ -42,14 +64,14 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
             <span className="font-bold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
-            Balance updates may take a few minutes to reflect on the physical meter after a purchase or share.
+            Balance updates may take a few minutes to reflect on the physical meter after a purchase
+            or share.
           </p>
         </CardContent>
       </Card>
     );
   }
 
-  // STS meters: generate a token to load units via keypad
   async function handleGenerate() {
     const amt = parseFloat(amount);
     if (!amount || isNaN(amt) || amt <= 0) {
@@ -60,13 +82,20 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
       setError(`You only have ${walletBalance.toFixed(2)} kWh available.`);
       return;
     }
+    if (!effectiveMeterNo) {
+      setError("Select an STS meter for this token.");
+      return;
+    }
 
     setIsPending(true);
     setError("");
     setResult(null);
 
     try {
-      const res = await post<any>("meter/generate-token/", { amount: amt });
+      const res = await post<any>("meter/generate-token/", {
+        amount: amt,
+        meter_no: effectiveMeterNo,
+      });
       if (res.data?.success) {
         setResult({
           token: res.data.token,
@@ -74,6 +103,7 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
           remaining: res.data.remaining_balance,
         });
         setAmount("");
+        onTokenGenerated?.();
       } else {
         setError(getApiErrorMessage(res.error, res.data?.error || "Failed to generate token."));
       }
@@ -103,13 +133,36 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {/* Wallet balance */}
+        {showMeterPicker && (
+          <div className="space-y-2">
+            <Label>STS meter</Label>
+            <Select value={targetMeterNo} onValueChange={setTargetMeterNo}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select STS meter" />
+              </SelectTrigger>
+              <SelectContent>
+                {stsMeters.map((m) => (
+                  <SelectItem key={m.meter_number} value={m.meter_number}>
+                    {m.meter_number}
+                    {m.label ? ` (${m.label})` : ""}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        )}
+
+        {effectiveMeterNo && !showMeterPicker && (
+          <p className="text-xs text-muted-foreground font-mono">
+            Meter: {effectiveMeterNo}
+          </p>
+        )}
+
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Available in wallet</span>
           <span className="font-bold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
         </div>
 
-        {/* Amount input */}
         {walletBalance > 0 ? (
           <div className="space-y-2">
             <Label htmlFor="token-amount">kWh to load onto meter</Label>
@@ -122,13 +175,17 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
                 step="0.01"
                 placeholder="e.g. 10"
                 value={amount}
-                onChange={(e) => { setAmount(e.target.value); setError(""); setResult(null); }}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setError("");
+                  setResult(null);
+                }}
                 disabled={isPending}
                 className="flex-1"
               />
               <Button
                 onClick={handleGenerate}
-                disabled={isPending || !amount}
+                disabled={isPending || !amount || !effectiveMeterNo}
                 className="gpawa-gradient text-white shrink-0"
               >
                 {isPending ? (
@@ -149,7 +206,6 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
           </p>
         )}
 
-        {/* Token result */}
         {result && (
           <div className="rounded-lg border-2 border-green-400 bg-green-50 dark:bg-green-950/20 p-4 space-y-3">
             <p className="text-sm font-medium text-green-800 dark:text-green-400">
@@ -159,18 +215,17 @@ export default function GenerateTokenCard({ architecture, walletBalance }: Gener
               <code className="flex-1 text-center text-2xl font-mono font-bold tracking-widest bg-white dark:bg-slate-900 rounded px-3 py-2 border select-all">
                 {result.token}
               </code>
-              <Button
-                size="icon"
-                variant="outline"
-                onClick={copyToken}
-                title="Copy token"
-              >
-                {copied ? <Check className="h-4 w-4 text-green-600" /> : <Copy className="h-4 w-4" />}
+              <Button size="icon" variant="outline" onClick={copyToken} title="Copy token">
+                {copied ? (
+                  <Check className="h-4 w-4 text-green-600" />
+                ) : (
+                  <Copy className="h-4 w-4" />
+                )}
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              Enter this code on your meter keypad to load {result.units.toFixed(2)} kWh.
-              Remaining wallet balance: <strong>{result.remaining.toFixed(2)} kWh</strong>.
+              Enter this code on your meter keypad to load {result.units.toFixed(2)} kWh. Remaining
+              wallet balance: <strong>{result.remaining.toFixed(2)} kWh</strong>.
             </p>
           </div>
         )}

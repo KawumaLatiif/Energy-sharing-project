@@ -27,6 +27,9 @@ class MeterSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError(
                 {"static_ip": "IP address is required for AMI meters."}
             )
+        if arch == Meter.ARCH_STS:
+            # STS meters have no IP — omit/ignore any value sent from the client
+            data["static_ip"] = None
         return data
 
 

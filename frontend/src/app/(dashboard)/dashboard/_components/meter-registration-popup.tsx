@@ -6,66 +6,59 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, Zap, X } from "lucide-react";
+import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { registerMeter } from "../request-loan/register-meter/action";
+import { post } from "@/lib/fetch";
+import { getApiErrorMessage } from "@/lib/api-response";
+
+type Architecture = "STS" | "AMI";
 
 interface MeterRegistrationPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
   forceCompletion?: boolean;
-  // Remove mode prop since this is only for setup
 }
 
-export default function MeterRegistrationPopup({ 
-  isOpen, 
-  onClose, 
-  onSuccess, 
-  forceCompletion = false
+export default function MeterRegistrationPopup({
+  isOpen,
+  onClose,
+  onSuccess,
+  forceCompletion = false,
 }: MeterRegistrationPopupProps) {
+  const [architecture, setArchitecture] = useState<Architecture>("STS");
   const [meterNo, setMeterNo] = useState("");
   const [staticIp, setStaticIp] = useState("");
-  const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [isAuthValid, setIsAuthValid] = useState(true);
 
-  // Validation helpers
-  const isValidMeterNumber = (meterNo: string) => {
-    const meterPattern = /^\d{10,12}$/;
-    return meterPattern.test(meterNo);
-  };
+  const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
+  const isValidIP = (v: string) =>
+    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v);
 
-  const isValidIP = (ip: string) => {
-    const ipPattern = /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/;
-    return ipPattern.test(ip);
+  const handleArchChange = (arch: Architecture) => {
+    setArchitecture(arch);
+    if (arch === "STS") setStaticIp("");
   };
 
   useEffect(() => {
     if (isOpen) {
-      const checkAuthAndRole = async () => {
+      const checkAdmin = async () => {
         try {
-          const response = await fetch('/api/v1/auth/get-user-config/');
+          const response = await fetch("/api/v1/auth/get-user-config/");
           if (response.status === 401) {
-            setIsAuthValid(false);
-            // Clear and redirect
-            document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-            document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-            window.location.href = '/auth/login';
+            document.cookie = "Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            document.cookie = "RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
+            window.location.href = "/auth/login";
             return;
           }
-
           const userData = await response.json();
-          setIsAuthValid(true);
-
-          // Check if admin and skip popup
-          if (userData.is_admin || userData.user_role === 'ADMIN') {
+          if (userData.is_admin || userData.user_role === "ADMIN") {
             onSuccess();
           }
-        } catch (error) {
-          console.error('Auth check failed:', error);
-        }
+        } catch {}
       };
-      checkAuthAndRole();
+      checkAdmin();
     }
   }, [isOpen, onSuccess]);
 
@@ -73,64 +66,62 @@ export default function MeterRegistrationPopup({
     e.preventDefault();
 
     if (!isValidMeterNumber(meterNo)) {
-      setMessage({ type: 'error', text: 'Please enter a valid 10-12 digit meter number' });
+      setMessage({ type: "error", text: "Please enter a valid 10-12 digit meter number" });
       return;
     }
 
-    if (!isValidIP(staticIp)) {
-      setMessage({ type: 'error', text: 'Please enter a valid IP address' });
+    if (architecture === "AMI" && !isValidIP(staticIp)) {
+      setMessage({ type: "error", text: "Please enter a valid IP address for your AMI meter" });
       return;
     }
 
     setIsLoading(true);
     setMessage(null);
 
-    try {
-      const result = await registerMeter({
-        meter_no: meterNo.trim(),
-        static_ip: staticIp.trim(),
-      });
+    const payload: Record<string, string> = {
+      meter_no: meterNo.trim(),
+      architecture,
+    };
+    if (architecture === "AMI") {
+      payload.static_ip = staticIp.trim();
+    }
 
-      if (result.success) {
-        setMessage({ type: 'success', text: 'Meter registered successfully!' });
-        setTimeout(() => {
-          onSuccess();
-        }, 1500);
+    try {
+      const response = await post<any>("meter/register/", payload);
+      if (response.error) {
+        setMessage({ type: "error", text: getApiErrorMessage(response.error, "Failed to register meter") });
       } else {
-        setMessage({ type: 'error', text: result.error || "Failed to register meter" });
+        setMessage({ type: "success", text: "Meter registered successfully!" });
+        setTimeout(() => onSuccess(), 1500);
       }
     } catch (err: any) {
-      setMessage({ type: 'error', text: err.message || "Network error. Please try again." });
+      setMessage({ type: "error", text: err.message || "Network error. Please try again." });
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleClose = () => {
-    if (!forceCompletion) {
-      onClose();
-    }
-    // If forceCompletion is true, don't allow closing (setup mode)
-  };
-
   if (!isOpen) return null;
+
+  const canSubmit =
+    isValidMeterNumber(meterNo) &&
+    (architecture === "STS" || isValidIP(staticIp));
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
       <Card className="w-full max-w-md relative">
-        {/* Only show close button if not forced completion */}
         {!forceCompletion && (
           <Button
             variant="ghost"
             size="icon"
             className="absolute right-2 top-2 h-6 w-6"
-            onClick={handleClose}
+            onClick={onClose}
             disabled={isLoading}
           >
             <X className="h-4 w-4" />
           </Button>
         )}
-        
+
         <CardHeader className="text-center pb-4">
           <div className="flex items-center justify-center w-12 h-12 bg-blue-100 rounded-full mb-3 mx-auto">
             <Zap className="h-6 w-6 text-blue-600" />
@@ -139,46 +130,71 @@ export default function MeterRegistrationPopup({
             {forceCompletion ? "Step 1: Register Your Electricity Meter" : "Register Your Electricity Meter"}
           </CardTitle>
           <CardDescription>
-            {forceCompletion 
-              ? "You need to register your meter to continue" 
-              : "Complete your profile to access electricity loans and services"
-            }
+            {forceCompletion
+              ? "You need to register your meter to continue"
+              : "Complete your profile to access electricity services"}
           </CardDescription>
         </CardHeader>
 
         <CardContent>
           {message && (
             <Alert
-              className={cn("mb-4",
-                message.type === 'success'
-                  ? "border-green-200 bg-green-50"
-                  : "border-red-200 bg-red-50"
+              className={cn(
+                "mb-4",
+                message.type === "success" ? "border-green-200 bg-green-50" : "border-red-200 bg-red-50"
               )}
             >
-              {message.type === 'success' ? (
+              {message.type === "success" ? (
                 <CheckCircle className="h-4 w-4 text-green-600" />
               ) : (
                 <AlertCircle className="h-4 w-4 text-red-600" />
               )}
-              <AlertTitle className={message.type === 'success' ? 'text-green-800' : 'text-red-800'}>
-                {message.type === 'success' ? 'Success!' : 'Error'}
+              <AlertTitle className={message.type === "success" ? "text-green-800" : "text-red-800"}>
+                {message.type === "success" ? "Success!" : "Error"}
               </AlertTitle>
-              <AlertDescription className={message.type === 'success' ? 'text-green-700' : 'text-red-700'}>
+              <AlertDescription className={message.type === "success" ? "text-green-700" : "text-red-700"}>
                 {message.text}
               </AlertDescription>
             </Alert>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
+            {/* 1. Architecture — first field */}
             <div className="space-y-2">
-              <label htmlFor="meterNo" className="text-sm font-medium text-foreground">
+              <Label>Meter Type <span className="text-destructive">*</span></Label>
+              <div className="grid grid-cols-2 gap-3">
+                {(["STS", "AMI"] as Architecture[]).map((arch) => (
+                  <button
+                    key={arch}
+                    type="button"
+                    onClick={() => handleArchChange(arch)}
+                    disabled={isLoading}
+                    className={cn(
+                      "rounded-lg border-2 p-3 text-left transition-colors",
+                      architecture === arch
+                        ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
+                        : "border-border hover:border-blue-300"
+                    )}
+                  >
+                    <div className="font-semibold text-sm">{arch}</div>
+                    <div className="text-xs text-muted-foreground mt-0.5">
+                      {arch === "STS" ? "Token keypad entry" : "Networked, auto-update"}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* 2. Meter Number */}
+            <div className="space-y-2">
+              <Label htmlFor="meterNo">
                 Meter Number <span className="text-destructive">*</span>
-              </label>
+              </Label>
               <Input
                 id="meterNo"
                 type="text"
                 value={meterNo}
-                onChange={(e) => setMeterNo(e.target.value.replace(/\D/g, ''))}
+                onChange={(e) => setMeterNo(e.target.value.replace(/\D/g, ""))}
                 placeholder="Enter 10-12 digit meter number"
                 maxLength={12}
                 required
@@ -192,37 +208,38 @@ export default function MeterRegistrationPopup({
               )}
             </div>
 
-            <div className="space-y-2">
-              <label htmlFor="staticIp" className="text-sm font-medium text-foreground">
-                Static IP Address <span className="text-destructive">*</span>
-              </label>
-              <Input
-                id="staticIp"
-                type="text"
-                value={staticIp}
-                onChange={(e) => setStaticIp(e.target.value)}
-                placeholder="192.168.1.100"
-                required
-                disabled={isLoading}
-                className={cn(
-                  !isValidIP(staticIp) && staticIp.length > 0 && "border-destructive"
+            {/* 3. IP Address — AMI only */}
+            {architecture === "AMI" && (
+              <div className="space-y-2">
+                <Label htmlFor="staticIp">
+                  Static IP Address <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="staticIp"
+                  type="text"
+                  value={staticIp}
+                  onChange={(e) => setStaticIp(e.target.value)}
+                  placeholder="192.168.1.100"
+                  required
+                  disabled={isLoading}
+                  className={cn(
+                    !isValidIP(staticIp) && staticIp.length > 0 && "border-destructive"
+                  )}
+                />
+                {!isValidIP(staticIp) && staticIp.length > 0 && (
+                  <p className="text-xs text-destructive">Please enter a valid IP address</p>
                 )}
-              />
-              {!isValidIP(staticIp) && staticIp.length > 0 && (
-                <p className="text-xs text-destructive">Please enter a valid IP address</p>
+              </div>
+            )}
+
+            <div className="text-xs text-muted-foreground space-y-1">
+              <p>• Find your meter number on your electricity bill or the meter display</p>
+              {architecture === "AMI" && (
+                <p>• Contact your electricity provider for the static IP address</p>
               )}
             </div>
 
-            <div className="text-xs text-muted-foreground space-y-1">
-              <p>• Find meter number on your electricity bill or meter display</p>
-              <p>• Contact electricity provider for static IP address</p>
-            </div>
-
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={isLoading || !meterNo || !staticIp}
-            >
+            <Button type="submit" className="w-full" disabled={isLoading || !canSubmit}>
               {isLoading ? (
                 <>
                   <Zap className="h-4 w-4 mr-2 animate-spin" />

@@ -15,7 +15,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import CardWrapper from '@/components/common/card-wrapper';
 import Link from 'next/link';
 import { z } from 'zod';
-import { Shield } from 'lucide-react';
+import { Shield, Eye, EyeOff } from 'lucide-react';
 
 export default function LoginForm() {
   const searchParams = useSearchParams();
@@ -31,6 +31,7 @@ export default function LoginForm() {
   const [totpCode, setTotpCode] = useState('');
   const [totpLoading, setTotpLoading] = useState(false);
   const [staffEmail, setStaffEmail] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
 
   const form = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
@@ -171,7 +172,31 @@ export default function LoginForm() {
               <FormItem>
                 <FormLabel>Password</FormLabel>
                 <FormControl>
-                  <Input disabled={isPending} type="password" autoComplete="current-password" placeholder="Password" {...field} />
+                  <div className="relative">
+                    <Input
+                      disabled={isPending}
+                      type={showPassword ? 'text' : 'password'}
+                      autoComplete="current-password"
+                      placeholder="Password"
+                      className="pr-10"
+                      {...field}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>

@@ -50,12 +50,17 @@ export default function MeterManagementModal({
       const response = await get<any>("meter/my-meter/");
       if (!response.error && response.data) {
         setMeterData(response.data);
-        if (response.data.success && response.data.data.has_meter) {
+        // Pre-fill form only when there is exactly one meter (editing case)
+        const meters: any[] = response.data?.data?.meters ?? [];
+        if (response.data.success && response.data.data.has_meter && meters.length === 1) {
           setFormData({
-            meter_no: response.data.data.meter_number || "",
-            static_ip: response.data.data.static_ip || "",
-            architecture: (response.data.data.architecture as Architecture) || "STS",
+            meter_no: meters[0].meter_number || "",
+            static_ip: meters[0].static_ip || "",
+            architecture: (meters[0].architecture as Architecture) || "STS",
           });
+        } else {
+          // For new meter registration, reset form
+          setFormData({ meter_no: "", static_ip: "", architecture: "STS" });
         }
       }
     } catch {
@@ -131,7 +136,9 @@ export default function MeterManagementModal({
   if (!isOpen) return null;
 
   const hasMeter = meterData?.success && meterData.data.has_meter;
-  const showForm = !isFetching && (isEditing || (meterData?.success && !hasMeter));
+  const allMeters: any[] = meterData?.data?.meters ?? [];
+  const canAddMore = allMeters.length < 2; // max one STS + one AMI
+  const showForm = !isFetching && (isEditing || (meterData?.success && (!hasMeter || canAddMore)));
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

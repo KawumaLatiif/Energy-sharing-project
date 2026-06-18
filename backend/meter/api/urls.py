@@ -27,6 +27,7 @@ urlpatterns = [
     path('admin-test-meter-push/', AdminMeterPushTestView.as_view(), name="admin-test-meter-push"),
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
+    path('ami-status/', views.ami_meter_status, name='ami-meter-status'),
     path('update/', update_meter, name='update-meter'),
     # STS: generate token for pending (received/shared) units
     path('activate-received-units/', ActivateReceivedUnitsView.as_view(), name='activate-received-units'),

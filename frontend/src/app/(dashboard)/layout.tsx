@@ -3,6 +3,7 @@ import { getUserConfig } from "@/lib/account";
 import authenticated from "@/lib/authenticated";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { SelectedMeterProvider } from "./dashboard/_components/selected-meter-context";
 
 export default async function UserProtectedLayout({
   children,
@@ -24,5 +25,5 @@ export default async function UserProtectedLayout({
     redirect("/auth/verify-email");
   }
 
-  return <>{children}</>;
+  return <SelectedMeterProvider>{children}</SelectedMeterProvider>;
 }

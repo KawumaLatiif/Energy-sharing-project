@@ -8,6 +8,8 @@ import LoanOverview from './_components/loan-overview';
 import MeterRegistrationPopup from './_components/meter-registration-popup';
 import MeterManagementModal from './_components/meter-registration-modal';
 import LatestTransactions from './_components/latest-transactions';
+import MeterUnitsPanel from './_components/meter-units-panel';
+import { useSelectedMeter } from './_components/selected-meter-context';
 import { User } from '@/interface/user.interface';
 import { Zap } from 'lucide-react';
 
@@ -28,6 +30,7 @@ export default function DashboardClient({
   const [isMeterPopupOpen, setIsMeterPopupOpen] = useState(false);
   const [isMeterManagementOpen, setIsMeterManagementOpen] = useState(false);
   const router = useRouter();
+  const { refreshMeters } = useSelectedMeter();
 
   useEffect(() => {
     if (initialStep === 'meter' && !userHasMeter) {
@@ -41,11 +44,13 @@ export default function DashboardClient({
   const handleMeterSuccess = () => {
     setIsMeterPopupOpen(false);
     setCurrentStep('complete');
+    refreshMeters();
     router.refresh();
   };
 
   const handleMeterManagementSuccess = () => {
     setIsMeterManagementOpen(false);
+    refreshMeters();
     router.refresh();
   };
 
@@ -127,6 +132,9 @@ export default function DashboardClient({
           )}
 
           <LoanOverview />
+
+          {currentStep === 'complete' && userHasMeter && <MeterUnitsPanel />}
+
           <div className="flex flex-1 justify-center rounded-lg border border-dashed shadow-sm">
             <div className="flex flex-col gap-1 w-full">
               <h3 className="text-2xl text-left font-bold tracking-tight p-4">Latest transactions</h3>

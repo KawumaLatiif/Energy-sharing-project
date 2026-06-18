@@ -43,7 +43,6 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: { uid?: 
       if (result.success) {
         setStatus('success');
         setMessage(result.message || 'Email verified successfully');
-        // Redirect to login after 2 s; router.push works more reliably than window.location
         setTimeout(() => router.push('/auth/login'), 2000);
       } else {
         setStatus('error');
@@ -128,7 +127,7 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: { uid?: 
           </div>
         )}
 
-        {(status === 'idle') && !uid && (
+        {status === 'idle' && !uid && (
           <div className="flex flex-col items-center gap-3 py-2">
             <Mail className="h-12 w-12 text-blue-500" />
             <p className="text-sm text-gray-600 dark:text-gray-300">

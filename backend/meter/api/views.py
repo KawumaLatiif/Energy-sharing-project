@@ -48,28 +48,102 @@ logger = logging.getLogger(__name__)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def ami_meter_status(request):
+    """
+    GET /api/v1/meter/ami-status/?meter_no=...
+
+    Returns connectivity and balance sync status for an AMI meter owned by the user.
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if meter.architecture != Meter.ARCH_AMI:
+        return Response(
+            {"error": "This endpoint is only for AMI meters."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from utils.ami_gateway import get_ami_gateway
+
+    gateway_status = get_ami_gateway().get_status(meter)
+    unit_wallet = UnitWallet.objects.filter(user=request.user).first()
+    wallet_balance = float(unit_wallet.balance) if unit_wallet else 0.0
+
+    if gateway_status is None:
+        return Response(
+            {
+                "success": False,
+                "is_online": False,
+                "meter_no": meter.meter_no,
+                "current_balance_kwh": float(meter.units),
+                "wallet_balance": wallet_balance,
+                "message": "Meter unreachable.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "is_online": gateway_status.is_online,
+            "last_seen": gateway_status.last_seen,
+            "meter_no": gateway_status.meter_no,
+            "current_balance_kwh": gateway_status.current_balance_kwh,
+            "wallet_balance": wallet_balance,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def check_user_meter(request):
     try:
-        meter = Meter.objects.get(user=request.user)
+        meters = Meter.objects.filter(user=request.user).order_by('create_date')
+        if not meters.exists():
+            return Response({
+                'success': True,
+                'data': {
+                    'has_meter': False,
+                    'message': 'No meter registered for this account'
+                }
+            }, status=status.HTTP_200_OK)
+
+        meters_list = [
+            {
+                'meter_number': m.meter_no,
+                'static_ip': m.static_ip,
+                'units': float(m.units),
+                'architecture': m.architecture,
+                'pending_units': float(m.pending_units),
+                'status': m.status,
+                'label': m.label,
+            }
+            for m in meters
+        ]
+        primary = meters_list[0]
         return Response({
             'success': True,
             'data': {
                 'has_meter': True,
-                'meter_number': meter.meter_no,
-                'static_ip': meter.static_ip,
-                'units': float(meter.units),
-                'architecture': meter.architecture,
-                'pending_units': float(meter.pending_units),
+                'meters': meters_list,
+                # backward-compat single-meter fields (first registered meter)
+                'meter_number': primary['meter_number'],
+                'static_ip': primary['static_ip'],
+                'units': primary['units'],
+                'architecture': primary['architecture'],
+                'pending_units': primary['pending_units'],
             }
         })
-    except Meter.DoesNotExist:
-        return Response({
-            'success': True,
-            'data': {
-                'has_meter': False,
-                'message': 'No meter registered for this account'
-            }
-        }, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Error checking user meter: {str(e)}")
         return Response({
@@ -142,13 +216,14 @@ class MeterRegisterView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         try:
-            # Check if user already has a meter
-            if Meter.objects.filter(user=request.user).exists():
+            # Allow one STS and one AMI per user; block duplicate architecture only.
+            arch = request.data.get('architecture', Meter.ARCH_STS)
+            if Meter.objects.filter(user=request.user, architecture=arch).exists():
                 return Response(
                     {
                         "success": False,
                         "error": "Meter Already Registered",
-                        "message": "You already have a registered meter. Each account can only have one meter."
+                        "message": f"You already have a registered {arch} meter. Each account can have one STS and one AMI meter."
                     },
                     status=status.HTTP_400_BAD_REQUEST
                 )
@@ -474,31 +549,23 @@ class TokenView(GenericAPIView):
     serializer_class = TokenSerializer
     def get(self, request, *args, **kwargs):
         user = request.user
-        
+        meter_no = request.query_params.get("meter_no")
 
         try:
-            # Filter tokens by user's meter
-            user_meter = Meter.objects.get(user=user)
-            token_data = MeterToken.objects.filter(meter=user_meter).order_by('-id')[:10]
-            
+            if meter_no:
+                user_meters = Meter.objects.filter(user=user, meter_no=meter_no)
+            else:
+                user_meters = Meter.objects.filter(user=user)
+
+            if not user_meters.exists():
+                return Response({"data": []}, status=status.HTTP_200_OK)
+
+            token_data = MeterToken.objects.filter(meter__in=user_meters).order_by('-id')[:20]
             serializer = self.serializer_class(token_data, many=True)
-            
-            response_data = {
-            "data": serializer.data
-            
-            }
-            return Response(response_data, status=status.HTTP_200_OK)
-        except Meter.DoesNotExist:
-            return Response({
-                "data": {
-                    "data": []
-                }
-            }, status=status.HTTP_200_OK)
+            return Response({"data": serializer.data}, status=status.HTTP_200_OK)
         except Exception as e:
             logger.error(f"Error fetching tokens: {str(e)}")
-            return Response({
-                "error": "Failed to fetch tokens"
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"error": "Failed to fetch tokens"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
    
   
    
@@ -515,10 +582,23 @@ class ActivateReceivedUnitsView(APIView):
 
     def post(self, request):
         user = request.user
-        try:
-            meter = Meter.objects.get(user=user)
-        except Meter.DoesNotExist:
-            return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response({"error": "Meter not found or not owned by you."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            user_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS)
+            if not user_meters.exists():
+                return Response({"error": "No STS meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+            if user_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple STS meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = user_meters.first()
 
         if meter.architecture == Meter.ARCH_AMI:
             return Response(
@@ -579,10 +659,33 @@ class GenerateTokenFromWalletView(APIView):
 
     def post(self, request):
         user = request.user
-        try:
-            meter = Meter.objects.get(user=user)
-        except Meter.DoesNotExist:
-            return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response({"error": "Meter not found or not owned by you."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            sts_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS)
+            if not sts_meters.exists():
+                if Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI).exists():
+                    return Response(
+                        {
+                            "error": (
+                                "AMI meter — units are applied automatically over the network. "
+                                "No token needed."
+                            )
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+            if sts_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple STS meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = sts_meters.first()
 
         if meter.architecture == Meter.ARCH_AMI:
             return Response(

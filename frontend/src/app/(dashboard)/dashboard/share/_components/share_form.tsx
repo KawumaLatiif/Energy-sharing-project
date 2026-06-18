@@ -39,9 +39,11 @@ const ShareSchema = z.object({
 });
 
 type ShareFormValues = z.infer<typeof ShareSchema>;
+
 type WalletBalanceResponse = {
   success: boolean;
   wallet?: { balance?: string };
+  wallet_balance?: string;
   meters?: Array<{ is_active?: boolean; balance?: string; meter_number?: string }>;
   primary_meter?: { meter_number?: string; balance?: string; is_active?: boolean };
   total_meter_units?: string;
@@ -78,12 +80,12 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
       if (!response.error && response.data?.success) {
         const apiData = response.data;
-        // Use primary_meter.balance (unit balance) as source of truth.
-        // Fallback: total_meter_units, then first meter in array.
+        // wallet.balance holds purchased kWh units. primary_meter.balance tracks
+        // physical Meter.units which only updates when an STS token is activated.
         const unitBalance =
+          parseFloat(apiData.wallet?.balance || apiData.wallet_balance || "0") ||
           parseFloat(apiData.primary_meter?.balance || "0") ||
-          parseFloat(apiData.total_meter_units || "0") ||
-          parseFloat((apiData.meters?.[0] as any)?.balance || "0");
+          parseFloat(apiData.total_meter_units || "0");
         setTotalUnits(unitBalance);
       } else {
         setError(getApiErrorMessage(response.error, "Failed to load balance. Please refresh."));
@@ -131,7 +133,6 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           newBalance: totalUnits - data.units,
           receiverArch: response.data.receiver_architecture || null,
         });
-
         setSuccess("Verification code sent to your email!");
         setVerificationStep(1);
       } else {
@@ -207,7 +208,6 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
 
   return (
     <CardWrapper title="Share Units">
-      {/* Balance display */}
       <div className="mb-4 space-y-3">
         {isLoadingBalance ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
@@ -315,7 +315,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <Alert className="bg-blue-50 border-blue-200">
             <Shield className="h-4 w-4" />
             <AlertDescription>
-              <strong>Security Verification Required</strong>
+              <strong className="text-blue-800">Security Verification Required</strong>
               <p className="mt-1 text-sm text-muted-foreground">
                 A verification code has been sent to your registered email address.
                 Please enter the 6-digit code below to complete the transaction.
@@ -402,8 +402,7 @@ export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
           <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
           <h3 className="text-lg font-semibold">Success!</h3>
           <p className="text-muted-foreground">
-            {transactionDetails?.units} units have been successfully shared to meter{" "}
-            {transactionDetails?.meter_number}
+            {transactionDetails?.units} units have been successfully shared to meter {transactionDetails?.meter_number}
           </p>
           <div className="flex gap-2">
             <Button

@@ -37,8 +37,6 @@ import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from "@/lib/api-response";
 
 
-
-
 export default function RegisterForm() {
 
   const [error, setError] = useState('');
@@ -46,7 +44,6 @@ export default function RegisterForm() {
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
   const [redirectNote, setRedirectNote] = useState("");
-
 
   const form = useForm<z.infer<typeof createAccountSchema>>({
     resolver: zodResolver(createAccountSchema),
@@ -61,8 +58,6 @@ export default function RegisterForm() {
     },
   });
 
-
-  // 2. Define a submit handler.
   async function onSubmit(values: z.infer<typeof createAccountSchema>) {
     setError('');
     setSuccess("");
@@ -75,16 +70,14 @@ export default function RegisterForm() {
       }
 
       form.reset();
-      const email = data?.email || values.email;
+      const email = (data as any)?.email || values.email;
       setSuccess("Account created successfully.");
-      setRedirectNote(`Verification link sent to ${email}. Redirecting to login...`);
+      setRedirectNote(`Verification link sent to ${email}. Redirecting to login…`);
       setTimeout(() => {
         router.push("/auth/login");
       }, 2500);
     });
   }
-
-
 
   return (
     <>
@@ -94,7 +87,6 @@ export default function RegisterForm() {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-2.5 sm:space-y-3">
 
             <div className="mt-1">
-
               <FormField
                 control={form.control}
                 name="first_name"
@@ -105,17 +97,13 @@ export default function RegisterForm() {
                       <Input disabled={isPending}
                         type="first_name" placeholder="John" {...field} />
                     </FormControl>
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
             </div>
 
-
             <div className="mt-1">
-
               <FormField
                 control={form.control}
                 name="last_name"
@@ -126,17 +114,13 @@ export default function RegisterForm() {
                       <Input disabled={isPending}
                         type="last_name" placeholder="Doe" {...field} />
                     </FormControl>
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
             </div>
 
-
             <div className="mt-1">
-
               <FormField
                 control={form.control}
                 name="email"
@@ -147,50 +131,30 @@ export default function RegisterForm() {
                       <Input disabled={isPending}
                         type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
                     </FormControl>
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
             </div>
-
-            <div className="mt-1">
-
-
-
-
-
-            </div>
-
-
-
 
             <div className="flex flex-col space-y-1.5">
-
               <FormField
                 control={form.control}
                 name="phone_number"
                 render={({ field }) => (
-                  <FormItem >
+                  <FormItem>
                     <FormLabel className="font-semibold">Phone number</FormLabel>
                     <FormControl>
                       <PhoneInput
                         className="phone-input w-full"
                         {...field}
-
                         inputComponent={ShadIput}
-                      // inputComponent={React.forwardRef((ref) => <Input  type="tel" placeholder="Enter phone number"  {...field} />)}
                       />
                     </FormControl>
-
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-
             </div>
 
             <div className="flex flex-col space-y-1.5">
@@ -211,17 +175,14 @@ export default function RegisterForm() {
                           <div className="flex items-center gap-4 justify-between">
                             <span>Male</span>
                           </div>
-
                         </SelectItem>
                         <SelectItem value="FEMALE">
                           <div className="flex items-center gap-4 justify-between">
                             <span>Female</span>
                           </div>
                         </SelectItem>
-
                       </SelectContent>
                     </Select>
-
                     <FormMessage />
                   </FormItem>
                 )}
@@ -242,10 +203,7 @@ export default function RegisterForm() {
                   </FormItem>
                 )}
               />
-
             </div>
-
-
 
             <div className="mt-1">
               <FormField
@@ -261,11 +219,7 @@ export default function RegisterForm() {
                   </FormItem>
                 )}
               />
-
             </div>
-
-
-
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center">
@@ -287,9 +241,7 @@ export default function RegisterForm() {
               </div>
             </div>
 
-
             <FormError message={error} />
-
             <FormSuccess message={success} />
             <FormSuccess message={redirectNote} />
 
@@ -303,16 +255,9 @@ export default function RegisterForm() {
               </Button>
             </div>
           </form>
-          {/* {error && <div className="error-message">{error}</div>} */}
-          {/* <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Registering...' : 'Register'}
-          </button> */}
         </Form>
 
-
-
       </CardWrapper>
-      {/* <SignIn /> */}
     </>
   )
 }
