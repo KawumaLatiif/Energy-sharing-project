@@ -10,7 +10,7 @@ import { CheckCircle2 } from "lucide-react";
 export default function Home() {
   const pillars = [
     "No hidden service fees",
-    "MTN Mobile Money payments",
+    "Mobile telecom service provider payments",
     "ERA-compliant block tariffs",
     "Peer-to-peer unit sharing",
     "Statutory lending caps enforced",

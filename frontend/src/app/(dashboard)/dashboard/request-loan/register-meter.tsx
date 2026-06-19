@@ -10,8 +10,9 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { registerMeter } from "./register-meter/action";
-
-type Architecture = "STS" | "AMI";
+import MeterArchitecturePicker, {
+  type MeterArchitecture,
+} from "../_components/meter-architecture-picker";
 
 interface RegisterMeterProps {
   onSuccess?: () => void;
@@ -19,9 +20,10 @@ interface RegisterMeterProps {
 }
 
 export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps) {
-  const [architecture, setArchitecture] = useState<Architecture>("STS");
+  const [architecture, setArchitecture] = useState<MeterArchitecture>("STS");
   const [meterNo, setMeterNo] = useState("");
   const [staticIp, setStaticIp] = useState("");
+  const [label, setLabel] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
@@ -32,7 +34,7 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
       v
     );
 
-  const handleArchChange = (arch: Architecture) => {
+  const handleArchChange = (arch: MeterArchitecture) => {
     setArchitecture(arch);
     if (arch === "STS") setStaticIp("");
   };
@@ -53,10 +55,16 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
     setIsLoading(true);
     setMessage(null);
 
-    const payload: { meter_no: string; architecture: Architecture; static_ip?: string } = {
+    const payload: {
+      meter_no: string;
+      architecture: MeterArchitecture;
+      static_ip?: string;
+      label?: string;
+    } = {
       meter_no: meterNo.trim(),
       architecture,
     };
+    if (label.trim()) payload.label = label.trim();
     if (architecture === "AMI") {
       payload.static_ip = staticIp.trim();
     }
@@ -67,10 +75,11 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
       if (result.success) {
         setMessage({
           type: "success",
-          text: "Meter registered successfully! You can now apply for electricity loans.",
+          text: "Meter registered successfully! You can now apply for micro-electricity loans.",
         });
         setMeterNo("");
         setStaticIp("");
+        setLabel("");
         setArchitecture("STS");
 
         if (onSuccess) {
@@ -96,14 +105,15 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
     isValidMeterNumber(meterNo) && (architecture === "STS" || isValidIP(staticIp));
 
   return (
-    <Card className="w-full max-w-md mx-auto">
+    <Card className="w-full max-w-lg mx-auto">
       <CardHeader className="text-center">
         <div className="flex items-center justify-center w-16 h-16 bg-blue-100 rounded-full mb-4 mx-auto">
           <Zap className="h-8 w-8 text-blue-600" />
         </div>
         <CardTitle className="text-xl">Register Electricity Meter</CardTitle>
         <CardDescription>
-          Connect your meter to access electricity loans and track your consumption
+          Choose STS or AMI platform. You can add more meters later under the same login (e.g. rental
+          units).
         </CardDescription>
       </CardHeader>
 
@@ -134,31 +144,22 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
         )}
 
         <form onSubmit={handleSubmit} className="space-y-4">
+          <MeterArchitecturePicker
+            value={architecture}
+            onChange={handleArchChange}
+            disabled={isLoading}
+          />
+
           <div className="space-y-2">
-            <Label>
-              Meter Type <span className="text-destructive">*</span>
-            </Label>
-            <div className="grid grid-cols-2 gap-3">
-              {(["STS", "AMI"] as Architecture[]).map((arch) => (
-                <button
-                  key={arch}
-                  type="button"
-                  onClick={() => handleArchChange(arch)}
-                  disabled={isLoading}
-                  className={cn(
-                    "rounded-lg border-2 p-3 text-left transition-colors",
-                    architecture === arch
-                      ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
-                      : "border-border hover:border-blue-300"
-                  )}
-                >
-                  <div className="font-semibold text-sm">{arch}</div>
-                  <div className="text-xs text-muted-foreground mt-0.5">
-                    {arch === "STS" ? "Token keypad entry" : "Networked, auto-update"}
-                  </div>
-                </button>
-              ))}
-            </div>
+            <Label htmlFor="meterLabel">Unit label (optional)</Label>
+            <Input
+              id="meterLabel"
+              type="text"
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="e.g. Flat 2B, Shop front"
+              disabled={isLoading}
+            />
           </div>
 
           <div className="space-y-2">
@@ -211,7 +212,7 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
           <div className="text-xs text-muted-foreground space-y-1">
             <p>• Find your meter number on your electricity bill or meter display</p>
             {architecture === "AMI" && (
-              <p>• Contact your electricity provider for the static IP address</p>
+              <p>• Contact your Electricity Utility for the static IP address</p>
             )}
           </div>
 

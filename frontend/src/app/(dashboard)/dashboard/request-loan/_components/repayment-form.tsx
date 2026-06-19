@@ -236,7 +236,7 @@ export default function RepaymentForm({
             {/* Phone Input */}
             <div className="space-y-2">
               <label className="text-sm font-medium">
-                MTN Mobile Money Number
+                Mobile payment number
               </label>
               <Input
                 type="tel"
@@ -247,7 +247,7 @@ export default function RepaymentForm({
                 disabled={isProcessing && momoStatus === "pending"}
               />
               <p className="text-xs text-muted-foreground">
-                Enter your MTN Uganda number. You will receive a payment prompt.
+                Enter your mobile telecom service provider number. You will receive a payment prompt.
               </p>
             </div>
 

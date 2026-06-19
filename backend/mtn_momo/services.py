@@ -217,7 +217,7 @@ class MTNMoMoService:
                     'message': 'Payment request submitted successfully',
                     'external_id': external_id,
                     'reference_id': self.reference_id,
-                    'user_prompt': 'Check your phone now. Enter your MTN MoMo PIN to complete the payment.'  # For frontend
+                    'user_prompt': 'Check your phone now. Enter your mobile money PIN to complete the payment.'
                 }
             else:
                 logger.error(f"Payment request failed: {response.status_code} - {response.text}")

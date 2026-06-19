@@ -44,8 +44,9 @@ import { usePathname } from "next/navigation";
 import { ModeToggle } from "@/components/theme-toggle";
 import { Skeleton } from "@/components/ui/skeleton";
 import { IconMoneybag } from "@tabler/icons-react";
-import { useState } from "react";
+import { useSelectedMeter } from "./selected-meter-context";
 import { Zap, Settings, LogOut } from "lucide-react";
+import { useState } from "react";
 
 interface RightHeaderProps {
   onProfileClick?: () => void;
@@ -55,6 +56,10 @@ interface RightHeaderProps {
 export default function RightHeader({ onProfileClick, onMeterClick }: RightHeaderProps) {
   const pathname = usePathname();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const { meters, selectedMeter } = useSelectedMeter();
+  const hasStsMeter = meters.some((m) => m.architecture === "STS");
+  const selectedIsSts = selectedMeter?.architecture === "STS";
+  const showTokensNav = hasStsMeter && (meters.length < 2 || selectedIsSts);
 
   const handleProfileClick = () => {
     if (onProfileClick) {
@@ -122,16 +127,18 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
               <ArrowRight className="h-4 w-4" />
               Transfer Units
             </Link> */}
+            {showTokensNav && (
             <Link
               href="/dashboard/tokens"
               className={cn(
                 "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/withdraw" }
+                { "bg-muted text-primary": pathname === "/dashboard/tokens" }
               )}
             >
               <ArrowUpRight className="h-4 w-4" />
-              Tokens
+              STS Tokens
             </Link>
+            )}
             <Link
               href="/dashboard/request-loan"
               className={cn(
@@ -143,7 +150,7 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
               )}
             >
               <IconMoneybag className="h-4 w-4" />
-              Request Loan
+              Micro-Electricity Loans
             </Link>
 
             <Link

@@ -402,7 +402,7 @@ export default function BuyUnitsForm() {
               ...(estimate
                 ? buildEstimateRows(estimate, Number(amount))
                 : [{ label: "Payment amount", value: formatUGX(Number(amount)) }]),
-              { label: "Payment Method", value: "MTN Mobile Money" },
+              { label: "Payment Method", value: "Mobile telecom service provider" },
               { label: "Phone", value: phone || "—" },
             ]}
             totalLabel="You Pay"
@@ -558,7 +558,7 @@ export default function BuyUnitsForm() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel className="font-semibold text-foreground">
-                        MTN Mobile Money Number
+                        Mobile payment number
                       </FormLabel>
                       <FormControl>
                         <PhoneInput
