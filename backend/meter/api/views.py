@@ -163,13 +163,28 @@ def update_meter(request):
         user = request.user
         data = request.data
         
-        # Get user's meter
-        try:
-            meter = Meter.objects.get(user=user)
-        except Meter.DoesNotExist:
+        # Identify which meter to update (supports multiple meters per account)
+        current_meter_no = data.get('current_meter_no') or data.get('original_meter_no')
+        user_meters = Meter.objects.filter(user=user)
+
+        if current_meter_no:
+            try:
+                meter = user_meters.get(meter_no=current_meter_no)
+            except Meter.DoesNotExist:
+                return Response(
+                    {"error": "Meter not found on your account"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        elif user_meters.count() == 1:
+            meter = user_meters.first()
+        else:
             return Response(
-                {"error": "No meter found to update"},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    "success": False,
+                    "error": "Meter Required",
+                    "message": "Specify which meter to update using current_meter_no.",
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Validate meter number uniqueness (excluding current meter)
@@ -216,18 +231,6 @@ class MeterRegisterView(generics.CreateAPIView):
 
     def create(self, request, *args, **kwargs):
         try:
-            # Allow one STS and one AMI per user; block duplicate architecture only.
-            arch = request.data.get('architecture', Meter.ARCH_STS)
-            if Meter.objects.filter(user=request.user, architecture=arch).exists():
-                return Response(
-                    {
-                        "success": False,
-                        "error": "Meter Already Registered",
-                        "message": f"You already have a registered {arch} meter. Each account can have one STS and one AMI meter."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
 

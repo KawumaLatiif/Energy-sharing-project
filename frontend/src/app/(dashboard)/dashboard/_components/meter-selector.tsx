@@ -17,7 +17,7 @@ interface MeterSelectorProps {
   showWhenSingle?: boolean;
 }
 
-export default function MeterSelector({ className, showWhenSingle = false }: MeterSelectorProps) {
+export default function MeterSelector({ className, showWhenSingle = true }: MeterSelectorProps) {
   const { meters, selectedMeter, setSelectedMeterNo, isLoading } = useSelectedMeter();
 
   if (isLoading || meters.length === 0) return null;
@@ -43,6 +43,9 @@ export default function MeterSelector({ className, showWhenSingle = false }: Met
                   <Zap className="h-3.5 w-3.5 text-amber-500" />
                 )}
                 <span className="font-mono">{m.meter_number}</span>
+                {m.label && m.label !== "Home" && (
+                  <span className="text-muted-foreground">— {m.label}</span>
+                )}
                 <span className="text-muted-foreground">({m.architecture})</span>
               </span>
             </SelectItem>

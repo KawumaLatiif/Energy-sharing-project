@@ -21,6 +21,7 @@ import { z } from "zod";
 import { ResetPasswordSchema } from "@/lib/schema";
 import CardWrapper from "@/components/common/card-wrapper";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { Eye, EyeOff } from "lucide-react";
 
 type ResetPasswordFormData = z.infer<typeof ResetPasswordSchema>;
 
@@ -36,6 +37,8 @@ export default function ResetPasswordForm({
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isValidating, setIsValidating] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
 
   const form = useForm<ResetPasswordFormData>({
@@ -103,10 +106,13 @@ export default function ResetPasswordForm({
   }
 
   return (
-    <CardWrapper title="Reset Password" variant="auth">
-      {" "}
+    <CardWrapper
+      title="Reset Password"
+      subtitle="Choose a new password. You can paste the same value into both fields to confirm."
+      variant="auth"
+    >
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-5">
           <FormField
             control={form.control}
             name="password"
@@ -114,11 +120,31 @@ export default function ResetPasswordForm({
               <FormItem>
                 <FormLabel>New Password</FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
-                    disabled={isPending || !isValid}
-                    {...field}
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      placeholder="Enter new password"
+                      className="pr-10"
+                      disabled={isPending || !isValid}
+                      {...field}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -131,12 +157,35 @@ export default function ResetPasswordForm({
               <FormItem>
                 <FormLabel>Confirm Password</FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
-                    disabled={isPending || !isValid}
-                    {...field}
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? "text" : "password"}
+                      autoComplete="off"
+                      placeholder="Re-enter new password"
+                      className="pr-10"
+                      disabled={isPending || !isValid}
+                      {...field}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      tabIndex={-1}
+                      aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
                 </FormControl>
+                <p className="text-xs text-muted-foreground">
+                  Copy and paste from New Password is supported here.
+                </p>
                 <FormMessage />
               </FormItem>
             )}

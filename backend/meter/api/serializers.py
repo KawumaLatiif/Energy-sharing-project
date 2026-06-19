@@ -9,10 +9,11 @@ from meter.models import Meter
 class MeterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Meter
-        fields = ["meter_no", "static_ip", "units", "architecture"]
+        fields = ["meter_no", "static_ip", "units", "architecture", "label"]
         extra_kwargs = {
             "units": {"read_only": True},
             "static_ip": {"required": False, "allow_null": True, "allow_blank": True},
+            "label": {"required": False, "allow_blank": True},
         }
 
     def validate(self, data):

@@ -1,0 +1,75 @@
+"use client";
+
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import {
+  ArrowUpRight,
+  FileTextIcon,
+  Forward,
+  Home,
+  PlusCircleIcon,
+} from "lucide-react";
+import { PersonIcon } from "@radix-ui/react-icons";
+import { IconMoneybag } from "@tabler/icons-react";
+import { cn } from "@/lib/utils";
+import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+
+export default function DashboardNavLinks({ className }: { className?: string }) {
+  const pathname = usePathname();
+  const { meters, selectedMeter } = useSelectedMeter();
+
+  const hasStsMeter = meters.some((m) => m.architecture === "STS");
+  const selectedIsSts = selectedMeter?.architecture === "STS";
+  const showTokensNav = hasStsMeter && (meters.length < 2 || selectedIsSts);
+
+  const linkClass = (active: boolean) =>
+    cn(
+      "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+      { "bg-muted text-primary": active }
+    );
+
+  return (
+    <nav className={cn("grid items-start px-2 text-sm font-medium lg:px-4", className)}>
+      <Link href="/dashboard" className={linkClass(pathname === "/dashboard")}>
+        <Home className="h-4 w-4" />
+        Dashboard
+      </Link>
+      <Link href="/dashboard/buy-units" className={linkClass(pathname === "/dashboard/buy-units")}>
+        <PlusCircleIcon className="h-4 w-4" />
+        Buy Units
+      </Link>
+      <Link href="/dashboard/share" className={linkClass(pathname === "/dashboard/share")}>
+        <Forward className="h-4 w-4" />
+        Share Units
+      </Link>
+      {showTokensNav && (
+        <Link href="/dashboard/tokens" className={linkClass(pathname === "/dashboard/tokens")}>
+          <ArrowUpRight className="h-4 w-4" />
+          STS Tokens
+        </Link>
+      )}
+      <Link
+        href="/dashboard/request-loan"
+        className={linkClass(pathname === "/dashboard/request-loan")}
+      >
+        <IconMoneybag className="h-4 w-4" />
+        Micro-Electricity Loans
+      </Link>
+      <Link href="/dashboard/myloans" className={linkClass(pathname === "/dashboard/myloans")}>
+        <FileTextIcon className="h-4 w-4" />
+        My Loans
+      </Link>
+      <Link
+        href="/dashboard/transactions"
+        className={linkClass(pathname === "/dashboard/transactions")}
+      >
+        <Forward className="h-4 w-4" />
+        Transactions
+      </Link>
+      <Link href="/dashboard/myaccount" className={linkClass(pathname === "/dashboard/myaccount")}>
+        <PersonIcon className="h-4 w-4" />
+        My Account
+      </Link>
+    </nav>
+  );
+}

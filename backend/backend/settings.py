@@ -127,7 +127,7 @@ MIDDLEWARE = [
 # Staff admin session: 30 minutes of inactivity expires access (spec Section 1.3)
 STAFF_SESSION_INACTIVITY_MINUTES = 30
 # 2FA settings
-TOTP_ISSUER_NAME = 'Gpawa Admin'
+TOTP_ISSUER_NAME = 'gPawa Admin'
 
 # =============================
 # AMI Gateway

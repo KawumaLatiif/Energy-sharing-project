@@ -25,7 +25,7 @@ const STEPS = [
 
 const PURPOSE_OPTIONS = [
   { label: "Energy Recharge", value: "ENERGY_RECHARGE" },
-  { label: "UEDCL Arrears", value: "UEDCL_ARREARS" },
+  { label: "Electricity Utility Arrears", value: "UEDCL_ARREARS" },
   { label: "Business", value: "BUSINESS" },
   { label: "Personal", value: "PERSONAL" },
 ];
@@ -278,7 +278,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
           <div className="rounded-xl border border-border p-4 space-y-2 text-sm text-muted-foreground bg-muted/30">
             <p>1. <strong>Interest:</strong> {monthlyRate}% per month ({annualRate}% per annum) on the principal sum, applied pro-rata over {tenure} month{tenure > 1 ? "s" : ""}.</p>
             <p>2. <strong>Fees:</strong> {(PROCESSING_FEE_PCT * 100).toFixed(0)}% processing fee on principal, charged once at disbursement.</p>
-            <p>3. <strong>Arrears:</strong> UEDCL arrears are prioritised during disbursement (if purpose selected).</p>
+            <p>3. <strong>Arrears:</strong> Electricity Utility arrears are prioritised during disbursement (if purpose selected).</p>
             <p>4. <strong>Late payments:</strong> A 0.1% per day penalty applies on overdue principal. Total charges (interest + penalties + fees) will never exceed 100% of the principal — as required by Uganda&apos;s Tier 4 Microfinance Institutions Act.</p>
             <p>5. <strong>Data:</strong> Your repayment history may be shared with licensed Credit Reference Bureaus (gnuGrid, Metropol, Creditinfo, Armada) in future.</p>
           </div>

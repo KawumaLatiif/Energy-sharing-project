@@ -10,8 +10,9 @@ import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { post } from "@/lib/fetch";
 import { getApiErrorMessage } from "@/lib/api-response";
-
-type Architecture = "STS" | "AMI";
+import MeterArchitecturePicker, {
+  type MeterArchitecture,
+} from "./meter-architecture-picker";
 
 interface MeterRegistrationPopupProps {
   isOpen: boolean;
@@ -26,9 +27,10 @@ export default function MeterRegistrationPopup({
   onSuccess,
   forceCompletion = false,
 }: MeterRegistrationPopupProps) {
-  const [architecture, setArchitecture] = useState<Architecture>("STS");
+  const [architecture, setArchitecture] = useState<MeterArchitecture>("STS");
   const [meterNo, setMeterNo] = useState("");
   const [staticIp, setStaticIp] = useState("");
+  const [label, setLabel] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -36,7 +38,7 @@ export default function MeterRegistrationPopup({
   const isValidIP = (v: string) =>
     /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v);
 
-  const handleArchChange = (arch: Architecture) => {
+  const handleArchChange = (arch: MeterArchitecture) => {
     setArchitecture(arch);
     if (arch === "STS") setStaticIp("");
   };
@@ -82,6 +84,7 @@ export default function MeterRegistrationPopup({
       meter_no: meterNo.trim(),
       architecture,
     };
+    if (label.trim()) payload.label = label.trim();
     if (architecture === "AMI") {
       payload.static_ip = staticIp.trim();
     }
@@ -108,8 +111,8 @@ export default function MeterRegistrationPopup({
     (architecture === "STS" || isValidIP(staticIp));
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <Card className="w-full max-w-md relative">
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+      <Card className="w-full max-w-lg relative my-4">
         {!forceCompletion && (
           <Button
             variant="ghost"
@@ -131,8 +134,8 @@ export default function MeterRegistrationPopup({
           </CardTitle>
           <CardDescription>
             {forceCompletion
-              ? "You need to register your meter to continue"
-              : "Complete your profile to access electricity services"}
+              ? "Choose STS or AMI, then add your first meter. You can register more meters later (e.g. rental units) under the same login."
+              : "One account can manage multiple meters and sub-meters — ideal for landlords with several rental units."}
           </CardDescription>
         </CardHeader>
 
@@ -159,33 +162,24 @@ export default function MeterRegistrationPopup({
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
-            {/* 1. Architecture — first field */}
+            <MeterArchitecturePicker
+              value={architecture}
+              onChange={handleArchChange}
+              disabled={isLoading}
+            />
+
             <div className="space-y-2">
-              <Label>Meter Type <span className="text-destructive">*</span></Label>
-              <div className="grid grid-cols-2 gap-3">
-                {(["STS", "AMI"] as Architecture[]).map((arch) => (
-                  <button
-                    key={arch}
-                    type="button"
-                    onClick={() => handleArchChange(arch)}
-                    disabled={isLoading}
-                    className={cn(
-                      "rounded-lg border-2 p-3 text-left transition-colors",
-                      architecture === arch
-                        ? "border-blue-500 bg-blue-50 dark:bg-blue-950"
-                        : "border-border hover:border-blue-300"
-                    )}
-                  >
-                    <div className="font-semibold text-sm">{arch}</div>
-                    <div className="text-xs text-muted-foreground mt-0.5">
-                      {arch === "STS" ? "Token keypad entry" : "Networked, auto-update"}
-                    </div>
-                  </button>
-                ))}
-              </div>
+              <Label htmlFor="meterLabel">Unit label (optional)</Label>
+              <Input
+                id="meterLabel"
+                type="text"
+                value={label}
+                onChange={(e) => setLabel(e.target.value)}
+                placeholder="e.g. Flat 2B, Shop front"
+                disabled={isLoading}
+              />
             </div>
 
-            {/* 2. Meter Number */}
             <div className="space-y-2">
               <Label htmlFor="meterNo">
                 Meter Number <span className="text-destructive">*</span>
@@ -208,7 +202,6 @@ export default function MeterRegistrationPopup({
               )}
             </div>
 
-            {/* 3. IP Address — AMI only */}
             {architecture === "AMI" && (
               <div className="space-y-2">
                 <Label htmlFor="staticIp">
@@ -235,7 +228,7 @@ export default function MeterRegistrationPopup({
             <div className="text-xs text-muted-foreground space-y-1">
               <p>• Find your meter number on your electricity bill or the meter display</p>
               {architecture === "AMI" && (
-                <p>• Contact your electricity provider for the static IP address</p>
+                <p>• Contact your Electricity Utility for the static IP address</p>
               )}
             </div>
 

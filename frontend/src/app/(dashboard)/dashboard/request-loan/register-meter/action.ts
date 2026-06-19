@@ -7,6 +7,7 @@ export async function registerMeter(formData: {
   meter_no: string;
   architecture: "STS" | "AMI";
   static_ip?: string;
+  label?: string;
 }) {
     try {
         const response = await post<any>('meter/register/', formData);

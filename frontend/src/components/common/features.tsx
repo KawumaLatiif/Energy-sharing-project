@@ -15,7 +15,7 @@ export default function Features() {
     {
       icon: BoltIcon,
       title: "Instant STS Token Delivery",
-      desc: "Purchase prepaid tokens via MTN Mobile Money in seconds. Tokens conform to IEC 62055-41 and work on compatible UEDCL meters.",
+      desc: "Purchase prepaid tokens via your mobile telecom service provider in seconds. Tokens conform to IEC 62055-41 and work on compatible Electricity Utility meters.",
     },
     {
       icon: ChartBarIcon,
@@ -24,8 +24,8 @@ export default function Features() {
     },
     {
       icon: CheckCircleIcon,
-      title: "Compliant Micro-Finance",
-      desc: "gPawa credit engine offers instant micro-loans capped at Uganda's statutory 2.8% per month, with no paperwork or branch visit.",
+      title: "Micro-Electricity Loans",
+      desc: "gPawa credit engine offers instant micro-electricity loans capped at Uganda's statutory 2.8% per month, with no paperwork or branch visit.",
     },
   ];
 
