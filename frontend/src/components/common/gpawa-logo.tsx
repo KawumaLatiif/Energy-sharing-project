@@ -4,7 +4,14 @@ import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 
+/** Real logo mark from logo.jpeg — transparent PNG, works in light & dark mode */
 const LOGO_MARK_SRC = "/gpawa-logo-mark.png";
+
+export const LOGO_SIZES = {
+  header: { logoSize: 44, textSize: "xl" as const },
+  sidebar: { logoSize: 40, textSize: "lg" as const },
+  compact: { logoSize: 36, textSize: "base" as const },
+} as const;
 
 interface LogoMarkProps {
   size?: number;
@@ -31,6 +38,8 @@ interface LogoProps {
   showText?: boolean;
   logoSize?: number;
   className?: string;
+  /** Shown beside the mark when showText is false (e.g. admin "Administrator") */
+  suffix?: string;
 }
 
 export function GpawaLogo({
@@ -39,6 +48,7 @@ export function GpawaLogo({
   showText = true,
   logoSize = 36,
   className,
+  suffix,
 }: LogoProps) {
   const textClass = {
     sm: "text-sm",
@@ -51,10 +61,23 @@ export function GpawaLogo({
     <span className={cn("flex items-center gap-2.5", className)}>
       <GpawaLogoMark size={logoSize} />
       {showText && (
-        <span className={cn("font-bold tracking-tight", textClass)}>
+        <span
+          className={cn(
+            "font-bold tracking-tight font-[family-name:var(--font-display)]",
+            textClass
+          )}
+        >
           <span className="text-blue-600 dark:text-blue-400">g</span>
           <span className="text-gray-900 dark:text-white">Pawa</span>
         </span>
+      )}
+      {!showText && suffix && (
+        <span className={cn("font-semibold text-foreground", textClass)}>
+          {suffix}
+        </span>
+      )}
+      {showText && suffix && (
+        <span className="text-sm font-medium text-muted-foreground">{suffix}</span>
       )}
     </span>
   );

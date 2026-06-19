@@ -1,32 +1,13 @@
 "use client";
 
 import {
-  ArrowRight,
-  ArrowUpRight,
   CircleUser,
   FileTextIcon,
-  Forward,
-  Home,
-  LineChart,
-  Menu,
-  Package,
-  Package2,
-  PlusCircleIcon,
-  Search,
-  ShoppingCart,
   Smartphone,
-  Users,
   User,
 } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -35,17 +16,15 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import logout from "../logout";
-import { GpawaLogo } from "@/components/common/gpawa-logo";
+import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import { ModeToggle } from "@/components/theme-toggle";
-import { Skeleton } from "@/components/ui/skeleton";
 import { IconMoneybag } from "@tabler/icons-react";
-import { useSelectedMeter } from "./selected-meter-context";
-import { Zap, Settings, LogOut } from "lucide-react";
+import DashboardNavLinks from "@/components/dashboard/dashboard-nav-links";
+import { Zap, Settings, LogOut, Menu } from "lucide-react";
 import { useState } from "react";
 
 interface RightHeaderProps {
@@ -56,10 +35,6 @@ interface RightHeaderProps {
 export default function RightHeader({ onProfileClick, onMeterClick }: RightHeaderProps) {
   const pathname = usePathname();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
-  const { meters, selectedMeter } = useSelectedMeter();
-  const hasStsMeter = meters.some((m) => m.architecture === "STS");
-  const selectedIsSts = selectedMeter?.architecture === "STS";
-  const showTokensNav = hasStsMeter && (meters.length < 2 || selectedIsSts);
 
   const handleProfileClick = () => {
     if (onProfileClick) {
@@ -86,100 +61,12 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
         </SheetTrigger>
         <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
           <nav className="grid gap-2 text-lg font-medium">
-            <GpawaLogo href="/" textSize="lg" logoSize={40} />
-            <Link
-              href="/dashboard"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard" }
-              )}
-            >
-              <Home className="h-4 w-4" />
-              Dashboard
-            </Link>
-            <Link
-              href="/dashboard/buy-units"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/deposit" }
-              )}
-            >
-              <PlusCircleIcon className="h-4 w-4" />
-              Buy Units
-            </Link>
-            <Link
-              href="/dashboard/share"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/share" }
-              )}
-            >
-              <Forward className="h-4 w-4" />
-              Share Units
-            </Link>            
-            {/* <Link
-              href="/dashboard/transfering"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/transfering" }
-              )}
-            >
-              <ArrowRight className="h-4 w-4" />
-              Transfer Units
-            </Link> */}
-            {showTokensNav && (
-            <Link
-              href="/dashboard/tokens"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/tokens" }
-              )}
-            >
-              <ArrowUpRight className="h-4 w-4" />
-              STS Tokens
-            </Link>
-            )}
-            <Link
-              href="/dashboard/request-loan"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                {
-                  "bg-muted text-primary":
-                    pathname === "/dashboard/request-loan",
-                }
-              )}
-            >
-              <IconMoneybag className="h-4 w-4" />
-              Micro-Electricity Loans
-            </Link>
-
-            <Link
-              href="/dashboard/myloans"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/myloans" }
-              )}
-            >
-              <FileTextIcon className="h-4 w-4" />
-              My Loans
-            </Link>
-            <Link
-              href={`/dashboard/transactions`}
-              className={cn("flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary", { "bg-muted text-primary": pathname === "/dashboard/transactions" })}
-            >
-              <Forward className="h-4 w-4" />
-              Transaction
-            </Link>
-            <Link
-              href={`/dashboard/myaccount`}
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/dashboard/myaccount" }
-              )}
-            >
-              <Forward className="h-4 w-4" />
-              My Account
-            </Link>
+            <GpawaLogo
+              href="/"
+              textSize={LOGO_SIZES.sidebar.textSize}
+              logoSize={LOGO_SIZES.sidebar.logoSize}
+            />
+            <DashboardNavLinks className="text-base" />
             <Link
               href="/ussd-simulator"
               className={cn(
@@ -193,23 +80,10 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
           </nav>
         </SheetContent>
       </Sheet>
-      
+
       <div className="flex items-center gap-3">
-        {/* Profile Management Button (visible on desktop) */}
-        {/* {onProfileClick && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleProfileClick}
-            className="hidden md:flex items-center gap-2"
-          >
-            <User className="h-4 w-4" />
-            Manage Profile
-          </Button>
-        )} */}
-        
         <ModeToggle />
-        
+
         <DropdownMenu open={isProfileMenuOpen} onOpenChange={setIsProfileMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button variant="secondary" size="icon" className="rounded-full">
@@ -220,39 +94,37 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel>My Account</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            
-            {/* Profile Management Option */}
+
             {onProfileClick && (
               <DropdownMenuItem onClick={handleProfileClick}>
                 <User className="h-4 w-4 mr-2" />
                 Manage Profile
               </DropdownMenuItem>
             )}
-            
-            {/* Meter Management Option */}
+
             {onMeterClick && (
               <DropdownMenuItem onClick={handleMeterClick}>
                 <Zap className="h-4 w-4 mr-2" />
                 Manage Meter
               </DropdownMenuItem>
             )}
-            
+
             <DropdownMenuItem asChild>
               <Link href="/dashboard/myaccount">
                 <Settings className="h-4 w-4 mr-2" />
                 Account Settings
               </Link>
             </DropdownMenuItem>
-            
+
             <DropdownMenuSeparator />
-            
+
             <DropdownMenuItem asChild>
               <Link href="/dashboard/transactions">
                 <FileTextIcon className="h-4 w-4 mr-2" />
                 Transaction History
               </Link>
             </DropdownMenuItem>
-            
+
             <DropdownMenuItem asChild>
               <Link href="/dashboard/myloans">
                 <IconMoneybag className="h-4 w-4 mr-2" />
@@ -266,9 +138,9 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
                 USSD Simulator
               </Link>
             </DropdownMenuItem>
-            
+
             <DropdownMenuSeparator />
-            
+
             <DropdownMenuItem asChild>
               <span
                 onClick={async () => {

@@ -26,7 +26,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
-import { GpawaLogoMark } from "@/components/common/gpawa-logo";
+import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -54,10 +54,13 @@ export default function AdminRightHeader() {
         </SheetTrigger>
         <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
           <nav className="grid gap-2 text-lg font-medium">
-            <Link href="/" className="flex items-center gap-2 font-semibold">
-              <GpawaLogoMark size={40} />
-              <span>Administrator</span>
-            </Link>
+            <GpawaLogo
+              href="/"
+              showText={false}
+              suffix="Administrator"
+              textSize={LOGO_SIZES.sidebar.textSize}
+              logoSize={LOGO_SIZES.sidebar.logoSize}
+            />
             <Link
               href="/admin/dashboard"
               className={cn(

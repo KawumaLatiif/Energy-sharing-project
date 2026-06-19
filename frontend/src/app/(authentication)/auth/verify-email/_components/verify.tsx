@@ -6,7 +6,7 @@ import { CheckCircle2, XCircle, Loader2, Mail } from 'lucide-react';
 import { verifyEmail } from '../../../../ck/verify/email/verify';
 import { resendVerificationEmail } from '../../resend';
 import { Button } from '@/components/ui/button';
-import { GpawaLogo } from '@/components/common/gpawa-logo';
+import { GpawaLogo, LOGO_SIZES } from '@/components/common/gpawa-logo';
 
 const asString = (value: string | string[] | undefined): string | undefined =>
   typeof value === 'string' ? value : undefined;
@@ -80,7 +80,12 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: { uid?: 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 dark:bg-slate-950 px-4">
       <div className="w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-xl border border-gray-200/80 dark:border-slate-800 p-8 space-y-6 text-center">
-        <GpawaLogo href="/" textSize="xl" logoSize={44} className="justify-center" />
+        <GpawaLogo
+          href="/"
+          textSize={LOGO_SIZES.header.textSize}
+          logoSize={LOGO_SIZES.header.logoSize}
+          className="justify-center"
+        />
 
         <h1 className="text-xl font-bold text-gray-900 dark:text-white">Email Verification</h1>
 

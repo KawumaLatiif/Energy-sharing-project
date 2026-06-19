@@ -6,7 +6,7 @@ import Spinner from "@/components/common/spinner";
 import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
-import { GpawaLogo } from "@/components/common/gpawa-logo";
+import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { ModeToggle } from "../theme-toggle";
 import { motion } from "framer-motion";
 
@@ -25,7 +25,11 @@ export default function PublicHeader() {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-16 items-center justify-between">
               <div className="flex items-center">
-                <GpawaLogo href="/" textSize="xl" logoSize={44} />
+                <GpawaLogo
+                  href="/"
+                  textSize={LOGO_SIZES.header.textSize}
+                  logoSize={LOGO_SIZES.header.logoSize}
+                />
               </div>
               <div className="hidden md:block">
                 <div className="ml-10 flex items-baseline space-x-4">
