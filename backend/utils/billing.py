@@ -137,7 +137,10 @@ def get_outstanding_deductions(user) -> Decimal:
 # Internal helpers
 # ---------------------------------------------------------------------------
 
-def _service_charge(tariff) -> Decimal:
+def _service_charge(tariff, user=None, month_date: Optional[date] = None) -> Decimal:
+    """Monthly service fee — charged once on the first purchase of each calendar month."""
+    if user is not None and get_monthly_units_consumed(user, month_date) > 0:
+        return Decimal("0")
     if tariff and tariff.service_charge and tariff.service_charge > 0:
         return Decimal(str(tariff.service_charge))
     return DEFAULT_SERVICE_CHARGE
@@ -224,7 +227,7 @@ def calculate_bill_for_units(
     if tariff is None:
         tariff = get_active_domestic_tariff(month_date)
 
-    service = _service_charge(tariff)
+    service = _service_charge(tariff, user, month_date)
     subtotal = energy_cost + service
     vat = (subtotal * VAT_RATE).quantize(Decimal("0.01"))
     total = subtotal + vat
@@ -292,7 +295,24 @@ def calculate_units_from_payment(
     best_breakdown.energy_units = best_units.quantize(Decimal("0.01"))
     best_breakdown.amount_deducted = deductions
     best_breakdown.net_payment = net
+    if best_units <= 0:
+        # Surface fixed charges so the UI can explain why small payments yield 0 kWh.
+        min_bill = calculate_bill_for_units(Decimal("0.01"), user, tariff, month_date)
+        best_breakdown.service_charge = min_bill.service_charge
+        best_breakdown.vat = min_bill.vat
+        best_breakdown.subtotal = min_bill.subtotal
+        best_breakdown.total = min_bill.total
     return best_units.quantize(Decimal("0.01")), best_breakdown
+
+
+def get_minimum_payment_for_units(
+    user,
+    tariff=None,
+    month_date: Optional[date] = None,
+) -> Decimal:
+    """Lowest UGX payment that yields any energy under ERA billing rules."""
+    bill = calculate_bill_for_units(Decimal("0.01"), user, tariff, month_date)
+    return bill.total.quantize(Decimal("0.01"))
 
 
 # Backwards-compatible aliases used by older call sites

@@ -54,6 +54,9 @@ interface UnitEstimate {
   service_charge?: number;
   vat?: number;
   total_bill?: number;
+  insufficient_amount?: boolean;
+  minimum_payment?: number;
+  service_charge_included?: boolean;
 }
 
 function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
@@ -72,8 +75,13 @@ function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
   if (estimate.energy_cost != null) {
     rows.push({ label: "Energy charge", value: formatUGX(estimate.energy_cost) });
   }
-  if (estimate.service_charge != null) {
-    rows.push({ label: "Service charge", value: formatUGX(estimate.service_charge) });
+  if (estimate.service_charge != null && estimate.service_charge > 0) {
+    rows.push({
+      label: estimate.service_charge_included
+        ? "Service charge (monthly)"
+        : "Service charge",
+      value: formatUGX(estimate.service_charge),
+    });
   }
   if (estimate.vat != null) {
     rows.push({ label: "VAT (18%)", value: formatUGX(estimate.vat) });
@@ -513,20 +521,35 @@ export default function BuyUnitsForm() {
 
                 {/* Live estimate */}
                 {(estimating || estimate != null) && Number(amount) >= 100 && (
-                  <BreakdownCard
-                    rows={
-                      estimate
-                        ? buildEstimateRows(estimate, Number(amount))
-                        : [{ label: "Payment amount", value: formatUGX(Number(amount)) }]
-                    }
-                    totalLabel="You Get"
-                    totalValue={estimating ? "…" : `${estimate?.estimated_units ?? 0} kWh`}
-                    subline={
-                      estimate?.tariff
-                        ? `ERA domestic tariff (${estimate.tariff}) — tiered blocks incl. service & VAT`
-                        : "Based on ERA domestic tariff (Code 10.1)"
-                    }
-                  />
+                  <div className="space-y-2">
+                    <BreakdownCard
+                      rows={
+                        estimate
+                          ? buildEstimateRows(estimate, Number(amount))
+                          : [{ label: "Payment amount", value: formatUGX(Number(amount)) }]
+                      }
+                      totalLabel="You Get"
+                      totalValue={estimating ? "…" : `${estimate?.estimated_units ?? 0} kWh`}
+                      subline={
+                        estimate?.tariff
+                          ? `ERA domestic tariff (${estimate.tariff}) — tiered blocks incl. service & VAT`
+                          : "Based on ERA domestic tariff (Code 10.1)"
+                      }
+                    />
+                    {!estimating &&
+                      estimate?.insufficient_amount &&
+                      estimate.minimum_payment != null && (
+                        <p className="text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                          {estimate.service_charge_included
+                            ? `Your first purchase this month includes a fixed service charge and VAT. `
+                            : ``}
+                          Enter at least{" "}
+                          <strong>{formatUGX(Math.ceil(estimate.minimum_payment))}</strong> to
+                          receive any units. STS mode uses the same ERA tariff — only the
+                          token delivery method differs.
+                        </p>
+                      )}
+                  </div>
                 )}
 
                 <FormField

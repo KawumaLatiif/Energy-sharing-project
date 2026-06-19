@@ -1348,8 +1348,15 @@ class ResetPasswordAPIView(GenericAPIView):
         serializer = self.serializer_class(data=data)
         serializer.is_valid(raise_exception=True)
 
-        user.set_password(data.get("password"))
+        user.set_password(serializer.validated_data["password"])
         user.save()
+
+        profile = user.profile
+        if not profile.email_verified:
+            profile.email_verified = True
+            profile.save()
+            handle_post_email_verification(user)
+
         logger.info(
             f"[RESET PASSWORD] User {user.id} password reset successfully!"
         )

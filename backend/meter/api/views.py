@@ -1178,7 +1178,9 @@ class EstimateUnitsView(APIView):
         from utils.billing import (
             calculate_units_from_payment,
             get_active_domestic_tariff,
+            get_minimum_payment_for_units,
             get_outstanding_deductions,
+            get_monthly_units_consumed,
         )
 
         deductions = get_outstanding_deductions(request.user)
@@ -1191,6 +1193,8 @@ class EstimateUnitsView(APIView):
             outstanding_bills=deductions,
             apply_deductions=False,
         )
+        minimum_payment = get_minimum_payment_for_units(request.user, tariff)
+        service_included = get_monthly_units_consumed(request.user) <= 0
 
         return Response({
             "estimated_units": float(units),
@@ -1202,4 +1206,7 @@ class EstimateUnitsView(APIView):
             "vat": float(breakdown.vat),
             "energy_cost": float(breakdown.energy_cost),
             "total_bill": float(breakdown.total),
+            "insufficient_amount": float(units) <= 0 and float(net_amount) > 0,
+            "minimum_payment": float(minimum_payment),
+            "service_charge_included": service_included,
         })

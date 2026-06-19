@@ -4,9 +4,9 @@ import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
 import { useState } from "react";
 import Spinner from "@/components/common/spinner";
 import { Button } from "@/components/ui/button";
-import Image from "next/image";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
+import { GpawaLogo } from "@/components/common/gpawa-logo";
 import { ModeToggle } from "../theme-toggle";
 import { motion } from "framer-motion";
 
@@ -25,19 +25,7 @@ export default function PublicHeader() {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex h-16 items-center justify-between">
               <div className="flex items-center">
-                <Link href="/" className="flex items-center space-x-2">
-                  <Image
-                    src="/gpawa-mark-tight.png"
-                    width={52}
-                    height={52}
-                    alt="gPawa"
-                    className="h-9 w-9 object-contain sm:h-11 sm:w-11"
-                  />
-                  <span className="text-xl font-bold tracking-tight text-gray-900 dark:text-white sm:text-2xl">
-                    <span className="text-blue-600">g</span>
-                    <span>Pawa</span>
-                  </span>
-                </Link>
+                <GpawaLogo href="/" textSize="xl" logoSize={44} />
               </div>
               <div className="hidden md:block">
                 <div className="ml-10 flex items-baseline space-x-4">

@@ -1,7 +1,10 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+
+const LOGO_MARK_SRC = "/gpawa-logo-mark.png";
 
 interface LogoMarkProps {
   size?: number;
@@ -9,30 +12,16 @@ interface LogoMarkProps {
 }
 
 export function GpawaLogoMark({ size = 36, className }: LogoMarkProps) {
-  const iconSize = Math.round(size * 0.46);
   return (
-    <div
+    <Image
+      src={LOGO_MARK_SRC}
+      alt="gPawa"
+      width={size}
+      height={size}
+      priority
+      className={cn("shrink-0 object-contain", className)}
       style={{ width: size, height: size }}
-      className={cn(
-        "gpawa-gradient rounded-xl flex items-center justify-center shadow-md shadow-blue-500/25 shrink-0",
-        className
-      )}
-    >
-      {/* Lightning bolt — the gPawa mark */}
-      <svg
-        width={iconSize}
-        height={iconSize}
-        viewBox="0 0 14 18"
-        fill="none"
-        aria-hidden="true"
-      >
-        <path
-          d="M9.5 0L1 10h5.5L3 18 14 8H8.5L9.5 0z"
-          fill="white"
-          fillOpacity="0.95"
-        />
-      </svg>
-    </div>
+    />
   );
 }
 
@@ -52,18 +41,18 @@ export function GpawaLogo({
   className,
 }: LogoProps) {
   const textClass = {
-    sm:   "text-sm",
+    sm: "text-sm",
     base: "text-base",
-    lg:   "text-lg",
-    xl:   "text-xl",
+    lg: "text-lg",
+    xl: "text-xl",
   }[textSize];
 
   const inner = (
-    <span className={cn("flex items-center gap-2.5 group", className)}>
+    <span className={cn("flex items-center gap-2.5", className)}>
       <GpawaLogoMark size={logoSize} />
       {showText && (
         <span className={cn("font-bold tracking-tight", textClass)}>
-          <span className="gpawa-gradient-text">g</span>
+          <span className="text-blue-600 dark:text-blue-400">g</span>
           <span className="text-gray-900 dark:text-white">Pawa</span>
         </span>
       )}

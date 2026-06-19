@@ -58,7 +58,7 @@ export default function LoginForm() {
       setShowResend(true);
       setEmailForResend(values.email);
     } else {
-      setError('Wrong credentials. Please try again.');
+      setError(result.message || 'Wrong credentials. Please try again.');
     }
   }
 

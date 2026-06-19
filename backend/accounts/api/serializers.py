@@ -619,28 +619,30 @@ class LoginSerializer(EmailTokenObtainSerializer):
     def validate(self, attrs):
         try:
             data = super().validate(attrs)
-            user = self.user
-            if not user.profile.email_verified:
-                error_msg = "Please verify your email address"
-                raise serializers.ValidationError({"email": error_msg})
-
-            # Add user info to response
-            data['user'] = {
-                'id': user.id,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'user_role': user.user_role,
-                'is_admin': user.user_role == User.ADMIN,
-                'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
-            }
-            return data
-            
+        except serializers.ValidationError:
+            raise
         except Exception as e:
-            logger.error(f"Login error: {str(e)}")
+            logger.error(f"Login authentication error: {str(e)}")
             raise serializers.ValidationError({
-                'non_field_errors': ['Invalid credentials or server error. Please try again.']
+                'non_field_errors': ['Invalid email or password. Please try again.']
             })
+
+        user = self.user
+        if not user.profile.email_verified:
+            raise serializers.ValidationError({
+                "email": ["Please verify your email address before logging in."]
+            })
+
+        data['user'] = {
+            'id': user.id,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'user_role': user.user_role,
+            'is_admin': user.user_role == User.ADMIN,
+            'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+        }
+        return data
 
 
 class LoginResponseSerializer(serializers.Serializer):

@@ -19,17 +19,21 @@ export const login = async (data: z.infer<typeof LoginSchema>) => {
     const parsedRes = await res.json();
 
     if (res.status === 400) {
-      // Check if it's an unverified email error
-      if (parsedRes.email && parsedRes.email.includes("verify your email")) {
-        return { 
-          error: "EMAIL_NOT_VERIFIED", 
-          message: "Please verify your email before logging in",
-          email: data.email 
+      const emailError = parsedRes.email;
+      const emailMsg = Array.isArray(emailError) ? emailError[0] : emailError;
+      if (emailMsg && String(emailMsg).toLowerCase().includes("verify your email")) {
+        return {
+          error: "EMAIL_NOT_VERIFIED",
+          message: String(emailMsg),
+          email: data.email,
         };
       }
-      
-      const errorMessage = parsedRes.detail || parsedRes.error || "Login failed";
-      return { error: "LOGIN_FAILED", message: errorMessage };
+
+      const fieldErrors = parsedRes.non_field_errors;
+      const fieldMsg = Array.isArray(fieldErrors) ? fieldErrors[0] : fieldErrors;
+      const errorMessage =
+        fieldMsg || parsedRes.detail || parsedRes.error || "Login failed";
+      return { error: "LOGIN_FAILED", message: String(errorMessage) };
     }
     
     if (!res.ok) {

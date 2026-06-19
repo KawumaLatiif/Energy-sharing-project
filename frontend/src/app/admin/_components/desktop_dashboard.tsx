@@ -15,7 +15,7 @@ import {
   Zap,
 } from "lucide-react";
 import Link from "next/link";
-import Image from "next/image";
+import { GpawaLogoMark } from "@/components/common/gpawa-logo";
 
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
@@ -31,14 +31,8 @@ export default function AdminDesktopSidebar() {
       <div className="flex h-full max-h-screen flex-col gap-2">
         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
           <Link href="/" className="flex items-center gap-2 font-semibold">
-            <Image
-              src="/gpawa-mark-tight.png"
-              width={42}
-              height={42}
-              className="h-10 w-10 object-contain"
-              alt="gPawa Logo"
-            />
-            <span className="">Administrator</span>
+            <GpawaLogoMark size={40} />
+            <span>Administrator</span>
           </Link>
         </div>
         <div className="flex-1">

@@ -12,6 +12,7 @@ A prepaid electricity management platform for Uganda. Users register smart meter
 
 **Access channels:**
 - Web portal (Next.js frontend at `localhost:3000`)
+- **Android app** (Expo/React Native in `mobile/` — see [`docs/MOBILE_APP.md`](docs/MOBILE_APP.md))
 - USSD (feature phone interface, Africastalking-style)
 - REST API (Django backend at `localhost:8000`)
 
@@ -23,6 +24,7 @@ A prepaid electricity management platform for Uganda. Users register smart meter
 |---|---|
 | Backend | Django 5.2, Django REST Framework, PostgreSQL 17 |
 | Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS 4 |
+| Mobile | Expo SDK 56, React Native (Android) — `mobile/` |
 | Auth | JWT (simplejwt), TOTP 2FA (pyotp) |
 | Payments | MTN MoMo API (sandbox) |
 | Async tasks | Celery 5.6 (runs eagerly/inline in DEBUG — no Redis needed) |

@@ -1,5 +1,5 @@
-// app/auth/reset-password/_components/form.tsx
 "use client";
+
 import { useEffect, useState, useTransition } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -11,6 +11,7 @@ import {
   FormLabel,
   FormControl,
   FormMessage,
+  FormDescription,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,7 @@ import { z } from "zod";
 import { ResetPasswordSchema } from "@/lib/schema";
 import CardWrapper from "@/components/common/card-wrapper";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { Eye, EyeOff } from "lucide-react";
 
 type ResetPasswordFormData = z.infer<typeof ResetPasswordSchema>;
 
@@ -36,11 +38,14 @@ export default function ResetPasswordForm({
   const [isValid, setIsValid] = useState<boolean | null>(null);
   const [isPending, startTransition] = useTransition();
   const [isValidating, setIsValidating] = useState(true);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const router = useRouter();
 
   const form = useForm<ResetPasswordFormData>({
     resolver: zodResolver(ResetPasswordSchema),
     defaultValues: { password: "", confirm_password: "" },
+    mode: "onTouched",
   });
 
   useEffect(() => {
@@ -48,7 +53,9 @@ export default function ResetPasswordForm({
       .then((data) => {
         setIsValidating(false);
         if (data.error) {
-          setError(getApiErrorMessage(data.error, "Invalid or expired reset link"));
+          setError(
+            getApiErrorMessage(data.error, "Invalid or expired reset link")
+          );
           setIsValid(false);
         } else {
           setIsValid(true);
@@ -65,15 +72,29 @@ export default function ResetPasswordForm({
     setError("");
     setSuccess("");
     startTransition(async () => {
-      const result = await resetPassword(uid, token, values);
-      if (result.error) {
-        setError(getApiErrorMessage(result.error, "Failed to reset password"));
-      } else {
+      try {
+        const result = await resetPassword(uid, token, values);
+        if (result.error) {
+          setError(getApiErrorMessage(result.error, "Failed to reset password"));
+          return;
+        }
+
         setSuccess(result.success || "Password reset successfully!");
         form.reset();
         setTimeout(() => router.replace(result.redirectTo!), 1500);
+      } catch {
+        setError("Something went wrong. Please try again.");
       }
     });
+  };
+
+  const onInvalid = () => {
+    const firstError =
+      form.formState.errors.password?.message ||
+      form.formState.errors.confirm_password?.message;
+    if (firstError) {
+      setError(String(firstError));
+    }
   };
 
   if (isValidating) {
@@ -93,6 +114,7 @@ export default function ResetPasswordForm({
           {error || "Invalid or expired reset link. Please request a new one."}
         </div>
         <Button
+          type="button"
           onClick={() => router.push("/auth/forgot-password")}
           className="w-full"
         >
@@ -104,9 +126,11 @@ export default function ResetPasswordForm({
 
   return (
     <CardWrapper title="Reset Password" variant="auth">
-      {" "}
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form
+          onSubmit={form.handleSubmit(onSubmit, onInvalid)}
+          className="space-y-4 sm:space-y-6"
+        >
           <FormField
             control={form.control}
             name="password"
@@ -114,12 +138,34 @@ export default function ResetPasswordForm({
               <FormItem>
                 <FormLabel>New Password</FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
-                    disabled={isPending || !isValid}
-                    {...field}
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      disabled={isPending}
+                      className="pr-10"
+                      {...field}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowPassword((prev) => !prev)}
+                      tabIndex={-1}
+                      aria-label={showPassword ? "Hide password" : "Show password"}
+                    >
+                      {showPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
                 </FormControl>
+                <FormDescription>
+                  At least 12 characters with uppercase, lowercase, and a number.
+                </FormDescription>
                 <FormMessage />
               </FormItem>
             )}
@@ -131,11 +177,32 @@ export default function ResetPasswordForm({
               <FormItem>
                 <FormLabel>Confirm Password</FormLabel>
                 <FormControl>
-                  <Input
-                    type="password"
-                    disabled={isPending || !isValid}
-                    {...field}
-                  />
+                  <div className="relative">
+                    <Input
+                      type={showConfirmPassword ? "text" : "password"}
+                      autoComplete="new-password"
+                      disabled={isPending}
+                      className="pr-10"
+                      {...field}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon"
+                      className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                      onClick={() => setShowConfirmPassword((prev) => !prev)}
+                      tabIndex={-1}
+                      aria-label={
+                        showConfirmPassword ? "Hide password" : "Show password"
+                      }
+                    >
+                      {showConfirmPassword ? (
+                        <EyeOff className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <Eye className="h-4 w-4 text-muted-foreground" />
+                      )}
+                    </Button>
+                  </div>
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -145,8 +212,8 @@ export default function ResetPasswordForm({
           <FormSuccess message={success} />
           <Button
             type="submit"
-            disabled={isPending || !isValid}
-            className="w-full"
+            disabled={isPending}
+            className="w-full text-white dark:text-gray-900 bg-sky-600 hover:bg-sky-700 dark:bg-sky-500"
           >
             {isPending ? "Resetting..." : "Reset Password"}
           </Button>
