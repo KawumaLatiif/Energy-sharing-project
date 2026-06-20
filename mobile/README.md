@@ -1,40 +1,40 @@
 # gPawa Android App
 
-Native Android client for gPawa (Expo / React Native).
+Native Android client (Expo / React Native).
 
-**Full documentation:** [`../docs/MOBILE_APP.md`](../docs/MOBILE_APP.md) — local dev, hosted setup, building APKs, and end-user guide.
+## Documentation
 
-## Quick start
+**Read this first:** [`../docs/MOBILE_APP.md`](../docs/MOBILE_APP.md)
 
-```bash
-cd mobile
-cp .env.example .env    # edit EXPO_PUBLIC_API_URL
-npm install
-npm run android         # requires backend at http://localhost:8000
-```
+That single guide covers:
 
-## API URL (set in `.env` before build)
+- Phone + local PC (step-by-step with `ipconfig`, firewall, rebuild APK)
+- Phone + hosted production server
+- Building and installing `gpawa-debug.apk`
+- Using the app (login, buy units, STS tokens)
+- Troubleshooting
 
-| Target | `EXPO_PUBLIC_API_URL` |
-|--------|------------------------|
-| Android emulator | `http://10.0.2.2:8000/api/v1` |
-| Phone + local backend | `http://<YOUR_PC_IP>:8000/api/v1` |
+## Quick reference
+
+| Target | `mobile/.env` |
+|--------|----------------|
+| Physical phone + PC | `http://<YOUR_WIFI_IP>:8000/api/v1` |
+| Emulator | `http://10.0.2.2:8000/api/v1` |
 | Production | `https://energy-share.sun.ac.ug/api/v1` |
 
-## Build debug APK
+**PC must run Django** when using a local IP:
 
-```bash
-npm run prebuild:android
-npm run apk:debug
-# → android/app/build/outputs/apk/debug/app-debug.apk
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1
+python manage.py runserver 0.0.0.0:8000
 ```
 
-## Screens (v1)
+**Rebuild APK after changing `.env`:**
 
-Login · Register · Dashboard · Buy Units · STS Tokens · Loans · Account
+```powershell
+cd mobile\android
+.\gradlew.bat assembleDebug
+```
 
-## Related
-
-- [`../docs/MOBILE_APP.md`](../docs/MOBILE_APP.md)
-- [`../docs/LOCAL_DEVELOPMENT.md`](../docs/LOCAL_DEVELOPMENT.md)
-- [`../API_ROUTE_CATALOG.md`](../API_ROUTE_CATALOG.md)
+APK: `dist/gpawa-debug.apk`

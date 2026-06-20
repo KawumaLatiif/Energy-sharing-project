@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, router } from "expo-router";
 import { KeyboardAvoidingView, Platform, ScrollView, Text } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAuth } from "@/context/AuthContext";
 import {
   Button,
@@ -44,6 +45,7 @@ export default function LoginScreen() {
   }
 
   return (
+    <SafeAreaView style={{ flex: 1, backgroundColor: "#f8fafc" }}>
     <KeyboardAvoidingView
       style={{ flex: 1 }}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
@@ -79,5 +81,6 @@ export default function LoginScreen() {
         </Screen>
       </ScrollView>
     </KeyboardAvoidingView>
+    </SafeAreaView>
   );
 }

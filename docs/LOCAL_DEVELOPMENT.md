@@ -19,7 +19,7 @@ You need **two terminals** for day-to-day development:
 1. Django backend
 2. Next.js frontend
 
-Optional third terminal for the **Android app** — see [`MOBILE_APP.md`](MOBILE_APP.md).
+Optional third terminal for the **Android app** — see [`MOBILE_APP.md`](MOBILE_APP.md) (physical phone + APK install guide).
 
 Redis and a Celery worker are **not required locally** when `CELERY_TASK_ALWAYS_EAGER=True` (default in dev).
 

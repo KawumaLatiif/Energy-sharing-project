@@ -39,7 +39,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   useEffect(() => {
-    refreshUser().finally(() => setLoading(false));
+    let cancelled = false;
+    const timeout = setTimeout(() => {
+      if (!cancelled) setLoading(false);
+    }, 8000);
+
+    refreshUser().finally(() => {
+      if (!cancelled) {
+        clearTimeout(timeout);
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
   }, [refreshUser]);
 
   const signIn = useCallback(async (email: string, password: string) => {

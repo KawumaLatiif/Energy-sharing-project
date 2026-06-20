@@ -102,11 +102,11 @@ export function ErrorText({ children }: { children: string }) {
   return <Text style={styles.error}>{children}</Text>;
 }
 
-export function LoadingScreen() {
+export function LoadingScreen({ message = "Loading…" }: { message?: string }) {
   return (
     <View style={styles.loading}>
       <ActivityIndicator size="large" color={colors.primary} />
-      <Text style={styles.subtitle}>Loading…</Text>
+      <Text style={styles.subtitle}>{message}</Text>
     </View>
   );
 }
