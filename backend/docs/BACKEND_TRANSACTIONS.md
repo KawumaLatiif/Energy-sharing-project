@@ -2,8 +2,19 @@
 
 This document describes what happens on the Django backend when users buy electricity units, and how **STS** vs **AMI** meters are handled differently.
 
-**Base API prefix:** `/api/v1/meter/`  
-**Authentication:** All endpoints below require a logged-in user (`Authorization: Bearer <JWT>` or session cookie via the frontend proxy).
+### API base URLs
+
+| Environment | Base URL |
+|---|---|
+| **Production** | `https://energy-share.sun.ac.ug/api/v1/` |
+| **Local dev** | `http://localhost:8000/api/v1/` |
+
+Meter endpoints documented below use the prefix **`/api/v1/meter/`** — append to the base URL above.
+
+**Example (production buy units):**  
+`POST https://energy-share.sun.ac.ug/api/v1/meter/buy-units/`
+
+**Authentication:** All endpoints require a logged-in user (`Authorization: Bearer <JWT>`, or httpOnly session cookie via the Next.js `/api/proxy/` route on the web app).
 
 ---
 
@@ -185,7 +196,8 @@ On a **second purchase** in the same month, `service_charge` is `0`, `service_ch
 
 ### 4.3 Buy units (MoMo payment)
 
-**`POST /api/v1/meter/buy-units/`**
+**`POST https://energy-share.sun.ac.ug/api/v1/meter/buy-units/`** (production)  
+**`POST http://localhost:8000/api/v1/meter/buy-units/`** (local)
 
 **Request body (JSON):**
 

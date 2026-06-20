@@ -6,6 +6,34 @@
 **Async Tasks:** Celery + Redis  
 **Payments:** MTN Mobile Money (MoMo)
 
+### API base URLs
+
+All REST endpoints live under the `/api/v1/` path prefix. Prepend the **environment base URL** to any path documented below (e.g. `meter/buy-units/` → full URL).
+
+| Environment | Base URL | Example (buy units) |
+|---|---|---|
+| **Production (deployed)** | `https://energy-share.sun.ac.ug/api/v1/` | `https://energy-share.sun.ac.ug/api/v1/meter/buy-units/` |
+| **Local development** | `http://localhost:8000/api/v1/` | `http://localhost:8000/api/v1/meter/buy-units/` |
+
+**Pattern for other deployments:** `https://<your-api-host>/api/v1/` (e.g. `https://api.company.com/api/v1/`).
+
+| Related URL | Production value |
+|---|---|
+| Frontend (web app) | `https://energy-share.sun.ac.ug` |
+| ThingsBoard (AMI IoT) | `https://iot.energy-share.sun.ac.ug` |
+| MoMo callback host | `https://energy-share.sun.ac.ug` |
+
+**How clients reach the API:**
+
+| Client | Config variable | Production value |
+|---|---|---|
+| Django backend (self-references, emails) | `BASE_URL` in `backend/.env` | `https://energy-share.sun.ac.ug/api/v1` |
+| Next.js web app (server-side / login) | `frontend/src/common/constants/api.ts` → `API_URL` | Set to production base at deploy time |
+| Next.js web app (browser dashboard) | Same-origin proxy | `/api/proxy/<path>` → forwards to `API_URL` with auth cookie |
+| Expo mobile app | `EXPO_PUBLIC_API_URL` in `mobile/.env` | `https://energy-share.sun.ac.ug/api/v1` |
+
+Production values are defined in [`backend/.env.production.example`](backend/.env.production.example).
+
 ---
 
 ## Table of Contents
@@ -440,7 +468,10 @@ Indexes: `(phone_number, is_active)`, `(expires_at)`
 
 ## 4. API Endpoints
 
-Base path: `/api/v1/`
+**Production base URL:** `https://energy-share.sun.ac.ug/api/v1/`  
+**Local base URL:** `http://localhost:8000/api/v1/`
+
+Paths below are relative to that base (e.g. `auth/login/` → `https://energy-share.sun.ac.ug/api/v1/auth/login/`).
 
 ### Authentication (`/api/v1/auth/`)
 
@@ -646,7 +677,11 @@ DEFAULT_AUTHENTICATION_CLASSES = [
 | `CELERY_TASK_ALWAYS_EAGER` | Run tasks synchronously in dev | `True` |
 | `REDIS_HOST` | Redis host | `127.0.0.1` |
 | `REDIS_PORT` | Redis port | `6379` |
-| `BASE_URL` | Backend base URL | `nginx:3030/api/v1` |
+| `BASE_URL` | Public backend API base URL (no trailing path beyond `/api/v1`) | **Prod:** `https://energy-share.sun.ac.ug/api/v1` · **Dev:** `http://localhost:8000/api/v1` |
+| `FRONTEND_URL` | Public web app URL (verification/reset emails) | **Prod:** `https://energy-share.sun.ac.ug` |
+| `PRODUCTION_ORIGIN` | CORS / CSRF allowed origin | **Prod:** `https://energy-share.sun.ac.ug` |
+| `EXTRA_ALLOWED_HOSTS` | Django `ALLOWED_HOSTS` entries | **Prod:** `energy-share.sun.ac.ug` |
+| `DOMAIN_NAME` | Site domain for links | **Prod:** `energy-share.sun.ac.ug` |
 | `MTN_SUBSCRIPTION_KEY` | MTN MoMo subscription key | |
 | `MTN_API_KEY` | MTN MoMo API key | |
 | `MTN_API_USER_ID` | MTN MoMo API user ID | |
