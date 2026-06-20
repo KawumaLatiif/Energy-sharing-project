@@ -35,6 +35,7 @@ import threading
 from transactions.models import Transaction, UnitTransaction
 from accounts.models import Wallet as AccountWallet
 from wallet.models import Wallet as UnitWallet
+from loan.models import LoanApplication, LoanRepayment
 import time
 import threading
 from django.db import transaction as db_transaction
