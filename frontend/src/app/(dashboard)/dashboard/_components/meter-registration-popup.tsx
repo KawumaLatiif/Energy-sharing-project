@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, Zap, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { post } from "@/lib/fetch";
+import { post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import MeterArchitecturePicker, {
   type MeterArchitecture,

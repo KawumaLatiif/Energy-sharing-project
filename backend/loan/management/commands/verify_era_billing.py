@@ -33,6 +33,9 @@ CASES = [
     {"payment": "5000", "expected_units": "3.51", "monthly": "0", "lifeline": True},
     {"payment": "80000", "expected_units": "107.99", "monthly": "0", "lifeline": True},
     {"payment": "150000", "expected_units": "163.70", "monthly": "150", "lifeline": True},
+    # Second purchase in same month (service already paid; tiers continue from prior kWh)
+    {"payment": "5000", "expected_units": "13.29", "monthly": "3.51", "lifeline": True},
+    {"payment": "5000", "expected_units": "5.60", "monthly": "28", "lifeline": True},
 ]
 
 

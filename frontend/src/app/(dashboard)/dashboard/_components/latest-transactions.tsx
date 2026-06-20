@@ -4,7 +4,7 @@ import { useState, useEffect } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { Clock, ArrowUpRight, ArrowDownRight, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 

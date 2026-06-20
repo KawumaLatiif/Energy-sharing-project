@@ -6,7 +6,7 @@ import GenerateTokenCard from "./generate-token-card";
 import AmiStatusCard from "../../_components/ami-status-card";
 import MeterSelector from "../../_components/meter-selector";
 import { useSelectedMeter } from "../../_components/selected-meter-context";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { Token } from "@/interface/token.interface";
 
 interface TokensPageClientProps {
@@ -34,6 +34,20 @@ export default function TokensPageClient({ initialTokens }: TokensPageClientProp
     }
     loadWallet();
   }, [selectedMeter?.meter_number]);
+
+  async function refreshWallet() {
+    try {
+      const res = await get<any>("wallet/balance");
+      if (!res.error && res.data?.success) {
+        const bal = parseFloat(
+          res.data?.wallet?.balance ?? res.data?.wallet_balance ?? "0"
+        );
+        setWalletBalance(Number.isFinite(bal) ? bal : 0);
+      }
+    } catch {
+      /* keep current balance */
+    }
+  }
 
   useEffect(() => {
     async function loadTokens() {
@@ -79,7 +93,11 @@ export default function TokensPageClient({ initialTokens }: TokensPageClientProp
               stsMeters={meters.filter((m) => m.architecture === "STS")}
             />
           ) : (
-            <AmiStatusCard meter={selectedMeter} walletBalance={walletBalance} />
+            <AmiStatusCard
+              meter={selectedMeter}
+              walletBalance={walletBalance}
+              onApplied={refreshWallet}
+            />
           )}
         </div>
       )}

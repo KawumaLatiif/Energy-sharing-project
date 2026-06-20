@@ -6,6 +6,34 @@
 **Async Tasks:** Celery + Redis  
 **Payments:** MTN Mobile Money (MoMo)
 
+### API base URLs
+
+All REST endpoints live under the `/api/v1/` path prefix. Prepend the **environment base URL** to any path documented below (e.g. `meter/buy-units/` → full URL).
+
+| Environment | Base URL | Example (buy units) |
+|---|---|---|
+| **Production (deployed)** | `https://energy-share.sun.ac.ug/api/v1/` | `https://energy-share.sun.ac.ug/api/v1/meter/buy-units/` |
+| **Local development** | `http://localhost:8000/api/v1/` | `http://localhost:8000/api/v1/meter/buy-units/` |
+
+**Pattern for other deployments:** `https://<your-api-host>/api/v1/` (e.g. `https://api.company.com/api/v1/`).
+
+| Related URL | Production value |
+|---|---|
+| Frontend (web app) | `https://energy-share.sun.ac.ug` |
+| ThingsBoard (AMI IoT) | `https://iot.energy-share.sun.ac.ug` |
+| MoMo callback host | `https://energy-share.sun.ac.ug` |
+
+**How clients reach the API:**
+
+| Client | Config variable | Production value |
+|---|---|---|
+| Django backend (self-references, emails) | `BASE_URL` in `backend/.env` | `https://energy-share.sun.ac.ug/api/v1` |
+| Next.js web app (server-side / login) | `frontend/src/common/constants/api.ts` → `API_URL` | Set to production base at deploy time |
+| Next.js web app (browser dashboard) | Same-origin proxy | `/api/proxy/<path>` → forwards to `API_URL` with auth cookie |
+| Expo mobile app | `EXPO_PUBLIC_API_URL` in `mobile/.env` | `https://energy-share.sun.ac.ug/api/v1` |
+
+Production values are defined in [`backend/.env.production.example`](backend/.env.production.example).
+
 ---
 
 ## Table of Contents
@@ -23,6 +51,10 @@
 11. [Utilities & Services](#11-utilities--services)
 12. [Dependencies](#12-dependencies)
 13. [Business Logic Flows](#13-business-logic-flows)
+14. [Transactions, ERA Billing & AMI/STS Meter Flows](#14-transactions-era-billing--amists-meter-flows)
+
+> **Detailed transaction API reference** (POST bodies, response examples, AMI sequence diagrams):  
+> [`backend/docs/BACKEND_TRANSACTIONS.md`](backend/docs/BACKEND_TRANSACTIONS.md)
 
 ---
 
@@ -41,7 +73,11 @@ backend/
 ├── webhooks/           # External integrations (ESP32 device callbacks)
 ├── ussd/               # USSD menu-driven interface for feature phones
 ├── mtn_momo/           # MTN MoMo payment service
-├── utils/              # Shared utilities, decorators, validators, email
+├── utils/              # Shared utilities, billing engine, AMI gateway, email
+│   ├── billing.py      # ERA domestic tariff (tiered blocks, service charge, VAT)
+│   └── ami_gateway.py  # AMI meter network push (Mock / ThingsBoard)
+├── docs/               # Supplementary backend documentation
+│   └── BACKEND_TRANSACTIONS.md
 ├── backend/            # Django project configuration (settings, urls, celery)
 └── requirements.txt    # Python package dependencies
 ```
@@ -54,11 +90,11 @@ backend/
 |---|---|
 | `accounts` | Custom user model, profiles, wallet, email verification, credit signal data |
 | `loan` | Loan application lifecycle, tariff pricing, credit scoring, disbursement, repayment |
-| `meter` | Meter registration, unit tokens, buy/send/receive unit operations |
+| `meter` | Meter registration (STS/AMI), buy units, tokens, AMI apply, send/receive |
 | `share` | Peer-to-peer unit sharing with OTP, rate limiting, and audit trails |
 | `transactions` | Unit purchases, transaction history, audit log |
 | `transfer` | Admin-approved meter-to-meter unit transfers |
-| `wallet` | Main wallet and per-meter balance management |
+| `wallet` | **Unit wallet** (kWh balance) and per-meter balance sync |
 | `admin` | Admin-only views: dashboard, user management, loan management, tier/tariff config |
 | `ussd` | USSD session state machine for feature phone access |
 | `mtn_momo` | MTN Mobile Money API client (create user, get token, request-to-pay, check status) |
@@ -93,6 +129,7 @@ backend/
 | `user` | OneToOneField(User) | |
 | `email_verified` | BooleanField | Default False |
 | `id_image` | URLField | National ID image URL |
+| `lifeline_eligible` | BooleanField | ERA lifeline tariff (≤15 kWh @ 250 UGX); default True in pilot |
 
 #### `Wallet` (accounts)
 | Field | Type | Notes |
@@ -137,14 +174,27 @@ Stores short-lived email verification codes for settings changes.
 | `is_active` | BooleanField | |
 
 #### `TariffBlock`
-Progressive block pricing linked to `ElectricityTariff`.
+Progressive block pricing linked to `ElectricityTariff`. Seeded via `python manage.py seed_era_tariff` as `DOM-10.1-2026Q1`.
 | Field | Type | Notes |
 |---|---|---|
 | `tariff` | ForeignKey(ElectricityTariff) | |
-| `min_units` | DecimalField | Block lower bound |
-| `max_units` | DecimalField | Block upper bound (null = unlimited) |
-| `rate_per_unit` | DecimalField | Price per unit within this block |
-| `block_order` | PositiveIntegerField | Ordering for progressive calculation |
+| `min_units` | IntegerField | Cumulative monthly block lower bound |
+| `max_units` | IntegerField | Cumulative monthly block upper bound (null = unlimited) |
+| `rate_per_unit` | DecimalField | UGX/kWh within this block |
+| `block_order` | IntegerField | Ordering for progressive calculation |
+| `is_lifeline_block` | BooleanField | First 15 kWh block; ineligible users pay `non_lifeline_rate` |
+| `non_lifeline_rate` | DecimalField | Fallback rate when lifeline not eligible (756.2 UGX/kWh) |
+
+**Active domestic blocks (ERA Code 10.1):**
+
+| Block | Range (kWh/month) | Rate (UGX/kWh) |
+|---|---|---|
+| Lifeline | 0–15 | 250 |
+| Normal | 16–80 | 756.2 |
+| Cooking | 81–150 | 412.0 |
+| Super normal | 151+ | 756.0 |
+
+Service charge: **UGX 3,360/month** (once per calendar month). VAT: **18%** on energy + service.
 
 #### `LoanTier`
 Configurable loan tiers stored in the database.
@@ -213,22 +263,43 @@ Third-party credit indicators for scoring.
 ### meter
 
 #### `Meter`
+A user may register **multiple meters** under one account (landlords / sub-meters).
+
 | Field | Type | Notes |
 |---|---|---|
 | `meter_no` | CharField | Unique meter number |
-| `static_ip` | GenericIPAddressField | Meter's static IP for webhooks |
-| `units` | DecimalField | Current unit balance |
+| `static_ip` | GenericIPAddressField | Required for **AMI**; null for STS |
+| `units` | DecimalField | kWh balance on meter record (AMI updated on apply) |
+| `pending_units` | DecimalField | STS only — credited kWh awaiting token activation |
+| `architecture` | CharField | `STS` (token keypad) or `AMI` (networked) |
+| `label` | CharField | Display name, e.g. "Home", "Shop" |
+| `status` | CharField | `ACTIVE`, `INACTIVE`, `SUSPENDED` |
+| `iot_device_token` | CharField | ThingsBoard device token for AMI push |
 | `user` | ForeignKey(User) | Owning user |
 
 #### `MeterToken`
 | Field | Type | Notes |
 |---|---|---|
 | `meter` | ForeignKey(Meter) | |
-| `token_source` | CharField | `PURCHASE`, `LOAN`, `SHARE`, `TRANSFER` |
-| `units` | DecimalField | |
+| `token` | CharField(10) | Numeric keypad token |
+| `source` | CharField | `PURCHASE`, `LOAN`, `SHARE`, `TRANSFER` |
+| `units` | DecimalField | kWh represented by token |
 | `is_used` | BooleanField | |
-| `expires_at` | DateTimeField | Nullable; set for loan tokens (30 days) |
 | `loan_application` | ForeignKey(LoanApplication) | Nullable |
+
+#### `Transaction` (meter app — unified ledger)
+Audit trail for all kWh/UGX movements. Distinct from `transactions.models.Transaction` (MoMo payments).
+
+| Field | Type | Notes |
+|---|---|---|
+| `transaction_type` | CharField | `PURCHASE`, `GENERATE_TOKEN`, `TRANSFER_IN`, `TRANSFER_OUT`, `CREDIT`, `REPAYMENT_AUTO`, etc. |
+| `user` | ForeignKey(User) | |
+| `meter` | ForeignKey(Meter) | Nullable |
+| `amount_kwh` | DecimalField | kWh amount |
+| `amount_ugx` | DecimalField | UGX amount |
+| `status` | CharField | `COMPLETED`, `FAILED`, `PENDING`, `REVERSED` |
+| `channel` | CharField | `USSD`, `MOBILE_APP`, `WEB_PORTAL`, `ADMIN` |
+| `payment_reference` | CharField | MoMo / external reference |
 
 ---
 
@@ -288,11 +359,19 @@ General-purpose OTP codes used across multiple flows.
 
 ### wallet
 
-#### `Wallet` (wallet app — main user wallet)
+> **Naming note:** The codebase has three wallet-related stores. In `meter/api/views.py`, `wallet.models.Wallet` is imported as `UnitWallet`.
+
+| Model | App | Holds |
+|---|---|---|
+| `accounts.Wallet` (`AccountWallet` in views) | accounts | UGX / account funds (legacy account wallet) |
+| `wallet.Wallet` (`UnitWallet` in views) | wallet | **kWh unit wallet** — purchased units before meter apply/token |
+| `transactions.Transaction` | transactions | MoMo payment status for buy-units (`PENDING` / `COMPLETED`) |
+
+#### `Wallet` (wallet app — **unit wallet**, kWh)
 | Field | Type | Notes |
 |---|---|---|
 | `user` | OneToOneField(User) | |
-| `balance` | DecimalField | |
+| `balance` | DecimalField | kWh available to apply (AMI) or tokenize (STS) |
 | `is_active` | BooleanField | |
 
 #### `Transaction` (wallet app)
@@ -329,25 +408,28 @@ Per-meter balance tracking.
 ### transactions
 
 #### `UnitTransaction`
-Peer-to-peer unit transfers between users.
+Unit movements between users **and** self-purchase credits from buy-units.
+
 | Field | Type | Notes |
 |---|---|---|
 | `sender` | ForeignKey(User) | |
-| `receiver` | ForeignKey(User) | |
-| `units` | DecimalField | |
+| `receiver` | ForeignKey(User) | Same user for purchases (`sender=receiver`) |
+| `units` | FloatField | kWh |
 | `meter` | ForeignKey(Meter) | |
 | `direction` | CharField | `IN` or `OUT` |
 | `status` | CharField | `PENDING`, `COMPLETED`, `FAILED` |
 
+Self-purchases (`sender=receiver`, `direction=IN`, `status=COMPLETED`) drive **monthly ERA tier position** and **service-charge-once-per-month** via `utils/billing.get_monthly_units_consumed()`.
+
 #### `Transaction` (transactions app)
-Wallet-level transactions.
+**MoMo payment ledger** for buy-units (UGX, not kWh).
 | Field | Type | Notes |
 |---|---|---|
-| `wallet` | ForeignKey(Wallet) | |
-| `amount` | DecimalField | |
-| `phone_number` | CharField | For MoMo payments |
-| `status` | CharField | |
-| `transaction_reference` | CharField | |
+| `wallet` | ForeignKey(accounts.Wallet) | Account wallet linked to user |
+| `amount` | DecimalField | UGX paid |
+| `phone_number` | PhoneNumberField | MoMo number |
+| `status` | CharField | `PENDING`, `COMPLETED`, `FAILED` |
+| `transaction_reference` | CharField | External / sandbox UUID |
 
 #### `TransactionLog`
 Full audit trail for all system events.
@@ -386,7 +468,10 @@ Indexes: `(phone_number, is_active)`, `(expires_at)`
 
 ## 4. API Endpoints
 
-Base path: `/api/v1/`
+**Production base URL:** `https://energy-share.sun.ac.ug/api/v1/`  
+**Local base URL:** `http://localhost:8000/api/v1/`
+
+Paths below are relative to that base (e.g. `auth/login/` → `https://energy-share.sun.ac.ug/api/v1/auth/login/`).
 
 ### Authentication (`/api/v1/auth/`)
 
@@ -411,14 +496,26 @@ Base path: `/api/v1/`
 
 | Method | Path | Description | Auth Required |
 |---|---|---|---|
-| POST | `register/` | Register a new meter | Yes |
-| GET | `my-meter/` | Get authenticated user's meter | Yes |
+| POST | `register/` | Register meter (`architecture`, `label`, `static_ip` for AMI) | Yes |
+| GET | `my-meter/` | List all user meters (multi-meter support) | Yes |
+| PUT/PATCH | `update/` | Update meter (`current_meter_no`, `label`, etc.) | Yes |
+| GET | `estimate-units/?amount=` | ERA billing estimate (no side effects) | Yes |
+| POST | `buy-units/` | Purchase kWh via MoMo → credits **unit wallet** | Yes |
+| POST | `check-payment-status/` | Poll sandbox/MoMo payment (`transaction_id`) | Yes |
+| POST | `generate-token/` | **STS:** debit wallet → 10-digit keypad token | Yes |
+| POST | `apply-wallet-units/` | **AMI:** debit wallet → push kWh to networked meter | Yes |
+| GET | `ami-status/?meter_no=` | AMI connectivity + meter/wallet balances | Yes |
 | POST | `send-units/` | Send units to another meter | Yes |
 | POST | `receive-units/` | Receive units (accept incoming share) | Yes |
-| GET | `token/` | List meter tokens | Yes |
-| POST | `buy-units/` | Purchase electricity units via MoMo | Yes |
-| POST | `check-payment-status/` | Poll MoMo payment status | Yes |
-| PUT | `update/` | Update meter information | Yes |
+| POST | `activate-received-units/` | STS: tokenize received/shared pending units | Yes |
+| GET | `token/` | List meter tokens (optional `?meter_no=`) | Yes |
+| POST | `test-meter-push/` | Manual ThingsBoard push test | Yes |
+
+**Buy-units POST body:** `{ "amount": 5000, "phone_number": "+2567XXXXXXXX" }`  
+**Apply-wallet-units POST body:** `{ "amount": 10.5, "meter_no": "1236784560" }` (AMI only)  
+**Generate-token POST body:** `{ "amount": 5.0, "meter_no": "9876543210" }` (STS only)
+
+See [`backend/docs/BACKEND_TRANSACTIONS.md`](backend/docs/BACKEND_TRANSACTIONS.md) for full request/response examples.
 
 ---
 
@@ -580,11 +677,18 @@ DEFAULT_AUTHENTICATION_CLASSES = [
 | `CELERY_TASK_ALWAYS_EAGER` | Run tasks synchronously in dev | `True` |
 | `REDIS_HOST` | Redis host | `127.0.0.1` |
 | `REDIS_PORT` | Redis port | `6379` |
-| `BASE_URL` | Backend base URL | `nginx:3030/api/v1` |
+| `BASE_URL` | Public backend API base URL (no trailing path beyond `/api/v1`) | **Prod:** `https://energy-share.sun.ac.ug/api/v1` · **Dev:** `http://localhost:8000/api/v1` |
+| `FRONTEND_URL` | Public web app URL (verification/reset emails) | **Prod:** `https://energy-share.sun.ac.ug` |
+| `PRODUCTION_ORIGIN` | CORS / CSRF allowed origin | **Prod:** `https://energy-share.sun.ac.ug` |
+| `EXTRA_ALLOWED_HOSTS` | Django `ALLOWED_HOSTS` entries | **Prod:** `energy-share.sun.ac.ug` |
+| `DOMAIN_NAME` | Site domain for links | **Prod:** `energy-share.sun.ac.ug` |
 | `MTN_SUBSCRIPTION_KEY` | MTN MoMo subscription key | |
 | `MTN_API_KEY` | MTN MoMo API key | |
 | `MTN_API_USER_ID` | MTN MoMo API user ID | |
 | `MTN_CALLBACK_HOST` | Callback URL for MoMo webhooks | `http://localhost:3030` |
+| `AMI_GATEWAY` | AMI gateway class path | `utils.ami_gateway.MockAMIGateway` |
+| `THINGSBOARD_HOST` | ThingsBoard server (production AMI) | |
+| `THINGSBOARD_ACCESS_TOKEN` | ThingsBoard device/API token | |
 
 ### Database Settings (`backend/settings.py`)
 
@@ -722,10 +826,21 @@ Located in [mtn_momo/services.py](backend/mtn_momo/services.py).
 
 ### Payment Flows
 
-**Buy Units:**
-1. `POST /api/v1/meter/buy-units/` — initiates `request_to_pay`
-2. Client polls `POST /api/v1/meter/check-payment-status/` with `external_id`
-3. On `SUCCESSFUL` status, `MeterToken` is created with `token_source=PURCHASE`
+**Buy Units (current implementation):**
+1. `POST /api/v1/meter/buy-units/` — body: `{ amount, phone_number }`
+2. **Sandbox:** returns `PENDING` + `transaction_id` immediately; background thread completes in ~10 s
+3. **Production:** initiates `MTNMoMoService.request_to_pay()`
+4. Client polls `POST /api/v1/meter/check-payment-status/` — body: `{ transaction_id }`
+5. On success:
+   - Auto-repay disbursed loan balance from payment (if any)
+   - Calculate kWh via `utils/billing.calculate_units_from_payment()` (ERA tiers + service + VAT)
+   - Credit `wallet.models.Wallet` (**unit wallet**, kWh)
+   - Create `UnitTransaction` (self-purchase) + `meter.models.Transaction` ledger
+   - **Does not** push to meter or create token — user applies next step (STS or AMI)
+
+**After purchase — meter-specific step:**
+- **STS:** `POST /api/v1/meter/generate-token/` → debit wallet, return keypad token
+- **AMI:** `POST /api/v1/meter/apply-wallet-units/` → debit wallet, AMI gateway push, `meter.units += kWh`
 
 **Loan Repayment via MoMo:**
 1. `POST /api/v1/loans/repay/momo/{loan_id}/` — initiates `request_to_pay`
@@ -766,6 +881,31 @@ The USSD view parses the `text` field (pipe-delimited accumulated inputs) to det
 ---
 
 ## 11. Utilities & Services
+
+### ERA Billing Engine (`utils/billing.py`)
+
+Central billing engine for buy-units, estimates, and loans. Implements ERA domestic Code 10.1 (`DOM-10.1-2026Q1`).
+
+| Function | Purpose |
+|---|---|
+| `get_active_domestic_tariff()` | Active `ElectricityTariff` for today |
+| `get_monthly_units_consumed(user)` | kWh purchased this calendar month (tiers + service-fee tracking) |
+| `calculate_units_from_payment(ugx, user)` | UGX → kWh (binary search on tiered bill incl. service + VAT) |
+| `calculate_bill_for_units(kwh, user)` | kWh → full bill breakdown |
+| `get_minimum_payment_for_units(user)` | Lowest UGX that yields any energy (~3,968 first purchase) |
+| `get_monthly_tier_context(user)` | Tier band, lifeline remaining — returned in estimate API |
+| `get_outstanding_deductions(user)` | Loan balances deducted before unit calculation |
+
+Verify with: `python manage.py verify_era_billing`
+
+### AMI Gateway (`utils/ami_gateway.py`)
+
+| Class | Purpose |
+|---|---|
+| `MockAMIGateway` | Pilot default — logs apply, returns success (no network) |
+| `ThingsBoardAMIGateway` | Stub for production ThingsBoard push |
+| `apply_units_to_meter(meter, units)` | STS → `pending_units`; AMI → gateway + `meter.units` |
+| `get_ami_gateway()` | Factory from `settings.AMI_GATEWAY` |
 
 ### Email (`utils/email.py`)
 
@@ -871,7 +1011,46 @@ POST /auth/register/
   → Create UserAccountDetails (auto account_number)
   → Celery: handle_send_email_verification → sends verification email
 POST /auth/verify-email/  → Profile.email_verified = True
-POST /meter/register/     → Meter created and linked to user
+POST /meter/register/     → Meter created (STS or AMI); multiple meters per user allowed
+```
+
+### Unit Purchase — Wallet-First Flow (STS & AMI)
+
+Purchases **always credit the unit wallet first**. The meter is updated in a separate user-initiated step.
+
+```
+POST /meter/buy-units/  { amount, phone_number }
+  → Block if active LoanApplication (not COMPLETED/REJECTED)
+  → Sandbox: create transactions.Transaction (PENDING), return transaction_id
+  → [Background ~10s]
+      → Auto-repay disbursed loans from payment
+      → ERA billing → units_purchased
+      → wallet.Wallet.balance += kWh  (unit wallet)
+      → UnitTransaction (self-purchase, direction=IN)
+      → meter.Transaction (TYPE_PURCHASE, amount_kwh, amount_ugx)
+      → transactions.Transaction.status = COMPLETED
+
+Client polls: POST /meter/check-payment-status/  { transaction_id }
+  → Returns SUCCESS + units_purchased
+```
+
+**STS continuation:**
+```
+POST /meter/generate-token/  { amount, meter_no? }
+  → Debit unit wallet
+  → Create MeterToken (10-digit numeric)
+  → User enters token on physical meter keypad
+```
+
+**AMI continuation:**
+```
+POST /meter/apply-wallet-units/  { amount, meter_no? }
+  → Debit unit wallet (select_for_update)
+  → apply_units_to_meter() → AMI gateway push
+  → meter.units += amount on gateway success
+
+GET /meter/ami-status/?meter_no=...
+  → is_online, current_balance_kwh, wallet_balance
 ```
 
 ### Loan Application Lifecycle
@@ -929,41 +1108,105 @@ Sender submits OTP
 
 ### Unit Purchase via MTN MoMo
 
-```
-POST /meter/buy-units/
-  → Call MTNMoMoService.request_to_pay(amount, phone, external_id)
-  → Return external_id to client
+See [Section 14](#14-transactions-era-billing--amists-meter-flows) for full POST bodies and AMI sequence diagram.
 
-Client polls: POST /meter/check-payment-status/ {external_id}
-  → Call MTNMoMoService.check_payment_status(external_id)
-  → If SUCCESSFUL:
-      Create MeterToken (token_source=PURCHASE)
-      Create TransactionLog entry: UNIT_PURCHASE
-  → Return status to client
+```
+POST /meter/buy-units/  → unit wallet credited (not meter directly)
+POST /meter/check-payment-status/  → poll until SUCCESS
+POST /meter/generate-token/  → STS only
+POST /meter/apply-wallet-units/  → AMI only
 ```
 
-### Tariff-Based Unit Calculation
+### ERA Tariff-Based Unit Calculation
 
-Electricity units are calculated from UGX amounts using progressive block pricing:
+All unit purchases use `utils/billing.py` (not inline block math). Monthly **cumulative** kWh position determines which tier block applies.
 
-```python
-# Example for 50,000 UGX with blocks:
-#   Block 1: 0–15 units @ 250 UGX/unit
-#   Block 2: 15–50 units @ 350 UGX/unit
-#   Block 3: 50+ units @ 500 UGX/unit
+**Example — Case 2 (ERA summary, first purchase of month):**
+- Payment: UGX 5,000
+- Lifeline energy: 3.51 kWh × 250 = 877.28 UGX
+- Service charge: 3,360 UGX (once/month)
+- VAT 18%: 762.71 UGX
+- **Total units: 3.51 kWh**
 
-amount = 50,000
-units = 0
-remaining = 50,000
+**Second purchase same month (no service charge):**
+- UGX 5,000 after 3.51 kWh already purchased → ~13.29 kWh (tiers continue from 3.51)
 
-Block 1: min(15, remaining/250) → 15 units, costs 3,750 → remaining = 46,250
-Block 2: min(35, remaining/350) → 35 units, costs 12,250 → remaining = 34,000
-Block 3: remaining/500 → 68 units
-Total units = 15 + 35 + 68 = 118 units
-```
+**Minimum first purchase:** ~UGX 3,968 to receive any kWh (service + VAT consume most of smaller amounts).
 
-This calculation is performed by `LoanApplication.calculate_units_from_amount()` and reused in loan disbursement to determine `units_disbursed`.
+Loan disbursement reuses the same engine via `LoanApplication.calculate_units_from_amount()` → `calculate_units_from_payment()`.
+
+Verify: `python manage.py verify_era_billing`
 
 ---
 
-*Generated: 2026-05-19*
+## 14. Transactions, ERA Billing & AMI/STS Meter Flows
+
+### Architecture: STS vs AMI
+
+| Type | Code | Path to physical meter |
+|---|---|---|
+| **STS** | `STS` | Buy UGX → unit wallet → `generate-token` → keypad entry |
+| **AMI** | `AMI` | Buy UGX → unit wallet → `apply-wallet-units` → network sync (no token) |
+
+One login may own **multiple meters** with different architectures.
+
+### Balance stores
+
+| Store | Model | Contents |
+|---|---|---|
+| Unit wallet | `wallet.models.Wallet` | kWh bought, not yet on meter |
+| MoMo ledger | `transactions.models.Transaction` | UGX payment status |
+| Purchase ledger | `transactions.models.UnitTransaction` | kWh self-credits |
+| Meter ledger | `meter.models.Transaction` | Audit trail per meter |
+| Meter balance | `meter.models.Meter.units` | kWh on meter record |
+
+### AMI transaction sequence
+
+```
+Client                    Backend                         AMI Gateway
+  │ POST /buy-units/        │                                 │
+  │ {amount, phone_number}  │ MoMo tx PENDING                 │
+  │ ◄── transaction_id      │                                 │
+  │ poll check-payment      │ ERA billing → unit wallet +kWh  │
+  │ ◄── SUCCESS             │                                 │
+  │ POST /apply-wallet-units│                                 │
+  │ {amount, meter_no}      │ wallet -= kWh                   │
+  │                         │ apply_units_to_meter() ───────►│
+  │                         │ meter.units += kWh              │
+  │ ◄── meter_balance       │                                 │
+```
+
+### Quick POST reference
+
+| Action | Endpoint | Body |
+|---|---|---|
+| Register meter | `POST /meter/register/` | `{ meter_no, architecture, static_ip?, label? }` |
+| Estimate | `GET /meter/estimate-units/?amount=5000` | — |
+| Pay for units | `POST /meter/buy-units/` | `{ amount, phone_number }` |
+| Poll payment | `POST /meter/check-payment-status/` | `{ transaction_id }` |
+| AMI: load meter | `POST /meter/apply-wallet-units/` | `{ amount, meter_no? }` |
+| STS: keypad token | `POST /meter/generate-token/` | `{ amount, meter_no? }` |
+
+### Estimate API fields (added 2026)
+
+`GET /meter/estimate-units/` also returns: `monthly_units_consumed`, `lifeline_remaining_kwh`, `current_tier_band`, `service_charge_included`, `minimum_payment`, `insufficient_amount`.
+
+### Loan interaction on purchase
+
+- **Blocking:** pending/approved/disbursed loans prevent new purchases
+- **Auto-repay:** disbursed loan balance deducted from payment before kWh calculation
+
+### Key source files
+
+| Area | Path |
+|---|---|
+| Meter API | `meter/api/views.py`, `meter/api/urls.py` |
+| ERA billing | `utils/billing.py` |
+| AMI gateway | `utils/ami_gateway.py` |
+| Billing tests | `loan/management/commands/verify_era_billing.py` |
+
+**Full API payloads and error codes:** [`backend/docs/BACKEND_TRANSACTIONS.md`](backend/docs/BACKEND_TRANSACTIONS.md)
+
+---
+
+*Last updated: 2026-06-20*

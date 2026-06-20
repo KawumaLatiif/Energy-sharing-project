@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import type { UserMeter } from "@/interface/meter.interface";
 
 const STORAGE_KEY = "gpawa_selected_meter_no";

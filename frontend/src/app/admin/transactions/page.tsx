@@ -30,7 +30,7 @@ import {
 } from '@/components/ui/dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertTriangle, RefreshCw, Search } from 'lucide-react';
-import { get, post } from "@/lib/fetch";
+import { get, post } from "@/lib/fetch-client";
 
 interface Transaction {
   id: string;

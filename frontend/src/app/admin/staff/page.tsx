@@ -30,7 +30,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Plus, RefreshCw, Shield, UserX } from 'lucide-react';
-import { get, post } from "@/lib/fetch";
+import { get, post } from "@/lib/fetch-client";
 
 interface StaffMember {
   id: number;

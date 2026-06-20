@@ -17,7 +17,7 @@ import {
   Plus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { post, get, patch } from "@/lib/fetch";
+import { post, get, patch } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { Label } from "@/components/ui/label";
 import MeterArchitecturePicker, {

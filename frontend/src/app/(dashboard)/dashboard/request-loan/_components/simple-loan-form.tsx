@@ -12,7 +12,7 @@ import { SegmentedSelector } from "@/components/ui/segmented-selector";
 import { BreakdownCard } from "@/components/ui/breakdown-card";
 import { InfoBanner } from "@/components/ui/info-banner";
 import { FormError } from "@/components/common/form-error";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { submitLoanApplication } from "../action";
 import { getApiErrorMessage } from "@/lib/api-response";
 

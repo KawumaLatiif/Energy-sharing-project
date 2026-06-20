@@ -35,10 +35,11 @@ import threading
 from transactions.models import Transaction, UnitTransaction
 from accounts.models import Wallet as AccountWallet
 from wallet.models import Wallet as UnitWallet
+from loan.models import LoanApplication, LoanRepayment
 import time
 import threading
 from django.db import transaction as db_transaction
-from loan.models import ElectricityTariff, LoanApplication
+from utils.ami_gateway import apply_units_to_meter
 from transactions.api.generate_token import generate_numeric_token
 import traceback
 
@@ -763,6 +764,120 @@ class GenerateTokenFromWalletView(APIView):
             )
 
 
+class ApplyWalletToMeterView(APIView):
+    """
+    POST /api/v1/meter/apply-wallet-units/
+
+    AMI meters: debit the user's unit wallet and push kWh to the meter over the network.
+    STS meters: use /meter/generate-token/ to obtain a keypad token instead.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response(
+                    {"error": "Meter not found or not owned by you."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            ami_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI)
+            if not ami_meters.exists():
+                return Response(
+                    {
+                        "error": (
+                            "No AMI meter found. STS meters require a token — "
+                            "use Generate STS Token on the dashboard."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if ami_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple AMI meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = ami_meters.first()
+
+        if meter.architecture != Meter.ARCH_AMI:
+            return Response(
+                {
+                    "error": (
+                        "This action is for AMI meters only. "
+                        "STS meters need a token — use Generate STS Token."
+                    ),
+                    "architecture": meter.architecture,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        raw = request.data.get("amount")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "Provide a positive numeric kWh amount."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        unit_wallet = UnitWallet.objects.filter(user=user).first()
+        if not unit_wallet or unit_wallet.balance < amount:
+            available = float(unit_wallet.balance) if unit_wallet else 0.0
+            return Response(
+                {
+                    "error": f"Insufficient wallet balance. Available: {available:.2f} kWh.",
+                    "available": available,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                locked_wallet = UnitWallet.objects.select_for_update().get(user=user)
+                if locked_wallet.balance < amount:
+                    return Response(
+                        {"error": "Insufficient wallet balance."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                locked_wallet.balance -= amount
+                locked_wallet.save(update_fields=["balance"])
+
+                success = apply_units_to_meter(meter, amount)
+                if not success:
+                    raise ValueError("AMI gateway could not apply units to the meter.")
+
+                meter.refresh_from_db(fields=["units"])
+
+            return Response(
+                {
+                    "success": True,
+                    "units_applied": float(amount),
+                    "meter_balance": float(meter.units),
+                    "remaining_wallet_balance": float(locked_wallet.balance),
+                    "message": (
+                        f"{float(amount):.2f} kWh sent to your AMI meter. "
+                        "No token entry is required."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            logger.error("ApplyWalletToMeterView error: %s", exc, exc_info=True)
+            return Response(
+                {"error": "Failed to apply units to meter."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
 class BuyUnitsView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
 
@@ -868,7 +983,9 @@ class BuyUnitsView(GenericAPIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             try:
-                meter = Meter.objects.get(user=user)
+                meter = Meter.objects.filter(user=user).order_by("create_date").first()
+                if not meter:
+                    raise Meter.DoesNotExist
             except Meter.DoesNotExist:
                 return Response({
                     "error": "No meter found. Please register your meter before purchasing units."
@@ -957,38 +1074,38 @@ class BuyUnitsView(GenericAPIView):
                     f"Buy units - {amount_decimal} UGX | Loan repaid: {repaid_to_loans} UGX | "
                     f"Units to wallet: {units_purchased} | Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
                 )
-
-                # Push purchased units to physical meter via ThingsBoard when configured.
-                push_ok, push_msg = (True, "Skipped (no units purchased).")
-                if units_purchased > 0:
-                    push_ok, push_msg = push_units_to_thingsboard(
-                        meter=meter,
-                        units=units_purchased,
-                        reference_id=transaction.transaction_reference,
-                    )
-
-                transaction.message = f"{transaction.message} | MeterPush: {'OK' if push_ok else 'FAILED'} ({push_msg})"
                 transaction.save()
 
-                # Create UnitTransaction record
+                # Create UnitTransaction record (also drives monthly service-fee tracking)
                 if units_purchased > 0:
                     UnitTransaction.objects.create(
                         sender=user,
                         receiver=user,
                         units=float(units_purchased),
-                        meter=None,
+                        meter=meter,
                         direction="IN",
                         status="COMPLETED",
                         message=f"Purchased {units_purchased} units to wallet via sandbox payment"
                     )
 
-                    logger.info(
-                        f"Units credited to wallet for user {user_id}: {units_purchased} (no token issued)"
+                    from meter.models import Transaction as MeterLedgerTransaction
+
+                    MeterLedgerTransaction.objects.create(
+                        user=user,
+                        meter=meter,
+                        transaction_type=MeterLedgerTransaction.TYPE_PURCHASE,
+                        amount_kwh=units_purchased,
+                        amount_ugx=amount_decimal,
+                        status=MeterLedgerTransaction.STATUS_COMPLETED,
+                        channel=MeterLedgerTransaction.CHANNEL_APP,
+                        payment_reference=transaction.transaction_reference or "",
+                        source="wallet_purchase",
+                        destination=meter.meter_no,
                     )
-                    if push_ok:
-                        logger.info("ThingsBoard push completed for meter %s", meter.meter_no)
-                    else:
-                        logger.warning("ThingsBoard push not completed for meter %s: %s", meter.meter_no, push_msg)
+
+                    logger.info(
+                        f"Units credited to wallet for user {user_id}: {units_purchased}"
+                    )
 
             logger.info(
                 f"Sandbox: Payment complete for user {user_id}. "
@@ -1182,6 +1299,7 @@ class EstimateUnitsView(APIView):
             calculate_units_from_payment,
             get_active_domestic_tariff,
             get_minimum_payment_for_units,
+            get_monthly_tier_context,
             get_outstanding_deductions,
             get_monthly_units_consumed,
         )
@@ -1198,6 +1316,7 @@ class EstimateUnitsView(APIView):
         )
         minimum_payment = get_minimum_payment_for_units(request.user, tariff)
         service_included = get_monthly_units_consumed(request.user) <= 0
+        tier_ctx = get_monthly_tier_context(request.user)
 
         return Response({
             "estimated_units": float(units),
@@ -1212,4 +1331,7 @@ class EstimateUnitsView(APIView):
             "insufficient_amount": float(units) <= 0 and float(net_amount) > 0,
             "minimum_payment": float(minimum_payment),
             "service_charge_included": service_included,
+            "monthly_units_consumed": float(tier_ctx["monthly_units_consumed"]),
+            "lifeline_remaining_kwh": float(tier_ctx["lifeline_remaining_kwh"]),
+            "current_tier_band": tier_ctx["current_tier_band"],
         })
