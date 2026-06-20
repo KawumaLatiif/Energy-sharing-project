@@ -70,18 +70,35 @@ def get_active_domestic_tariff(on_date: Optional[date] = None):
 
 
 def get_monthly_units_consumed(user, month_date: Optional[date] = None) -> Decimal:
-    """Total kWh purchased by user in the calendar month (COMPLETED PURCHASE transactions)."""
-    from meter.models import Transaction
+    """Total kWh purchased by user in the calendar month (COMPLETED purchases)."""
+    from transactions.models import UnitTransaction
 
     month_date = month_date or timezone.localdate()
-    agg = Transaction.objects.filter(
+
+    # Buy-units flow records self-credits on UnitTransaction (sender=receiver=user).
+    unit_tx_total = UnitTransaction.objects.filter(
+        sender=user,
+        receiver=user,
+        direction="IN",
+        status="COMPLETED",
+        create_date__year=month_date.year,
+        create_date__month=month_date.month,
+    ).aggregate(total=Sum("units"))
+    purchased = Decimal(str(unit_tx_total["total"] or 0))
+
+    # Also honour unified meter.Transaction records when present.
+    from meter.models import Transaction as MeterTransaction
+
+    meter_tx_total = MeterTransaction.objects.filter(
         user=user,
-        transaction_type=Transaction.TYPE_PURCHASE,
-        status=Transaction.STATUS_COMPLETED,
+        transaction_type=MeterTransaction.TYPE_PURCHASE,
+        status=MeterTransaction.STATUS_COMPLETED,
         create_date__year=month_date.year,
         create_date__month=month_date.month,
     ).aggregate(total=Sum("amount_kwh"))
-    return Decimal(str(agg["total"] or 0))
+    purchased += Decimal(str(meter_tx_total["total"] or 0))
+
+    return purchased
 
 
 def is_lifeline_eligible(user) -> bool:
@@ -95,15 +112,16 @@ def is_lifeline_eligible(user) -> bool:
 def recompute_lifeline_eligibility(user) -> bool:
     """Rolling 6-month average ≤ 100 kWh/month → lifeline eligible."""
     from dateutil.relativedelta import relativedelta
-    from meter.models import Transaction
+    from transactions.models import UnitTransaction
 
     six_months_ago = timezone.now() - relativedelta(months=6)
-    agg = Transaction.objects.filter(
-        user=user,
-        transaction_type=Transaction.TYPE_PURCHASE,
-        status=Transaction.STATUS_COMPLETED,
+    agg = UnitTransaction.objects.filter(
+        sender=user,
+        receiver=user,
+        direction="IN",
+        status="COMPLETED",
         create_date__gte=six_months_ago,
-    ).aggregate(total=Sum("amount_kwh"))
+    ).aggregate(total=Sum("units"))
 
     avg_monthly = Decimal(str(agg["total"] or 0)) / 6
     eligible = avg_monthly <= Decimal("100")
@@ -313,6 +331,38 @@ def get_minimum_payment_for_units(
     """Lowest UGX payment that yields any energy under ERA billing rules."""
     bill = calculate_bill_for_units(Decimal("0.01"), user, tariff, month_date)
     return bill.total.quantize(Decimal("0.01"))
+
+
+def get_monthly_tier_context(user, month_date: Optional[date] = None) -> dict:
+    """
+    Summarise where the consumer sits in the monthly tier ladder (ERA Code 10.1).
+    Used by the estimate API so the UI can explain second-purchase yields.
+    """
+    month_date = month_date or timezone.localdate()
+    already = get_monthly_units_consumed(user, month_date)
+    eligible = is_lifeline_eligible(user)
+    lifeline_cap = Decimal("15")
+    lifeline_remaining = (
+        max(Decimal("0"), lifeline_cap - already) if eligible else Decimal("0")
+    )
+    service_due = _service_charge(get_active_domestic_tariff(month_date), user, month_date) > 0
+
+    if already < lifeline_cap and eligible:
+        current_band = "lifeline"
+    elif already < Decimal("80"):
+        current_band = "normal"
+    elif already < Decimal("150"):
+        current_band = "cooking"
+    else:
+        current_band = "super_normal"
+
+    return {
+        "monthly_units_consumed": already.quantize(Decimal("0.01")),
+        "lifeline_remaining_kwh": lifeline_remaining.quantize(Decimal("0.01")),
+        "current_tier_band": current_band,
+        "service_charge_due": service_due,
+        "lifeline_eligible": eligible,
+    }
 
 
 # Backwards-compatible aliases used by older call sites

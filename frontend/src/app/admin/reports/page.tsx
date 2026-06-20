@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { BarChart3, Download, FileText } from 'lucide-react';
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 
 const REPORT_TYPES = [
   { value: "daily_transaction_summary", label: "Daily Transaction Summary" },

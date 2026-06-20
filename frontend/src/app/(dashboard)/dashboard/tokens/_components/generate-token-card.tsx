@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { post } from "@/lib/fetch";
+import { post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import type { UserMeter } from "@/interface/meter.interface";
 
@@ -54,8 +54,8 @@ export default function GenerateTokenCard({
             <CardTitle className="text-base">AMI Meter — Automatic Updates</CardTitle>
           </div>
           <CardDescription>
-            Your meter is networked. When you buy units they are applied to your meter automatically
-            over the network — no token entry is required.
+            Purchases credit your wallet first. Use <strong>Apply</strong> below to send units to
+            this networked meter — no token entry required.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -130,6 +130,7 @@ export default function GenerateTokenCard({
         </div>
         <CardDescription>
           Draw kWh from your wallet and get a token to enter on your STS meter keypad.
+          For AMI meters, use <strong>Apply Wallet Units</strong> on the dashboard instead.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

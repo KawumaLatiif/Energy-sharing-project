@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { useSelectedMeter } from "./selected-meter-context";
 import MeterSelector from "./meter-selector";
 import GenerateTokenCard from "../tokens/_components/generate-token-card";
@@ -27,6 +27,20 @@ export default function MeterUnitsPanel() {
     }
     loadWallet();
   }, [selectedMeter?.meter_number]);
+
+  async function refreshWallet() {
+    try {
+      const res = await get<any>("wallet/balance");
+      if (!res.error && res.data?.success) {
+        const bal = parseFloat(
+          res.data?.wallet?.balance ?? res.data?.wallet_balance ?? "0"
+        );
+        setWalletBalance(Number.isFinite(bal) ? bal : 0);
+      }
+    } catch {
+      /* keep current balance */
+    }
+  }
 
   if (isLoading) {
     return (
@@ -54,7 +68,11 @@ export default function MeterUnitsPanel() {
           }}
         />
       ) : (
-        <AmiStatusCard meter={selectedMeter} walletBalance={walletBalance} />
+        <AmiStatusCard
+          meter={selectedMeter}
+          walletBalance={walletBalance}
+          onApplied={refreshWallet}
+        />
       )}
     </div>
   );

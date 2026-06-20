@@ -1,15 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Wifi, RefreshCw, Circle } from "lucide-react";
+import { Wifi, RefreshCw, Circle, Loader2, Zap } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { get } from "@/lib/fetch";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { get, post } from "@/lib/fetch-client";
+import { getApiErrorMessage } from "@/lib/api-response";
 import type { UserMeter } from "@/interface/meter.interface";
 
 interface AmiStatusCardProps {
   meter: UserMeter;
   walletBalance: number;
+  onApplied?: () => void;
 }
 
 interface AmiStatus {
@@ -18,10 +22,27 @@ interface AmiStatus {
   current_balance_kwh: number | null;
 }
 
-export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardProps) {
+export default function AmiStatusCard({
+  meter,
+  walletBalance,
+  onApplied,
+}: AmiStatusCardProps) {
   const [status, setStatus] = useState<AmiStatus | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [amount, setAmount] = useState("");
+  const [isApplying, setIsApplying] = useState(false);
+  const [applyMessage, setApplyMessage] = useState("");
+  const [localWalletBalance, setLocalWalletBalance] = useState(walletBalance);
+  const [localMeterBalance, setLocalMeterBalance] = useState(meter.units);
+
+  useEffect(() => {
+    setLocalWalletBalance(walletBalance);
+  }, [walletBalance]);
+
+  useEffect(() => {
+    setLocalMeterBalance(meter.units);
+  }, [meter.units]);
 
   const fetchStatus = useCallback(async () => {
     setIsRefreshing(true);
@@ -31,11 +52,16 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
         `meter/ami-status/?meter_no=${encodeURIComponent(meter.meter_number)}`
       );
       if (!res.error && res.data?.success) {
+        const balance = res.data.current_balance_kwh ?? meter.units;
         setStatus({
           is_online: res.data.is_online,
           last_seen: res.data.last_seen ?? null,
-          current_balance_kwh: res.data.current_balance_kwh ?? meter.units,
+          current_balance_kwh: balance,
         });
+        setLocalMeterBalance(Number(balance) || 0);
+        if (typeof res.data.wallet_balance === "number") {
+          setLocalWalletBalance(res.data.wallet_balance);
+        }
       } else {
         setStatus({
           is_online: false,
@@ -60,7 +86,44 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
     fetchStatus();
   }, [fetchStatus]);
 
-  const balance = status?.current_balance_kwh ?? meter.units;
+  async function handleApply() {
+    const amt = parseFloat(amount);
+    if (!amount || isNaN(amt) || amt <= 0) {
+      setError("Enter a valid kWh amount.");
+      return;
+    }
+    if (amt > localWalletBalance) {
+      setError(`You only have ${localWalletBalance.toFixed(2)} kWh in your wallet.`);
+      return;
+    }
+
+    setIsApplying(true);
+    setError("");
+    setApplyMessage("");
+
+    try {
+      const res = await post<any>("meter/apply-wallet-units/", {
+        amount: amt,
+        meter_no: meter.meter_number,
+      });
+      if (res.data?.success) {
+        setApplyMessage(res.data.message || "Units applied to your AMI meter.");
+        setLocalWalletBalance(Number(res.data.remaining_wallet_balance) || 0);
+        setLocalMeterBalance(Number(res.data.meter_balance) || 0);
+        setAmount("");
+        onApplied?.();
+        fetchStatus();
+      } else {
+        setError(getApiErrorMessage(res.error, res.data?.error || "Failed to apply units."));
+      }
+    } catch {
+      setError("Network error. Please try again.");
+    } finally {
+      setIsApplying(false);
+    }
+  }
+
+  const balance = status?.current_balance_kwh ?? localMeterBalance;
 
   return (
     <Card className="border-blue-200 dark:border-blue-800 bg-blue-50/40 dark:bg-blue-950/20">
@@ -68,7 +131,7 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Wifi className="h-5 w-5 text-blue-600" />
-            <CardTitle className="text-base">AMI Meter — Network Sync</CardTitle>
+            <CardTitle className="text-base">AMI Meter — Apply Wallet Units</CardTitle>
           </div>
           <Button
             variant="ghost"
@@ -81,11 +144,11 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
           </Button>
         </div>
         <CardDescription>
-          Purchases and shares debit your wallet and apply to this meter automatically — no token
-          entry required.
+          Buy units to load your wallet, then apply them here. AMI meters update over the network —
+          no token entry required.
         </CardDescription>
       </CardHeader>
-      <CardContent className="space-y-3">
+      <CardContent className="space-y-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 px-4 py-3">
             <span className="text-sm text-muted-foreground">Meter balance</span>
@@ -93,7 +156,9 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
           </div>
           <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 px-4 py-3">
             <span className="text-sm text-muted-foreground">Wallet balance</span>
-            <p className="text-xl font-bold tabular-nums mt-1">{walletBalance.toFixed(2)} kWh</p>
+            <p className="text-xl font-bold tabular-nums mt-1">
+              {localWalletBalance.toFixed(2)} kWh
+            </p>
           </div>
         </div>
 
@@ -115,11 +180,55 @@ export default function AmiStatusCard({ meter, walletBalance }: AmiStatusCardPro
           <p className="text-xs text-muted-foreground font-mono">IP: {meter.static_ip}</p>
         )}
 
-        {error && <p className="text-xs text-amber-700 dark:text-amber-400">{error}</p>}
+        {localWalletBalance > 0 ? (
+          <div className="space-y-2">
+            <Label htmlFor="ami-apply-amount">kWh to apply from wallet</Label>
+            <div className="flex gap-2">
+              <Input
+                id="ami-apply-amount"
+                type="number"
+                min="0.01"
+                max={localWalletBalance}
+                step="0.01"
+                placeholder="e.g. 10"
+                value={amount}
+                onChange={(e) => {
+                  setAmount(e.target.value);
+                  setError("");
+                  setApplyMessage("");
+                }}
+                disabled={isApplying}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleApply}
+                disabled={isApplying || !amount}
+                className="gpawa-gradient text-white shrink-0"
+              >
+                {isApplying ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <>
+                    <Zap className="h-4 w-4 mr-1.5" />
+                    Apply
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground text-center py-2">
+            No units in wallet. Buy units first, then apply them to this meter.
+          </p>
+        )}
+
+        {applyMessage && (
+          <p className="text-sm text-green-700 dark:text-green-400">{applyMessage}</p>
+        )}
+        {error && <p className="text-sm text-destructive">{error}</p>}
 
         <p className="text-xs text-muted-foreground">
-          Balance updates may take a few minutes to reflect on the physical meter after a purchase
-          or share.
+          Balance updates may take a few minutes to reflect on the physical meter.
         </p>
       </CardContent>
     </Card>

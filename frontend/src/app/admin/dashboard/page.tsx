@@ -12,7 +12,7 @@ import {
   Activity, AlertCircle, AlertTriangle, CheckCircle2,
   CreditCard, Users, XCircle, Zap, ArrowRight, TrendingUp,
 } from 'lucide-react';
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 
 interface DashboardData {
   total_users: number;

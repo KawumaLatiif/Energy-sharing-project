@@ -35,7 +35,7 @@ import BuyUnitsSuggestion from "../../request-loan/_components/buy-units-suggest
 import TokenPopup from "../../request-loan/_components/token-popup";
 import RepaymentForm from "../../request-loan/_components/repayment-form";
 import { disburseLoan, repayLoan } from "../action";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 

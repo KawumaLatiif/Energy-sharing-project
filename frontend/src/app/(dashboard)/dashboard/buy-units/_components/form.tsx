@@ -37,7 +37,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import Link from "next/link";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 
 function formatUGX(n: number) {
@@ -57,6 +57,9 @@ interface UnitEstimate {
   insufficient_amount?: boolean;
   minimum_payment?: number;
   service_charge_included?: boolean;
+  monthly_units_consumed?: number;
+  lifeline_remaining_kwh?: number;
+  current_tier_band?: string;
 }
 
 function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
@@ -81,6 +84,12 @@ function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
         ? "Service charge (monthly)"
         : "Service charge",
       value: formatUGX(estimate.service_charge),
+    });
+  } else if (estimate.service_charge_included === false) {
+    rows.push({
+      label: "Service charge",
+      value: "Already paid this month",
+      muted: true,
     });
   }
   if (estimate.vat != null) {
@@ -547,6 +556,41 @@ export default function BuyUnitsForm() {
                           <strong>{formatUGX(Math.ceil(estimate.minimum_payment))}</strong> to
                           receive any units. STS mode uses the same ERA tariff — only the
                           token delivery method differs.
+                        </p>
+                      )}
+                    {!estimating &&
+                      estimate &&
+                      !estimate.insufficient_amount &&
+                      estimate.service_charge_included === false && (
+                        <p className="text-sm text-blue-800 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 rounded-md px-3 py-2">
+                          Service charge already paid this month — your full payment goes to
+                          energy. You have purchased{" "}
+                          <strong>{(estimate.monthly_units_consumed ?? 0).toFixed(2)} kWh</strong>{" "}
+                          so far this month
+                          {estimate.lifeline_remaining_kwh != null &&
+                          estimate.lifeline_remaining_kwh > 0 ? (
+                            <>
+                              {" "}
+                              with up to{" "}
+                              <strong>{estimate.lifeline_remaining_kwh.toFixed(2)} kWh</strong>{" "}
+                              still at the lifeline rate (250 UGX/kWh).
+                            </>
+                          ) : null}{" "}
+                          A second purchase often shows more kWh than your first payment because
+                          the monthly service fee is not deducted again.
+                        </p>
+                      )}
+                    {!estimating &&
+                      estimate &&
+                      estimate.service_charge_included &&
+                      estimate.estimated_units > 0 &&
+                      estimate.estimated_units < 1 &&
+                      Number(amount) >= 100 && (
+                        <p className="text-sm text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-md px-3 py-2">
+                          Most of this payment covers the monthly service charge (UGX 3,360) and
+                          VAT. For meaningful energy units on your first purchase this month, pay
+                          at least <strong>{formatUGX(5000)}</strong> (ERA Case 2 ≈ 3.5 kWh) or
+                          more.
                         </p>
                       )}
                   </div>

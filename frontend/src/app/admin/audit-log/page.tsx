@@ -21,7 +21,7 @@ import {
 } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Download, Lock, RefreshCw, Search } from 'lucide-react';
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 
 interface AuditEntry {
   id: number;

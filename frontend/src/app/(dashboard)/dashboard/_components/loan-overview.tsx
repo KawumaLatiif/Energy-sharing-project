@@ -17,7 +17,7 @@ import {
   DollarSignIcon,
   AlertCircleIcon,
 } from "lucide-react";
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 import { useEffect, useState } from "react";
 
 interface LoanStats {

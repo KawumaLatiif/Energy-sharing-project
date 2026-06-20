@@ -19,7 +19,7 @@ import CardWrapper from "@/components/common/card-wrapper";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
-import { get, post } from "@/lib/fetch";
+import { get, post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";

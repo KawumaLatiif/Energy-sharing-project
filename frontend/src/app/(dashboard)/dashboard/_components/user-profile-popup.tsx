@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { post } from "@/lib/fetch";
+import { post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 
 // Schema for user profile/loan assessment

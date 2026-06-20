@@ -19,7 +19,7 @@ import {
   RefreshCw,
   XCircle,
 } from 'lucide-react';
-import { get } from "@/lib/fetch";
+import { get } from "@/lib/fetch-client";
 
 interface ComponentHealth {
   status: "GREEN" | "AMBER" | "RED";
