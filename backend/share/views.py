@@ -37,6 +37,13 @@ def _validate_meter_number(meter_number: str) -> tuple[bool, str]:
     return True, ""
 
 
+def _phone_for_api(phone) -> str:
+    """Serialize phonenumber_field values for JSON API responses."""
+    if not phone:
+        return "Not on file"
+    return str(phone)
+
+
 class ShareReceiverPreviewView(APIView):
     """
     GET /api/v1/share/receiver-preview/?meter_number=
@@ -95,7 +102,7 @@ class ShareReceiverPreviewView(APIView):
                     "meter_number": meter.meter_no,
                     "meter_type": meter.architecture,
                     "meter_type_label": "AMI (networked)" if is_ami else "STS (token keypad)",
-                    "phone_number": owner.phone_number or "Not on file",
+                    "phone_number": _phone_for_api(owner.phone_number),
                 },
                 "delivery_method": (
                     "Units will be sent directly to the AMI meter device token (ThingsBoard)."

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Loader2, ScrollText } from "lucide-react";
 import {
   Dialog,
@@ -178,12 +178,21 @@ export function LedgerLink({
   onClick,
 }: {
   className?: string;
-  onClick: (e: React.MouseEvent) => void;
+  onClick: (e: MouseEvent) => void;
 }) {
+  const handleKeyDown = (e: KeyboardEvent<HTMLSpanElement>) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      onClick(e as unknown as MouseEvent);
+    }
+  };
+
   return (
-    <button
-      type="button"
+    <span
+      role="button"
+      tabIndex={0}
       onClick={onClick}
+      onKeyDown={handleKeyDown}
       className={
         className ??
         "text-muted-foreground underline-offset-2 hover:underline hover:text-primary focus:outline-none focus-visible:underline"
@@ -191,6 +200,6 @@ export function LedgerLink({
       title="View ledger history"
     >
       ledger
-    </button>
+    </span>
   );
 }
