@@ -286,11 +286,11 @@ SMTP_FROM=alerts@gpawa.ug
 SMTP_USE_TLS=true
 ```
 
-`THINGSBOARD_TENANT_USERNAME` / `PASSWORD` are optional — used for **Power Usage** timeseries pull when configured; not required for Check units (device-token HTTP API is canonical).
+`THINGSBOARD_TENANT_USERNAME` / `PASSWORD` are optional — used for **Energy Usage** timeseries pull when configured; not required for Check units (device-token HTTP API is canonical).
 
 ---
 
-## 8b. Daily usage webhook (Power Usage)
+## 8b. Daily usage webhook (Energy Usage)
 
 **URL:** `POST /webhooks/thingsboard/daily-usage` (root path, same secret header as low-units)
 
@@ -304,7 +304,7 @@ SMTP_USE_TLS=true
 }
 ```
 
-Upserts `MeterUsageDaily` for Power Usage reports. Alternative to Celery snapshot aggregation — see [`POWER_USAGE.md`](POWER_USAGE.md).
+Upserts `MeterUsageDaily` for Energy Usage reports. Alternative to Celery snapshot aggregation — see [`POWER_USAGE.md`](POWER_USAGE.md).
 
 Implementation: `webhooks/api/views.py` → `ThingsBoardDailyUsageWebhookView`.
 

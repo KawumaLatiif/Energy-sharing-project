@@ -16,7 +16,7 @@ python manage.py migrate
 |-----|-----------|---------|
 | `accounts` | `0015_user_must_change_password` | Admin-provisioned users must change password on first login |
 | `meter` | `0016_meternotification` | Low-units alerts (ThingsBoard webhook) |
-| `meter` | `0017_meter_power_usage` | `MeterBalanceSnapshot` + `MeterUsageDaily` for AMI Power Usage |
+| `meter` | `0017_meter_power_usage` | `MeterBalanceSnapshot` + `MeterUsageDaily` for AMI Energy Usage |
 | `meter` | `0019_meter_soft_delete` | Soft-delete fields on `Meter` + `DeletedMeterRecord` audit table |
 
 Verify:
@@ -38,7 +38,7 @@ Add to `backend/.env` (see `backend/.env.production.example`):
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_TIMEOUT_SECONDS=8
 THINGSBOARD_WEBHOOK_SECRET=your-webhook-secret
-THINGSBOARD_TENANT_USERNAME=          # Required for remaining_units attribute sync + Power Usage
+THINGSBOARD_TENANT_USERNAME=          # Required for remaining_units attribute sync + Energy Usage
 THINGSBOARD_TENANT_PASSWORD=
 THINGSBOARD_USAGE_TELEMETRY_KEY=daily_kwh
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
@@ -86,7 +86,7 @@ celery -A backend beat -l info
 | **TopUp Wallet** | `/dashboard/buy-units` | MoMo purchase → unit wallet (formerly “Buy Units”) |
 | **My Meters** | `/dashboard/my-meters` | List, register, check, load, **remove** meters |
 | **Load / Share Units** | `/dashboard/share` | Load own meter (AMI/STS) or share to others |
-| **Power Usage** | `/dashboard/power-usage` | AMI only — charts & reports |
+| **Energy Usage** | `/dashboard/power-usage` | AMI only — charts & reports |
 | **STS Tokens** | `/dashboard/tokens` | STS keypad tokens |
 | Admin | `/admin/dashboard` | Staff console (not customer flow) |
 
@@ -122,7 +122,7 @@ The live `Meter` row is soft-deleted (`is_deleted=True`, user cleared, `meter_no
 |---|-------|-------|
 | 2 | Buy Units | Same as web **TopUp Wallet** (MoMo → wallet) |
 | 4 | Share Units | OTP + email; AMI/STS delivery as API |
-| 9 | Power Usage | Weekly text summary (AMI only) |
+| 9 | Energy Usage | Weekly text summary (AMI only) |
 
 Load Units (web/mobile) maps to USSD **Manage → Apply wallet (`6*4`)** for AMI and **Tokens → Generate (`5*2`)** for STS.
 
@@ -138,7 +138,7 @@ Load Units (web/mobile) maps to USSD **Manage → Apply wallet (`6*4`)** for AMI
 | **TopUp** | TopUp Wallet (`meter/buy-units/`) |
 | **Load/Share** | Load / Share Units hub — load (AMI push or STS token), share + preview + OTP |
 | **Tokens** | STS token history + quick generate (multi-meter picker) |
-| **Usage** | Power Usage API (AMI) |
+| **Usage** | Energy Usage API (AMI) |
 | **Loans** | Apply / disburse / repay |
 | **Account** | Profile, alerts, recent transactions |
 
@@ -168,6 +168,6 @@ Rebuild APK after API URL changes: see [`MOBILE_APP.md`](MOBILE_APP.md).
 2. Customer login → **TopUp Wallet** → sandbox MoMo completes
 3. **Load / Share Units** → Load (AMI) → confirm → ThingsBoard push
 4. **Load / Share Units** → Share → enter meter → preview → OTP → complete
-5. **Power Usage** (AMI account) → weekly chart loads
+5. **Energy Usage** (AMI account) → weekly chart loads
 6. USSD `9` → weekly summary (AMI phone user)
 7. Admin login → `/admin/dashboard` (not customer meter registration flow)

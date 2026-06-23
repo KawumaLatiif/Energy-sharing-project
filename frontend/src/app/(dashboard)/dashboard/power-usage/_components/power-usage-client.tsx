@@ -129,10 +129,10 @@ export default function PowerUsageClient() {
           setYear(res.data.data.available_years[0]);
         }
       } else {
-        setData({ eligible: false, message: "Unable to load power usage." });
+        setData({ eligible: false, message: "Unable to load Energy Usage." });
       }
     } catch {
-      setData({ eligible: false, message: "Unable to load power usage." });
+      setData({ eligible: false, message: "Unable to load Energy Usage." });
     } finally {
       setLoading(false);
     }
@@ -162,7 +162,7 @@ export default function PowerUsageClient() {
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <Zap className="h-5 w-5 text-muted-foreground" />
-            Power Usage
+            Energy Usage
           </CardTitle>
           <CardDescription>AMI meter analytics</CardDescription>
         </CardHeader>
@@ -181,7 +181,7 @@ export default function PowerUsageClient() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2">
             <Activity className="h-7 w-7 text-primary" />
-            Power Usage
+            Energy Usage
           </h1>
           <p className="text-muted-foreground mt-1">
             Energy consumed (kWh) from your networked AMI meter

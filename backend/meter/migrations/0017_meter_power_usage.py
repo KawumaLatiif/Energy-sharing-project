@@ -1,4 +1,4 @@
-# Generated migration for AMI power usage models
+# Generated migration for AMI Energy Usage models
 
 import django.core.validators
 from decimal import Decimal

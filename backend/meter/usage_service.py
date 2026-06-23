@@ -1,5 +1,5 @@
 """
-AMI power usage aggregation and reporting.
+AMI Energy Usage aggregation and reporting.
 
 Data sources (priority):
   1. ThingsBoard telemetry timeseries (when tenant API + telemetry key configured)
@@ -381,7 +381,7 @@ def format_weekly_usage_ussd(report: dict[str, Any]) -> tuple[bool, str]:
 
     day_abbr = ["Mo", "Tu", "We", "Th", "Fr", "Sa", "Su"]
     lines = [
-        "Power Usage (7 days)",
+        "Energy Usage (7 days)",
         f"Meter {meter_no}",
         f"Total: {summary.get('total_kwh', 0)} kWh",
         f"Avg/day: {summary.get('average_daily_kwh', 0)} kWh",

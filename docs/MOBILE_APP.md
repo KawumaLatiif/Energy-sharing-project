@@ -39,7 +39,7 @@ Native Android client for the gPawa energy-sharing platform. The app uses the sa
 | **TopUp Wallet** | Pay with MTN Mobile Money; ERA tariff estimate; payment polling |
 | **Load / Share** | Hub: load own meter (AMI push / STS token) or share with preview + OTP |
 | **Tokens** | STS: list/generate keypad tokens (multi-meter); AMI quick check/apply |
-| **Power Usage** | AMI-only: daily/weekly/monthly/annual kWh charts and summaries |
+| **Energy Usage** | AMI-only: daily/weekly/monthly/annual kWh charts and summaries |
 | **Share** | *(merged into Load/Share tab)* |
 | **Loans** | Apply, view pending/active loans, disburse, repay (wallet or MoMo) |
 | **Account** | Profile, low-units alerts, recent transactions, API URL, sign out |
@@ -69,7 +69,7 @@ Native Android client for the gPawa energy-sharing platform. The app uses the sa
 | **My Meters** (list/register/check/load/**delete**) | Yes | Yes | Partial (6*1 list; no delete/register on USSD) |
 | Load Units (own meter, AMI+STS) | Yes | Yes (Load/Share + Meters) | Yes (**6*4** AMI, **5*2** STS) |
 | Share units + preview + OTP | Yes | Yes | Yes (menu **4**; STS token / AMI device on verify) |
-| Power Usage (AMI) | Yes | Yes | Yes (menu **9** weekly text) |
+| Energy Usage (AMI) | Yes | Yes | Yes (menu **9** weekly text) |
 | Loans apply/disburse/repay | Yes | Yes | Yes (menu **3**) |
 | Loan MoMo repay | Yes | Yes | No |
 | Transaction history (full) | Yes | Partial (Account) | No |

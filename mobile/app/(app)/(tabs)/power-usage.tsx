@@ -112,7 +112,7 @@ export default function PowerUsageScreen() {
   if (!amiMeters.length) {
     return (
       <Screen>
-        <Title>Power Usage</Title>
+        <Title>Energy Usage</Title>
         <Subtitle>AMI meter analytics</Subtitle>
         <Card>
           <Text style={{ color: colors.muted, lineHeight: 22 }}>
@@ -138,7 +138,7 @@ export default function PowerUsageScreen() {
       }
     >
       <Screen>
-        <Title>Power Usage</Title>
+        <Title>Energy Usage</Title>
         <Subtitle>{`${report?.meter_label || report?.meter_no || "AMI meter"} · kWh consumed`}</Subtitle>
 
         {amiMeters.length > 1 && (

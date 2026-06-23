@@ -254,7 +254,7 @@ Web menu label: **TopUp Wallet** (MoMo purchase credits the unit wallet).
 
 ---
 
-## 5d) Power Usage (`GET /meter/power-usage/?period=week`)
+## 5d) Energy Usage (`GET /meter/power-usage/?period=week`)
 
 ### Success Response (200) — excerpt
 

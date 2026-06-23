@@ -64,7 +64,7 @@ export default function DashboardNavLinks({ className }: { className?: string })
           className={linkClass(pathname === "/dashboard/power-usage")}
         >
           <Activity className="h-4 w-4" />
-          Power Usage
+          Energy Usage
         </Link>
       )}
       <Link

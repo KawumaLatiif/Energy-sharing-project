@@ -17,7 +17,7 @@ That single guide covers:
 
 **Tabs:** Home · **Meters** · TopUp Wallet · **Load/Share** · Tokens · Usage · Loans · Account
 
-**AMI Power Usage:** see [`../docs/POWER_USAGE.md`](../docs/POWER_USAGE.md)
+**AMI Energy Usage:** see [`../docs/POWER_USAGE.md`](../docs/POWER_USAGE.md)
 
 **Related:** [`../docs/PLATFORM_ALIGNMENT.md`](../docs/PLATFORM_ALIGNMENT.md) — migrations & deploy checklist · [`../docs/THINGSBOARD_INTEGRATION_GUIDE.md`](../docs/THINGSBOARD_INTEGRATION_GUIDE.md) — AMI / ThingsBoard
 

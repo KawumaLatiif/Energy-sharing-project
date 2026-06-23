@@ -649,7 +649,7 @@ Implementation: `webhooks/api/views.py` → `ThingsBoardLowUnitsWebhookView`.
 
 #### ThingsBoard daily usage (`POST /webhooks/thingsboard/daily-usage`)
 
-Root URL. Optional rule chain posts pre-aggregated daily kWh for Power Usage reports.
+Root URL. Optional rule chain posts pre-aggregated daily kWh for Energy Usage reports.
 
 **Body:** `{ "device_token", "usage_date": "YYYY-MM-DD", "kwh_used" }` → upserts `MeterUsageDaily`.
 

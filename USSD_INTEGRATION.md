@@ -79,7 +79,7 @@ gPawa
 6. Manage
 7. Alerts
 8. Exit
-9. Power Usage
+9. Energy Usage
 ```
 
 Response: **`CON`**
@@ -152,7 +152,7 @@ Alerts are created when ThingsBoard POSTs to `POST /webhooks/thingsboard/low-uni
 
 ---
 
-## 9) Power Usage — `text`: `9`
+## 9) Energy Usage — `text`: `9`
 
 Weekly **text-only** energy consumption summary for **AMI meter users** only.
 
@@ -162,7 +162,7 @@ Weekly **text-only** energy consumption summary for **AMI meter users** only.
 Example response:
 
 ```text
-Power Usage (7 days)
+Energy Usage (7 days)
 Meter 12345678901
 Total: 12.50 kWh
 Avg/day: 1.79 kWh
@@ -412,7 +412,7 @@ These exist on the web/API but **not** in the USSD menu:
 | Loans apply/disburse/repay | Yes | Yes |
 | Loan MoMo repay | Yes | No |
 | AMI check units | Yes | Yes (`6*2`) |
-| Power Usage (weekly) | Yes | Yes (`9`) |
+| Energy Usage (weekly) | Yes | Yes (`9`) |
 | Low-units alerts | Yes | Yes (`6*3`, `7`) |
 | Transaction history | Yes | No |
 | Meter self-registration / removal | Yes | No |

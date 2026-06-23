@@ -118,7 +118,7 @@ All channels read and update the **same balances and meters** in the database.
 ### What still depends on ThingsBoard / field setup
 
 - ThingsBoard must expose **`remaining_units`** as a shared attribute for “Check units” to work (gPAWA also writes this attribute on delivery when tenant credentials are set).
-- **`THINGSBOARD_TENANT_USERNAME`** / **`THINGSBOARD_TENANT_PASSWORD`** — required for writing `remaining_units` via tenant REST API and for Power Usage timeseries.
+- **`THINGSBOARD_TENANT_USERNAME`** / **`THINGSBOARD_TENANT_PASSWORD`** — required for writing `remaining_units` via tenant REST API and for Energy Usage timeseries.
 - ThingsBoard **rule chains** must be configured to POST low-units alerts to gPAWA (not automatic until configured).
 - gPAWA’s server must be reachable from ThingsBoard for alerts (public URL, not `localhost`).
 - Physical meters must be online and correctly provisioned in ThingsBoard for **device firmware** to receive credits (server-side attribute sync can still update Check Units while offline).
@@ -151,7 +151,7 @@ All channels read and update the **same balances and meters** in the database.
 | `THINGSBOARD_BASE_URL` | `https://iot.energy-share.sun.ac.ug` |
 | `THINGSBOARD_TIMEOUT_SECONDS` | `8` |
 | `THINGSBOARD_WEBHOOK_SECRET` | Optional shared secret for inbound webhook |
-| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant JWT — **writes `remaining_units`** on delivery + Power Usage timeseries |
+| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant JWT — **writes `remaining_units`** on delivery + Energy Usage timeseries |
 | `AMI_GATEWAY` | `utils.ami_gateway.ThingsBoardAMIGateway` (production) or `MockAMIGateway` (pilot) |
 | `WEB_PORTAL_URL` / `FRONTEND_URL` | Deep links in alert emails |
 | SMTP settings | Optional email for low-units alerts |

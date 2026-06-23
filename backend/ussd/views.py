@@ -772,7 +772,7 @@ def ussd_entry(request):
                     "6. Manage\n"
                     "7. Alerts\n"
                     "8. Exit\n"
-                    "9. Power Usage"
+                    "9. Energy Usage"
                 ),
                 menu="root",
             )
@@ -1189,7 +1189,7 @@ def ussd_entry(request):
             ussd_session.save(update_fields=["user", "last_text", "is_active", "updated_at"])
             return _session_reply(ussd_session, "END", "Thank you for using gPawa.", menu="exit")
 
-        # 9) Power Usage — weekly text summary (AMI only)
+        # 9) Energy Usage — weekly text summary (AMI only)
         if steps[0] == "9":
             from meter.usage_service import format_weekly_usage_ussd, get_power_usage_report, get_user_ami_meters
 
@@ -1222,7 +1222,7 @@ def ussd_entry(request):
                 return _session_reply(
                     ussd_session,
                     "CON",
-                    _ami_meter_picker_message(ami_meters).replace("Check units", "Power Usage"),
+                    _ami_meter_picker_message(ami_meters).replace("Check units", "Energy Usage"),
                     menu="power_usage_pick",
                     context={"power_usage_meter_nos": [m.meter_no for m in ami_meters]},
                 )

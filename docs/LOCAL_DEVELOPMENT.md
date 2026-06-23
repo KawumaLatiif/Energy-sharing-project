@@ -250,7 +250,7 @@ Leave this terminal running.
 | User dashboard | http://localhost:3000/dashboard |
 | TopUp Wallet | http://localhost:3000/dashboard/buy-units |
 | Load / Share Units | http://localhost:3000/dashboard/share |
-| Power Usage (AMI) | http://localhost:3000/dashboard/power-usage |
+| Energy Usage (AMI) | http://localhost:3000/dashboard/power-usage |
 | Admin portal | http://localhost:3000/admin/dashboard |
 | USSD simulator | http://localhost:3000/ussd-simulator |
 
@@ -260,7 +260,7 @@ Leave this terminal running.
 2. Log in with a seeded user (e.g. `jane@powercred.local` / `Pass1234!`)
 3. Register or view meter in dashboard
 4. Try **TopUp Wallet** (sandbox MoMo simulation auto-completes)
-5. Try **Load / Share Units** and **Power Usage** (AMI accounts)
+5. Try **Load / Share Units** and **Energy Usage** (AMI accounts)
 6. Open USSD simulator and test menu flows with a seeded phone number
 
 After pulling latest code:

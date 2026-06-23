@@ -1,6 +1,6 @@
-# AMI Power Usage — Architecture & Data Sources
+# AMI Energy Usage — Architecture & Data Sources
 
-This document explains how **Power Usage** works in gPawa (web, mobile, API), how to connect **real AMI meter data**, and what to configure on ThingsBoard.
+This document explains how **Energy Usage** works in gPawa (web, mobile, API), how to connect **real AMI meter data**, and what to configure on ThingsBoard.
 
 ---
 
@@ -24,9 +24,9 @@ Users with **STS-only** accounts see:
 
 | Channel | Location |
 |---------|----------|
-| **Web** | Sidebar → **Power Usage** (only if account has an AMI meter) |
+| **Web** | Sidebar → **Energy Usage** (only if account has an AMI meter) |
 | **Mobile** | Tab → **Usage** |
-| **USSD** | Main menu → **9. Power Usage** (weekly text summary) |
+| **USSD** | Main menu → **9. Energy Usage** (weekly text summary) |
 | **API** | `GET /api/v1/meter/power-usage/` |
 
 ### API parameters
@@ -168,7 +168,7 @@ Meters with `iot_device_token` starting with `dev-` get **synthetic** daily usag
 
 | Phase | Action |
 |-------|--------|
-| **1. UI + API** | Ship Power Usage page; verify with `dev-*` tokens |
+| **1. UI + API** | Ship Energy Usage page; verify with `dev-*` tokens |
 | **2. Snapshots** | Enable 6-hour Celery snapshots + daily aggregation |
 | **3. Meter telemetry** | Confirm with hardware team which key meters publish (`daily_kwh`, `active_energy`, etc.) |
 | **4. ThingsBoard** | Configure rule chain or device profile to publish daily kWh |
