@@ -38,7 +38,7 @@ Add to `backend/.env` (see `backend/.env.production.example`):
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_TIMEOUT_SECONDS=8
 THINGSBOARD_WEBHOOK_SECRET=your-webhook-secret
-THINGSBOARD_TENANT_USERNAME=          # Optional: Power Usage timeseries pull
+THINGSBOARD_TENANT_USERNAME=          # Required for remaining_units attribute sync + Power Usage
 THINGSBOARD_TENANT_PASSWORD=
 THINGSBOARD_USAGE_TELEMETRY_KEY=daily_kwh
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
@@ -56,6 +56,7 @@ CELERY_TASK_ALWAYS_EAGER=True
 |------|----------|
 | `meter.tasks.snapshot_ami_meter_balances` | Every 6 hours |
 | `meter.tasks.aggregate_daily_ami_usage` | Daily 01:15 |
+| `meter.tasks.retry_pending_ami_deliveries` | Every 5 minutes |
 
 ```bash
 celery -A backend worker -l info

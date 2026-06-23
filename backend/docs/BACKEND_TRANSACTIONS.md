@@ -39,9 +39,10 @@ The backend uses **three separate balance concepts**:
 | **MoMo payment ledger** | `transactions.models.Transaction` | UGX mobile-money payment status (`PENDING` / `COMPLETED` / `FAILED`) |
 | **Unit purchase ledger** | `transactions.models.UnitTransaction` | kWh self-credits from purchases (`sender=user`, `receiver=user`, `direction=IN`) |
 | **Unified meter ledger** | `meter.models.Transaction` | Audit trail of kWh/UGX movements per meter (`TYPE_PURCHASE`, etc.) |
-| **Meter balance** | `meter.models.Meter.units` | kWh currently credited on the meter record (AMI updates this on apply; STS updates via token flow) |
+| **Meter balance** | `meter.models.Meter.units` | kWh delivered to ThingsBoard (AMI ledger) |
+| **AMI pending delivery** | `meter.models.Meter.pending_units` | AMI: kWh queued when ThingsBoard unreachable; STS: awaiting token |
 
-**Purchases never push directly to the meter.** Units always land in the **unit wallet** first. The user then either generates an STS token or applies to an AMI meter.
+**Purchases never push directly to the meter.** Units always land in the **unit wallet** first. The user then either generates an STS token or **loads** to an AMI meter (`apply-wallet-units`).
 
 ---
 
@@ -99,24 +100,38 @@ All buy/estimate flows use `utils/billing.py` with the ERA domestic tariff (`DOM
                                                                                  │
               POST apply-wallet-units                                            │
 ┌─────────────┐ ◄──────────────────────────────────────────────────────────────┘
-│ AMI Gateway │   debits wallet → apply_units_to_meter() → meter.units += kWh
-│ (network)   │
-└─────────────┘
+│ AMI Delivery│   debits wallet → credit_ami_meter() → TB telemetry + attribute
+│ Engine      │   success → meter.units += kWh | fail → meter.pending_units += kWh
+└─────────────┘   Celery retries pending every 5 min + on Check Units
 ```
 
-### 3.3 AMI gateway (`utils/ami_gateway.py`)
+### 3.3 AMI delivery (`meter/ami_delivery.py` + `utils/ami_gateway.py`)
 
 `apply_units_to_meter(meter, units)` branches on architecture:
 
 - **STS:** adds to `meter.pending_units` (token still required separately).
-- **AMI:** calls the configured gateway, then updates `meter.units` on success.
+- **AMI:** calls `credit_ami_meter()` which:
+  1. Pushes telemetry via `push_units_to_thingsboard()`.
+  2. Increments `remaining_units` shared attribute via tenant REST API.
+  3. On success → `meter.units += amount` (ledger).
+  4. On failure → `meter.pending_units += amount` (queued; wallet already debited on load).
 
 | Setting | Gateway | Behaviour |
 |---------|---------|-----------|
 | `AMI_GATEWAY=utils.ami_gateway.MockAMIGateway` (default) | Mock | Logs success; no real network call (pilot) |
-| `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` | ThingsBoard | Push via `push_units_to_thingsboard()`; read via `query_latest_units_from_thingsboard()` |
+| `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` | ThingsBoard | Push + attribute sync; pending queue on failure |
 
-`get_ami_gateway().get_status(meter)` powers the AMI status card. Live kWh on refresh uses `GET /meter/check-units/` (ThingsBoard `remaining_units`).
+**Celery:** `meter.tasks.retry_pending_ami_deliveries` runs every **5 minutes** (requires worker + beat).
+
+`get_ami_gateway().get_status(meter)` powers the AMI status card. Live kWh on refresh uses `GET /meter/check-units/` (ThingsBoard `remaining_units`). Check-units also retries pending delivery inline.
+
+### 3.4 Ledger vs live balance (AMI)
+
+| Balance | Source | When it changes |
+|---------|--------|-----------------|
+| **Ledger** (`meter.units`) | gPAWA DB | Load/share delivered to ThingsBoard |
+| **Pending delivery** (`meter.pending_units`) | gPAWA DB | Load/share when meter offline / TB rejects |
+| **Live** (`remaining_units`) | ThingsBoard | Consumption on device; gPAWA writes on delivery |
 
 ---
 
@@ -317,20 +332,35 @@ This is the AMI-specific step after buying units. **STS users must use `generate
 2. Lock unit wallet (`select_for_update`).
 3. Verify `wallet.balance >= amount`.
 4. Debit unit wallet: `balance -= amount`.
-5. Call `apply_units_to_meter(meter, amount)`:
-   - `MockAMIGateway.apply_units(meter, units)` (or ThingsBoard when configured).
+5. Call `apply_units_to_meter(meter, amount)` via `credit_ami_meter()`:
+   - Push telemetry + sync `remaining_units` attribute.
    - On success: `meter.units += amount`.
-6. Return updated balances.
+   - On failure: `meter.pending_units += amount` (queued for auto-retry).
+6. Return updated balances and delivery status.
 
-**Success (200):**
+**Success — delivered (200):**
 
 ```json
 {
   "success": true,
   "units_applied": 10.5,
   "meter_balance": 10.5,
+  "pending_delivery_kwh": 0.0,
   "remaining_wallet_balance": 2.01,
   "message": "10.50 kWh sent to your AMI meter. No token entry is required."
+}
+```
+
+**Success — queued for delivery (200):**
+
+```json
+{
+  "success": true,
+  "units_applied": 10.5,
+  "meter_balance": 0.0,
+  "pending_delivery_kwh": 10.5,
+  "remaining_wallet_balance": 2.01,
+  "message": "10.50 kWh queued for delivery to your meter. Units will be sent automatically when the meter is reachable."
 }
 ```
 
@@ -341,7 +371,6 @@ This is the AMI-specific step after buying units. **STS users must use `generate
 | 400 | STS meter | `"This action is for AMI meters only..."` |
 | 400 | Insufficient wallet | `"Insufficient wallet balance. Available: X.XX kWh."` |
 | 409 | STS meter selected | `"architecture": "STS"` |
-| 502 | Gateway failure | `"AMI gateway could not apply units to the meter."` |
 
 ---
 
@@ -368,7 +397,7 @@ This is the AMI-specific step after buying units. **STS users must use `generate
 
 **`GET /api/v1/meter/check-units/?meter_no=1236784560`**
 
-Reads ThingsBoard shared attribute `remaining_units`. AMI meters only.
+Reads ThingsBoard shared attribute `remaining_units`. Retries pending AMI delivery first. AMI meters only.
 
 **Success (200):**
 
@@ -379,6 +408,12 @@ Reads ThingsBoard shared attribute `remaining_units`. AMI meters only.
   "units_kwh": 4.5,
   "queried_at": "2026-06-22T14:30:00+03:00",
   "ledger_balance_kwh": 10.0,
+  "pending_delivery_kwh": 0.0,
+  "pending_retry": {
+    "delivered_kwh": 0.0,
+    "remaining_pending_kwh": 0.0,
+    "message": "No pending delivery."
+  },
   "source": "thingsboard"
 }
 ```
@@ -459,20 +494,21 @@ Client                          Backend                              AMI Gateway
   │    meter_no: "1236784560" }    │                                      │
   │ ─────────────────────────────► │                                      │
   │                                │  unit_wallet.balance -= 10.5         │
-  │                                │  apply_units_to_meter() ────────────►│
-  │                                │                                      │ push kWh
-  │                                │  ◄──────────────────────────────── │ (mock: log OK)
-  │                                │  meter.units += 10.5                 │
-  │  ◄── success, meter_balance    │                                      │
+  │                                │  credit_ami_meter() ────────────────►│
+  │                                │                                      │ telemetry + attribute
+  │                                │  ◄──────────────────────────────── │ OK or queued
+  │                                │  meter.units += 10.5 OR              │
+  │                                │  meter.pending_units += 10.5         │
+  │  ◄── success, balances         │                                      │
   │                                │                                      │
-  │  GET /ami-status/?meter_no=... │                                      │
-  │ ─────────────────────────────► │  gateway.get_status(meter)           │
-  │  ◄── is_online, balance        │                                      │
+  │  GET /check-units/?meter_no=   │  retry_pending + read remaining    │
+  │ ─────────────────────────────► │  units from ThingsBoard              │
+  │  ◄── live + ledger + pending   │                                      │
 ```
 
-### What is **not** sent to the AMI gateway today (mock)
+### Production ThingsBoard delivery
 
-The mock gateway only receives `(meter, units)` internally — no HTTP POST from the client. A real ThingsBoard implementation would push telemetry using:
+A real ThingsBoard deployment pushes telemetry and updates the shared attribute using:
 
 - `meter.iot_device_token` or `THINGSBOARD_ACCESS_TOKEN`
 - `meter.static_ip` / device ID

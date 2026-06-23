@@ -1,6 +1,6 @@
 # gPAWA ↔ ThingsBoard Integration Report
 
-> **This repo (Django):** Implementation lives under `backend/meter/services.py`, `backend/utils/ami_gateway.py`, `backend/webhooks/api/views.py`, and `backend/meter/api/views.py`. See also [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md). The sections below describe the full product behaviour; FastAPI paths in Part 2 are from an earlier prototype and map to the Django files above.
+> **This repo (Django):** Implementation lives under `backend/meter/services.py`, `backend/meter/ami_delivery.py`, `backend/utils/ami_gateway.py`, `backend/webhooks/api/views.py`, and `backend/meter/api/views.py`. See also [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md). The sections below describe the full product behaviour; FastAPI paths in Part 2 are from an earlier prototype and map to the Django files above.
 
 **Project:** gPAWA Energy Wallet  
 **ThingsBoard instance:** `https://iot.energy-share.sun.ac.ug`  
@@ -27,9 +27,11 @@ Think of it this way:
 For customers with AMI meters, gPAWA handles **money and units in the wallet**; ThingsBoard handles **delivery to the physical meter**.
 
 1. **Customer tops up their unit wallet** (Mobile Money → kWh in gPAWA).
-2. **Customer applies or shares units** to an AMI meter registered on their account.
-3. **gPAWA tells ThingsBoard** to credit that meter.
-4. **ThingsBoard forwards** the credit to the real device in the field.
+2. **Customer loads or shares units** to an AMI meter registered on their account.
+3. **gPAWA tells ThingsBoard** to credit that meter (telemetry + `remaining_units` attribute).
+4. **ThingsBoard forwards** the credit to the real device when it is online.
+
+**Important:** **Top Up Wallet** only fills the unit wallet. **Load Units** (or share) moves kWh from the wallet to the meter.
 
 The customer does **not** type a token on an AMI meter — the units should appear on the meter after a successful push.
 
@@ -65,7 +67,23 @@ If ledger is higher than live, the meter may have **consumed** power since the l
 
 #### B. Checking units **on demand** (gPAWA asks ThingsBoard)
 
-On the **AMI meter detail** page (web/mobile) or via **USSD → Manage → My meters**, the user can tap **Check units**. gPAWA asks ThingsBoard for the current **remaining units** and shows the result. This only runs when the user asks — it is **not** continuous polling.
+On the **AMI meter detail** page (web/mobile) or via **USSD → Manage → My meters**, the user can tap **Check units**. gPAWA:
+
+1. **Retries any pending delivery** queued while the meter was offline.
+2. Asks ThingsBoard for the current **remaining units** and shows the result.
+
+This only runs when the user asks — it is **not** continuous polling (background retry runs every 5 minutes via Celery).
+
+#### D. Offline reconciliation (automatic)
+
+When a meter is **offline** or ThingsBoard rejects delivery:
+
+| Field | Meaning |
+|-------|---------|
+| **Ledger balance** (`meter.units`) | kWh successfully delivered to ThingsBoard |
+| **Pending delivery** (`meter.pending_units`) | kWh debited from wallet but not yet accepted by ThingsBoard |
+
+A Celery task (`meter.tasks.retry_pending_ami_deliveries`) retries every **5 minutes**. Pending units move to ledger when delivery succeeds. The customer does **not** lose paid units.
 
 #### C. Low-units **alerts** (ThingsBoard → gPAWA)
 
@@ -99,10 +117,12 @@ All channels read and update the **same balances and meters** in the database.
 
 ### What still depends on ThingsBoard / field setup
 
-- ThingsBoard must expose **`remaining_units`** as a shared attribute for “Check units” to work.  
-- ThingsBoard **rule chains** must be configured to POST low-units alerts to gPAWA (not automatic until configured).  
-- gPAWA’s server must be reachable from ThingsBoard for alerts (public URL, not `localhost`).  
-- Physical meters must be online and correctly provisioned in ThingsBoard.
+- ThingsBoard must expose **`remaining_units`** as a shared attribute for “Check units” to work (gPAWA also writes this attribute on delivery when tenant credentials are set).
+- **`THINGSBOARD_TENANT_USERNAME`** / **`THINGSBOARD_TENANT_PASSWORD`** — required for writing `remaining_units` via tenant REST API and for Power Usage timeseries.
+- ThingsBoard **rule chains** must be configured to POST low-units alerts to gPAWA (not automatic until configured).
+- gPAWA’s server must be reachable from ThingsBoard for alerts (public URL, not `localhost`).
+- Physical meters must be online and correctly provisioned in ThingsBoard for **device firmware** to receive credits (server-side attribute sync can still update Check Units while offline).
+- **Celery worker + beat** must run in production for automatic pending-delivery retry.
 
 ---
 
@@ -122,18 +142,20 @@ All channels read and update the **same balances and meters** in the database.
                                      meter_notifications
 ```
 
-**STS meters** never call ThingsBoard. **AMI meters** always go through `app/services/thingsboard.py`.
+**STS meters** never call ThingsBoard. **AMI meters** go through `backend/meter/services.py` and `backend/meter/ami_delivery.py`.
 
-### Configuration (`backend/app/config.py`)
+### Configuration (Django `backend/backend/settings.py` + `.env`)
 
 | Variable | Default / purpose |
 |----------|-------------------|
 | `THINGSBOARD_BASE_URL` | `https://iot.energy-share.sun.ac.ug` |
 | `THINGSBOARD_TIMEOUT_SECONDS` | `8` |
 | `THINGSBOARD_WEBHOOK_SECRET` | Optional shared secret for inbound webhook |
-| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Reserved; not used for check-units (device-token API is canonical) |
-| `WEB_PORTAL_URL` | Deep links in alert emails |
+| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant JWT — **writes `remaining_units`** on delivery + Power Usage timeseries |
+| `AMI_GATEWAY` | `utils.ami_gateway.ThingsBoardAMIGateway` (production) or `MockAMIGateway` (pilot) |
+| `WEB_PORTAL_URL` / `FRONTEND_URL` | Deep links in alert emails |
 | SMTP settings | Optional email for low-units alerts |
+| `CELERY_BROKER_URL` | Redis — required for pending-delivery retry beat task |
 
 ### Data model
 
@@ -143,8 +165,8 @@ All channels read and update the **same balances and meters** in the database.
 |--------|---------|
 | `architecture` | `STS` or `AMI` |
 | `iot_device_token` | ThingsBoard **device access token** |
-| `thingsboard_device_id` | Optional UUID (reserved for future tenant API reads) |
-| `balance_kwh` | gPAWA’s ledger of units credited via apply/share (not live TB reading) |
+| `units` | gPAWA **ledger** — kWh delivered to ThingsBoard via gPAWA |
+| `pending_units` | STS: awaiting token generation; AMI: **queued for ThingsBoard delivery** |
 
 **`meter_notifications` table:** stores low-units alerts from the webhook (`device_token`, `units_kwh`, `occurred_at`, etc.).
 
@@ -154,9 +176,10 @@ All channels read and update the **same balances and meters** in the database.
 
 #### 1. Push units to meter (outbound)
 
-**Service:** `push_units_to_thingsboard()` in `backend/app/services/thingsboard.py`  
-**Called from:** `execute_apply_units`, `execute_ami_share` in `backend/app/services/electricity_ops.py`  
-**Channels:** Web (`POST /electricity/apply`, `/electricity/share`), mobile, USSD
+**Services:** `push_units_to_thingsboard()`, `increment_shared_remaining_units()` in `backend/meter/services.py`  
+**Orchestration:** `credit_ami_meter()` in `backend/meter/ami_delivery.py`  
+**Entry point:** `apply_units_to_meter()` in `backend/utils/ami_gateway.py`  
+**Channels:** Web (`POST /meter/apply-wallet-units/`), share verify, USSD `6*4`
 
 ```http
 POST {THINGSBOARD_BASE_URL}/api/v1/{iot_device_token}/telemetry
@@ -169,12 +192,23 @@ Content-Type: application/json
 }
 ```
 
+After successful telemetry POST, gPAWA increments the **`remaining_units` shared attribute** via tenant REST API:
+
+```http
+POST {THINGSBOARD_BASE_URL}/api/plugins/telemetry/DEVICE/{deviceId}/SHARED_SCOPE
+X-Authorization: Bearer <tenant JWT>
+
+{"remaining_units": <new balance>}
+```
+
 **Behaviour:**
 
-- Missing token → failure, no push  
-- Token prefix `dev-` → stub success (local testing, no HTTP)  
-- HTTP 2xx → success; `meters.balance_kwh` incremented in DB  
-- Failure → `GatewayError`; apply/share transaction rolled back  
+- Missing token → failure → amount queued in `meter.pending_units` (wallet already debited on load)  
+- Token prefix `dev-` → stub success (local testing; Check Units returns ledger)  
+- HTTP 2xx on telemetry + attribute sync → `meter.units += amount` (ledger)  
+- Telemetry or network failure → `meter.pending_units += amount`; Celery retries every 5 min  
+- On **Check units**, pending delivery is retried immediately before reading live balance  
+- If ledger exists but `remaining_units` attribute was never set, Check units bootstraps attribute from ledger (one-time)  
 
 **Example (verified in testing):**
 
@@ -187,9 +221,8 @@ curl -X POST "https://iot.energy-share.sun.ac.ug/api/v1/pCqLl8iPI1UKIMCA8w2Z/tel
 #### 2. Read remaining units (on-demand inbound query)
 
 **Service:** `query_latest_units_from_thingsboard()`  
-**API:** `GET /meters/{meter_id}/check-units` (JWT auth)  
-**UI:** Web `MeterAmiDetail.tsx`, mobile `meter_ami_detail_screen.dart`, USSD Manage → My meters  
-**USSD:** `ussd_handler.py` → `_check_units_for_meter()`
+**API:** `GET /api/v1/meter/check-units/?meter_no=` (JWT auth)  
+**UI:** Web My Meters, `ami-status-card.tsx`, mobile Meters tab, USSD `6*2`
 
 ```http
 GET {THINGSBOARD_BASE_URL}/api/v1/{iot_device_token}/attributes?sharedKeys=remaining_units
@@ -201,7 +234,7 @@ GET {THINGSBOARD_BASE_URL}/api/v1/{iot_device_token}/attributes?sharedKeys=remai
 {"shared":{"remaining_units":0.1710000000000001}}
 ```
 
-gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Query timestamp is server time at read (attribute API does not return a device timestamp).
+gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Response also includes `ledger_balance_kwh`, `pending_delivery_kwh`, and `pending_retry` (result of inline delivery retry).
 
 #### 3. Low-units webhook (ThingsBoard → gPAWA)
 
@@ -233,15 +266,13 @@ gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Query t
 
 | Endpoint | Method | ThingsBoard? |
 |----------|--------|--------------|
-| `/meters` | POST | Stores `iot_device_token` |
-| `/meters/catalog/list?architecture=AMI` | GET | No |
-| `/meters/{id}/check-units` | GET | **Yes** — reads `remaining_units` |
-| `/electricity/apply` | POST | **Yes** — push telemetry |
-| `/electricity/share` | POST | **Yes** — push telemetry |
-| `/wallet/topup-units` | POST | No (credits unit wallet only) |
-| `/notifications` | GET | No (reads alerts created by webhook) |
+| `/api/v1/meter/register/` | POST | Stores `iot_device_token` |
+| `/api/v1/meter/check-units/` | GET | **Yes** — retry pending + read `remaining_units` |
+| `/api/v1/meter/apply-wallet-units/` | POST | **Yes** — push telemetry + attribute sync |
+| `/api/v1/share/share-units/` | POST | **Yes** (AMI receiver) — same delivery engine |
+| `/api/v1/meter/buy-units/` | POST | No (credits unit wallet only) |
+| `/api/v1/meter/notifications/` | GET | No (reads alerts created by webhook) |
 | `/webhooks/thingsboard/low-units` | POST | Inbound from TB |
-| `/admin/meters/{id}/ami-credentials` | PATCH | Updates token in DB only |
 
 ### Channel parity (same account)
 
@@ -261,13 +292,16 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 
 | File | Role |
 |------|------|
-| `backend/meter/services.py` | `push_units_to_thingsboard()`, `query_latest_units_from_thingsboard()` |
-| `backend/utils/ami_gateway.py` | `ThingsBoardAMIGateway`, `apply_units_to_meter()` |
+| `backend/meter/services.py` | `push_units_to_thingsboard()`, `query_latest_units_from_thingsboard()`, `increment_shared_remaining_units()` |
+| `backend/meter/ami_delivery.py` | `credit_ami_meter()`, `retry_pending_for_meter()`, offline reconciliation |
+| `backend/meter/tasks.py` | `retry_pending_ami_deliveries` (Celery beat, every 5 min) |
+| `backend/utils/ami_gateway.py` | `apply_units_to_meter()` — delegates AMI to `ami_delivery` |
 | `backend/meter/api/views.py` | Check-units, notifications, apply-wallet, ami-status |
 | `backend/webhooks/api/views.py` | `ThingsBoardLowUnitsWebhookView` |
-| `backend/ussd/views.py` | USSD Manage / check units / alerts (`_check_units_for_meter`, `_notifications_summary`) |
+| `backend/ussd/views.py` | USSD Manage / check units / alerts |
 | `backend/accounts/tasks.py` | `handle_send_low_units_alert_email` |
 | `backend/meter/models.py` | `Meter`, `MeterNotification` |
+| `frontend/.../my-meters-client.tsx` | Ledger, pending delivery, live balance, Check Units |
 | `frontend/.../notification-bell.tsx` | Web notification bell UI |
 | `frontend/.../ami-status-card.tsx` | AMI check-units + apply wallet UI |
 
@@ -281,16 +315,20 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 | Read units | `GET .../api/v1/{token}/attributes?sharedKeys=remaining_units` | `shared.remaining_units` present |
 | gPAWA check-units | `GET /meters/{id}/check-units` with JWT | `units_kwh` matches TB |
 | Low-units webhook | `POST /webhooks/thingsboard/low-units` | HTTP 201, notification in app |
-| Apply flow | Top up units → Apply on AMI meter | TB telemetry POST + DB balance update |
+| Apply flow | Top up wallet → Load Units on AMI meter | TB telemetry + attribute sync; ledger ↑ or pending queue |
+| Offline retry | Disconnect meter → Load Units → reconnect | Pending clears within 5 min or on Check Units |
+| Pending queue | Load while TB unreachable | `pending_delivery_kwh` > 0; auto-delivered when online |
 
 ### Known limitations and assumptions
 
-1. **Two “balances”:** `meters.balance_kwh` in gPAWA is the **ledger** of units sent via gPAWA; `remaining_units` in ThingsBoard is the **live field reading**. They may differ if units were applied outside gPAWA or if the device has not updated attributes yet.  
-2. **Check units** depends on ThingsBoard exposing `remaining_units` as a **shared attribute**.  
-3. **Low-units alerts** require ThingsBoard rule-chain configuration and a **public** gPAWA webhook URL.  
-4. **Push path** uses telemetry key `amount`; **read path** uses attribute key `remaining_units` — ThingsBoard/device firmware must keep these consistent with field logic.  
-5. **Device UUID** in ThingsBoard is not used by gPAWA today; only the **access token** matters.  
-6. **Email alerts** require SMTP env vars and user-saved email.
+1. **Two “balances”:** `meter.units` is the **ledger** (delivered to ThingsBoard); `remaining_units` is the **live field reading**. They differ when the customer has consumed power, or when delivery is still pending.  
+2. **Top Up ≠ Load:** wallet top-up does not change meter balances until Load Units or share.  
+3. **Check units** reads `remaining_units` (shared/server/client attribute, telemetry fallback). gPAWA writes this attribute on each successful delivery when tenant credentials are configured.  
+4. **Pending delivery** (`meter.pending_units` on AMI) is retried by Celery every 5 minutes and on Check Units.  
+5. **Low-units alerts** require ThingsBoard rule-chain configuration and a **public** gPAWA webhook URL.  
+6. **Push path** uses telemetry key `amount`; **read path** uses attribute key `remaining_units`.  
+7. **Device access token** is used for device HTTP API; **tenant JWT** is used for shared-attribute writes and timeseries.  
+8. **Email alerts** require SMTP env vars and user-saved email.
 
 ### Related documentation
 
