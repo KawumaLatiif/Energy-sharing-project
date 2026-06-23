@@ -43,7 +43,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { get, post } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch-client';
 
 interface AdminProfile {
   id: number;

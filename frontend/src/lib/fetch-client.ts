@@ -57,6 +57,7 @@ const buildRequestOptions = (
   return {
     method,
     headers,
+    credentials: "include",
     body: body === undefined ? undefined : JSON.stringify(body),
   };
 };
@@ -67,14 +68,6 @@ const request = async <T>(path: string, options: RequestInit): Promise<ApiRespon
     const parsedBody = await parseResponseBody(res);
 
     if (!res.ok) {
-      // Avoid login ↔ dashboard loops: only redirect when the session is gone on a protected page.
-      if (
-        res.status === 401 &&
-        typeof window !== "undefined" &&
-        !window.location.pathname.startsWith("/auth/")
-      ) {
-        window.location.replace("/auth/login");
-      }
       return buildErrorResponse(parsedBody, res.status);
     }
 

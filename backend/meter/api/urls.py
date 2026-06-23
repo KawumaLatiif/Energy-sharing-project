@@ -14,6 +14,7 @@ from .views import (
     SendUnitsView,
     TokenView,
     update_meter,
+    delete_user_meter,
 )
 from meter.api import views
 
@@ -29,13 +30,17 @@ urlpatterns = [
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
     path('ami-status/', views.ami_meter_status, name='ami-meter-status'),
+    path('check-units/', views.check_meter_units, name='check-meter-units'),
+    path('notifications/', views.meter_notifications, name='meter-notifications'),
     path('update/', update_meter, name='update-meter'),
+    path('delete/', delete_user_meter, name='delete-meter'),
     # STS: generate token for pending (received/shared) units
     path('activate-received-units/', ActivateReceivedUnitsView.as_view(), name='activate-received-units'),
     # STS: generate token by drawing from wallet balance (for purchased units)
     path('generate-token/', GenerateTokenFromWalletView.as_view(), name='generate-token'),
     # AMI: apply wallet kWh to networked meter (no token)
     path('apply-wallet-units/', ApplyWalletToMeterView.as_view(), name='apply-wallet-units'),
+    path('power-usage/', views.power_usage, name='power-usage'),
     # Estimate kWh yield for a given UGX amount (no side effects)
     path('estimate-units/', EstimateUnitsView.as_view(), name='estimate-units'),
 ]

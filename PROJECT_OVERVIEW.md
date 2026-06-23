@@ -34,9 +34,13 @@ It is designed around practical energy access use cases, where users may need to
 - User profile and account detail management
 
 ### 2) Meter Management
-- Register meter to account
-- Fetch and update user meter info
+- Register meter to account (STS or AMI architecture)
+- AMI meters: ThingsBoard device token (`iot_device_token`) for push and live reads
+- Fetch and update user meter info; multi-meter support
+- **Check units** — on-demand live kWh from ThingsBoard (`GET /meter/check-units/`)
+- **Apply wallet units** — AMI meters receive kWh over the network (no STS token)
 - Meter-linked unit balances and token history
+- **Low-units alerts** — ThingsBoard webhook → in-app notification bell + email
 
 ### 3) Buy Units
 - User submits purchase amount and phone details
@@ -65,6 +69,14 @@ It is designed around practical energy access use cases, where users may need to
 - Manage users, meters, tariffs, loan tiers, and loan operations
 - Monitor dashboards and analytics endpoints
 - Handle admin account/security operations
+
+### 8) ThingsBoard Integration (AMI)
+- **Outbound:** push unit credits via device telemetry API (`payment` + `amount`)
+- **Inbound read:** check live `remaining_units` on user request (web refresh, USSD `6*2`)
+- **Inbound webhook:** low-units alerts when TB rule chain fires (`POST /webhooks/thingsboard/low-units`)
+- Channels: web (notification bell + AMI card), USSD (Manage / Alerts), API for future mobile
+
+See [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md).
 
 ## Core Business Logic and How It Works
 
@@ -99,9 +111,10 @@ Critical flows (share, repay, disburse, buy credit updates) use transaction-safe
 
 ## API and Architecture Shape
 
-- API is grouped by domain apps (`accounts`, `meter`, `loan`, `share`, `wallet`, `transactions`, `admin`, `webhooks`).
+- API is grouped by domain apps (`accounts`, `meter`, `loan`, `share`, `wallet`, `transactions`, `admin`, `webhooks`, `ussd`).
 - Frontend routes mirror these user domains through dashboard and admin pages.
 - Background tasks handle asynchronous notifications and integration workflows.
+- ThingsBoard integration is centralized in `backend/meter/services.py` and `backend/utils/ami_gateway.py`.
 
 ## Key Project Strengths
 
@@ -112,7 +125,6 @@ Critical flows (share, repay, disburse, buy credit updates) use transaction-safe
 
 ## Suggested Next Documentation Improvements
 
-- Add an endpoint catalog (method + route + auth requirements)
-- Add sequence diagrams for buy/share/loan flows
-- Add environment variable reference with required/optional flags
+- Add sequence diagrams for buy/share/loan/ThingsBoard flows
+- Add environment variable reference with required/optional flags (partially in `BACKEND_DOCS.md`)
 - Add test strategy and coverage status for each backend app

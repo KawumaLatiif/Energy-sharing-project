@@ -234,6 +234,9 @@ class User(TimestampMixin, AbstractUser):
     totp_secret = models.CharField(max_length=64, null=True, blank=True)
     totp_enabled = models.BooleanField(default=False)
 
+    # Admin-provisioned accounts must set a new password on first login
+    must_change_password = models.BooleanField(default=False)
+
     def __str__(self):
         """
         Returns a string representation of the User.

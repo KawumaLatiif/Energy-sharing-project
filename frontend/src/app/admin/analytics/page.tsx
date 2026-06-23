@@ -46,7 +46,7 @@ import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import {get} from '@/lib/fetch';
+import {get} from '@/lib/fetch-client';
 
 interface StatsData {
   user_registrations: {

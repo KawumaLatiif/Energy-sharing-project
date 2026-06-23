@@ -17,7 +17,8 @@ from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_cr
 from loan.models import get_tier_by_score
 from meter.api.views import BuyUnitsView
 from meter.models import Meter, MeterToken
-from meter.services import push_units_to_thingsboard
+from meter.services import push_units_to_thingsboard, query_latest_units_from_thingsboard, record_balance_snapshot
+from utils.ami_gateway import apply_units_to_meter
 from share.models import ShareTransaction
 from share.services import VerificationCode
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
@@ -421,6 +422,12 @@ def _share_initiate(user, receiver_meter_no: str, units_raw: str):
     except Meter.DoesNotExist:
         return False, "Receiver meter not found."
 
+    if receiver_meter.user_id == user.id:
+        return False, (
+            "Cannot share to your own meter. "
+            "Use Manage->4 Apply wallet (AMI) or Tokens->2 (STS) to load units."
+        )
+
     ShareTransaction.objects.filter(sender=user, status="PENDING").update(
         status="CANCELLED", message="Cancelled due to newer USSD request"
     )
@@ -438,8 +445,25 @@ def _share_initiate(user, receiver_meter_no: str, units_raw: str):
         message=f"USSD pending OTP share to {receiver_meter_no}",
     )
 
-    VerificationCode.create_code(user=user, purpose="share_units", expiry_minutes=10)
-    return True, f"Share initiated.\nRef: {tx_ref}\nEnter OTP via Share->Verify."
+    verification = VerificationCode.create_code(user=user, purpose="share_units", expiry_minutes=10)
+    if verification and user.email:
+        from utils.general import dispatch_task
+        from accounts.tasks import handle_send_share_verification
+        transaction_details = (
+            f"Sharing {units} units to meter {receiver_meter_no}. "
+            f"Ref: {tx_ref}. Code expires in 10 minutes."
+        )
+        dispatch_task(
+            handle_send_share_verification,
+            user.id,
+            verification.code,
+            transaction_details,
+        )
+    return True, (
+        f"Share initiated.\nRef: {tx_ref}\n"
+        + ("OTP sent to your email.\n" if user.email else "")
+        + "Enter OTP via Share->Verify."
+    )
 
 
 def _share_verify(user, tx_ref: str, otp_code: str):
@@ -460,28 +484,56 @@ def _share_verify(user, tx_ref: str, otp_code: str):
         sender_wallet.balance -= pending.units
         sender_wallet.save()
 
-        is_self_share = pending.meter_send_id == pending.meter_receive_id
-        if is_self_share:
-            token = generate_numeric_token()
+        receiver_meter = pending.meter_receive
+        msg_suffix = ""
+        share_token = None
+
+        if receiver_meter.architecture == Meter.ARCH_STS:
+            share_token = generate_numeric_token()
             MeterToken.objects.create(
-                token=token,
+                token=share_token,
                 units=pending.units,
-                meter=pending.meter_receive,
-                user=pending.receiver,
+                meter=receiver_meter,
+                user=receiver_meter.user,
                 is_used=False,
                 source="SHARE",
                 share_transaction_id=pending.share_transaction_id,
                 share_sender=user,
             )
-            msg_suffix = f"Token: {token}"
-        else:
-            receiver_wallet, _ = UnitWallet.objects.select_for_update().get_or_create(user=pending.receiver)
-            receiver_wallet.add(
-                pending.units,
-                description=f"USSD share from {pending.meter_send.meter_no}",
-                transaction_ref=pending.share_transaction_id,
+            msg_suffix = f"STS token sent to receiver ({receiver_meter.meter_no})."
+            if receiver_meter.user.email:
+                from utils.general import dispatch_task
+                from accounts.tasks import handle_send_share_token
+
+                dispatch_task(
+                    handle_send_share_token,
+                    receiver_meter.user.id,
+                    share_token,
+                    str(pending.units),
+                    receiver_meter.meter_no,
+                    sender_meter=pending.meter_send.meter_no,
+                    sender_email=user.email,
+                )
+        elif receiver_meter.architecture == Meter.ARCH_AMI:
+            if not apply_units_to_meter(receiver_meter, pending.units):
+                return False, "Failed to deliver units to AMI meter via ThingsBoard."
+            receiver_meter.refresh_from_db(fields=["units"])
+            msg_suffix = (
+                f"AMI meter {receiver_meter.meter_no} topped up. "
+                f"Balance: {float(receiver_meter.units):.2f} kWh."
             )
-            msg_suffix = "Receiver wallet credited."
+            if receiver_meter.user.email:
+                from utils.general import dispatch_task
+                from accounts.tasks import handle_send_wallet_update
+
+                receiver_update = (
+                    f"{pending.units} units applied to your AMI meter {receiver_meter.meter_no}.\n"
+                    f"Transaction ID: {pending.share_transaction_id}\n"
+                    f"Current meter balance: {receiver_meter.units} kWh"
+                )
+                dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
+        else:
+            return False, "Unknown receiver meter type."
 
         pending.status = "COMPLETED"
         pending.verified_at = timezone.now()
@@ -497,7 +549,158 @@ def _share_verify(user, tx_ref: str, otp_code: str):
             details={"channel": "USSD", "receiver_meter": pending.meter_receive.meter_no},
         )
 
-    return True, f"Share completed.\nRef: {pending.share_transaction_id}\nUnits: {pending.units}\n{msg_suffix}"
+    return True, f"Share completed.\nRef: {pending.share_transaction_id}\nUnits: {pending.units}\n{msg_suffix}" + (
+        f"\nToken: {share_token}" if share_token else ""
+    )
+
+
+def _generate_sts_token(user, units_raw: str):
+    meter = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS).first()
+    if not meter:
+        return False, "No STS meter found."
+
+    try:
+        amount = Decimal(str(units_raw))
+    except (InvalidOperation, ValueError):
+        return False, "Invalid units."
+
+    if amount <= 0:
+        return False, "Units must be greater than zero."
+
+    unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
+    if unit_wallet.balance < amount:
+        return False, f"Insufficient wallet. Balance: {float(unit_wallet.balance):.2f} kWh."
+
+    try:
+        with db_transaction.atomic():
+            locked = UnitWallet.objects.select_for_update().get(user=user)
+            if locked.balance < amount:
+                return False, "Insufficient wallet balance."
+            locked.balance -= amount
+            locked.save(update_fields=["balance"])
+            token_value = generate_numeric_token()
+            MeterToken.objects.create(
+                user=user,
+                token=token_value,
+                units=amount,
+                meter=meter,
+                source="PURCHASE",
+            )
+        return True, f"Token: {token_value}\nUnits: {float(amount):.2f} kWh\nWallet: {float(locked.balance):.2f} kWh"
+    except Exception:
+        return False, "Failed to generate token."
+
+
+def _apply_wallet_to_ami(user, units_raw: str, meter_no: str | None = None):
+    qs = Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI)
+    if meter_no:
+        qs = qs.filter(meter_no=meter_no)
+    meter = qs.first()
+    if not meter:
+        return False, "No AMI meter found."
+
+    try:
+        amount = Decimal(str(units_raw))
+    except (InvalidOperation, ValueError):
+        return False, "Invalid units."
+
+    if amount <= 0:
+        return False, "Units must be greater than zero."
+
+    unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
+    if unit_wallet.balance < amount:
+        return False, f"Insufficient wallet. Balance: {float(unit_wallet.balance):.2f} kWh."
+
+    try:
+        with db_transaction.atomic():
+            locked = UnitWallet.objects.select_for_update().get(user=user)
+            if locked.balance < amount:
+                return False, "Insufficient wallet balance."
+            locked.balance -= amount
+            locked.save(update_fields=["balance"])
+            if not apply_units_to_meter(meter, amount):
+                raise ValueError("AMI apply failed")
+            meter.refresh_from_db(fields=["units"])
+        return True, (
+            f"Applied {float(amount):.2f} kWh to {meter.meter_no}.\n"
+            f"Meter: {float(meter.units):.2f} kWh\n"
+            f"Wallet: {float(locked.balance):.2f} kWh"
+        )
+    except ValueError as exc:
+        return False, str(exc)
+    except Exception:
+        return False, "Failed to apply units to AMI meter."
+
+
+def _user_meters_summary(user):
+    meters = list(Meter.objects.filter(user=user).order_by("create_date"))
+    if not meters:
+        return False, "No meters registered."
+    lines = ["Your meters:"]
+    for m in meters:
+        token_hint = "TB" if (m.iot_device_token or "").strip() else "no-token"
+        label = f" ({m.label})" if m.label and m.label != "Home" else ""
+        lines.append(
+            f"{m.meter_no}{label} | {m.architecture} | {float(m.units):.2f} kWh ({token_hint})"
+        )
+    return True, "\n".join(lines)
+
+
+def _ami_meters_for_user(user):
+    return list(
+        Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI).order_by("create_date")
+    )
+
+
+def _ami_meter_picker_message(meters):
+    lines = ["Check units - pick meter:"]
+    for i, m in enumerate(meters, 1):
+        lines.append(f"{i}. {m.meter_no}")
+    return "\n".join(lines)
+
+
+def _check_units_for_meter(user, meter_no: str):
+    try:
+        meter = Meter.objects.get(user=user, meter_no=meter_no, architecture=Meter.ARCH_AMI)
+    except Meter.DoesNotExist:
+        return False, "AMI meter not found on your account."
+
+    ok, msg, data = query_latest_units_from_thingsboard(meter)
+    if not ok or not data:
+        return False, msg or "Could not read units from ThingsBoard."
+
+    record_balance_snapshot(
+        meter,
+        data["units_kwh"],
+        source=data.get("source", "thingsboard"),
+    )
+
+    return True, (
+        f"Meter {meter.meter_no}\n"
+        f"Live (TB): {data['units_kwh']:.2f} kWh\n"
+        f"Ledger: {float(meter.units):.2f} kWh"
+    )
+
+
+def _notifications_summary(user):
+    from meter.models import MeterNotification
+
+    unread = MeterNotification.objects.filter(user=user, is_read=False).count()
+    recent = list(
+        MeterNotification.objects.filter(user=user)
+        .select_related("meter")
+        .order_by("-occurred_at")[:5]
+    )
+    if not recent:
+        return True, f"No alerts.\nUnread: {unread}"
+
+    lines = [f"Alerts (unread: {unread}):"]
+    for n in recent:
+        mark = "*" if not n.is_read else ""
+        mno = n.meter.meter_no if n.meter else "?"
+        lines.append(f"{mark}{mno}: {float(n.units_kwh):.2f} kWh")
+    lines.append("Top up via Buy Units (menu 2).")
+    return True, "\n".join(lines)
 
 
 @csrf_exempt
@@ -566,7 +769,10 @@ def ussd_entry(request):
                     "3. Loans\n"
                     "4. Share Units\n"
                     "5. My Tokens\n"
-                    "6. Exit"
+                    "6. Manage\n"
+                    "7. Alerts\n"
+                    "8. Exit\n"
+                    "9. Power Usage"
                 ),
                 menu="root",
             )
@@ -771,19 +977,279 @@ def ussd_entry(request):
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
             return _session_reply(ussd_session, "END", "Invalid share option.")
 
-        # 5) Token lookup
+        # 5) Tokens — list or generate STS
         if steps[0] == "5":
-            tokens = MeterToken.objects.filter(user=user, is_used=False).order_by("-create_date")[:3]
-            if not tokens:
+            if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", "No active tokens found.", menu="tokens")
-            lines = ["Active tokens:"]
-            for t in tokens:
-                lines.append(f"{t.token} | {t.units}u | {t.source}")
+                return _session_reply(
+                    ussd_session,
+                    "CON",
+                    "My Tokens\n1. List unused\n2. Generate STS token",
+                    menu="tokens_menu",
+                )
+
+            if steps[1] == "1":
+                tokens = MeterToken.objects.filter(user=user, is_used=False).order_by("-create_date")[:3]
+                if not tokens:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(ussd_session, "END", "No active tokens found.", menu="tokens")
+                lines = ["Active tokens:"]
+                for t in tokens:
+                    lines.append(f"{t.token} | {t.units}u | {t.source}")
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(ussd_session, "END", "\n".join(lines), menu="tokens")
+
+            if steps[1] == "2":
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        f"Enter kWh from wallet (max {float(wallet.balance):.2f}):",
+                        menu="token_generate_amount",
+                    )
+                ok, msg = _generate_sts_token(user, steps[2])
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="token_generate")
+
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "\n".join(lines), menu="tokens")
+            return _session_reply(ussd_session, "END", "Invalid token option.")
+
+        # 6) Manage — meters, check units (AMI), alerts, apply wallet
+        if steps[0] == "6":
+            if len(steps) == 1:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "CON",
+                    (
+                        "Manage\n"
+                        "1. My meters\n"
+                        "2. Check units (AMI)\n"
+                        "3. Alerts\n"
+                        "4. Apply wallet (AMI)"
+                    ),
+                    menu="manage_menu",
+                )
+
+            if steps[1] == "1":
+                ok, msg = _user_meters_summary(user)
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "END",
+                    msg if ok else f"Error: {msg}",
+                    menu="manage_meters",
+                )
+
+            if steps[1] == "2":
+                ami_meters = _ami_meters_for_user(user)
+                if not ami_meters:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "END",
+                        "No AMI meter on your account.",
+                        menu="check_units",
+                    )
+
+                if len(ami_meters) == 1:
+                    ok, msg = _check_units_for_meter(user, ami_meters[0].meter_no)
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "END",
+                        msg if ok else f"Error: {msg}",
+                        menu="check_units",
+                    )
+
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        _ami_meter_picker_message(ami_meters),
+                        menu="check_units_pick",
+                        context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
+                    )
+
+                try:
+                    pick = int(steps[2])
+                    meter_nos = (ussd_session.context or {}).get("ami_meter_nos") or [
+                        m.meter_no for m in ami_meters
+                    ]
+                    if pick < 1 or pick > len(meter_nos):
+                        raise ValueError("out of range")
+                    meter_no = meter_nos[pick - 1]
+                except (ValueError, TypeError, IndexError):
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="check_units")
+
+                ok, msg = _check_units_for_meter(user, meter_no)
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "END",
+                    msg if ok else f"Error: {msg}",
+                    menu="check_units",
+                )
+
+            if steps[1] == "3":
+                ok, msg = _notifications_summary(user)
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(ussd_session, "END", msg, menu="manage_alerts")
+
+            if steps[1] == "4":
+                ami_meters = _ami_meters_for_user(user)
+                if not ami_meters:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(ussd_session, "END", "No AMI meter on your account.", menu="apply_ami")
+
+                if len(ami_meters) == 1 and len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        f"Apply kWh to {ami_meters[0].meter_no}\nEnter amount:",
+                        menu="apply_ami_amount",
+                        context={"apply_ami_meter": ami_meters[0].meter_no},
+                    )
+
+                if len(ami_meters) > 1 and len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        _ami_meter_picker_message(ami_meters).replace("Check units", "Apply to"),
+                        menu="apply_ami_pick",
+                        context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
+                    )
+
+                meter_no = (ussd_session.context or {}).get("apply_ami_meter")
+                if len(ami_meters) > 1 and len(steps) == 3 and not meter_no:
+                    try:
+                        pick = int(steps[2])
+                        meter_nos = (ussd_session.context or {}).get("ami_meter_nos") or [
+                            m.meter_no for m in ami_meters
+                        ]
+                        meter_no = meter_nos[pick - 1]
+                    except (ValueError, TypeError, IndexError):
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="apply_ami")
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        f"Enter kWh to apply to {meter_no}:",
+                        menu="apply_ami_amount",
+                        context={"apply_ami_meter": meter_no},
+                    )
+
+                amount_raw = steps[-1]
+                meter_no = meter_no or (ami_meters[0].meter_no if len(ami_meters) == 1 else None)
+                ok, msg = _apply_wallet_to_ami(user, amount_raw, meter_no)
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="apply_ami")
+
+            ussd_session.last_text = text
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _session_reply(ussd_session, "END", "Invalid manage option.")
+
+        # 7) Alerts shortcut
+        if steps[0] == "7":
+            ok, msg = _notifications_summary(user)
+            ussd_session.last_text = text
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _session_reply(ussd_session, "END", msg, menu="alerts")
+
+        # 8) Exit
+        if steps[0] == "8":
+            ussd_session.last_text = text
+            ussd_session.is_active = False
+            ussd_session.save(update_fields=["user", "last_text", "is_active", "updated_at"])
+            return _session_reply(ussd_session, "END", "Thank you for using gPawa.", menu="exit")
+
+        # 9) Power Usage — weekly text summary (AMI only)
+        if steps[0] == "9":
+            from meter.usage_service import format_weekly_usage_ussd, get_power_usage_report, get_user_ami_meters
+
+            ami_meters = get_user_ami_meters(user)
+            if not ami_meters:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "END",
+                    "This is only for AMI meter users.",
+                    menu="power_usage",
+                )
+
+            if len(ami_meters) == 1:
+                report = get_power_usage_report(user, meter_no=ami_meters[0].meter_no, period="week")
+                ok, msg = format_weekly_usage_ussd(report)
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "END",
+                    msg if ok else f"Error: {msg}",
+                    menu="power_usage",
+                )
+
+            if len(steps) == 1:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "CON",
+                    _ami_meter_picker_message(ami_meters).replace("Check units", "Power Usage"),
+                    menu="power_usage_pick",
+                    context={"power_usage_meter_nos": [m.meter_no for m in ami_meters]},
+                )
+
+            try:
+                pick = int(steps[1])
+                meter_nos = (ussd_session.context or {}).get("power_usage_meter_nos") or [
+                    m.meter_no for m in ami_meters
+                ]
+                if pick < 1 or pick > len(meter_nos):
+                    raise ValueError("out of range")
+                meter_no = meter_nos[pick - 1]
+            except (ValueError, TypeError, IndexError):
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="power_usage")
+
+            report = get_power_usage_report(user, meter_no=meter_no, period="week")
+            ok, msg = format_weekly_usage_ussd(report)
+            ussd_session.last_text = text
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _session_reply(
+                ussd_session,
+                "END",
+                msg if ok else f"Error: {msg}",
+                menu="power_usage",
+            )
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])

@@ -52,7 +52,11 @@ export default function LoginForm() {
     }
 
     if ('success' in result && result.success) {
-      window.location.href = result.redirectTo || '/dashboard';
+      const dest =
+        (result.must_change_password || result.user?.must_change_password) && !result.isAdmin
+          ? '/change-password'
+          : (result.redirectTo || '/dashboard');
+      window.location.href = dest;
     } else if (result.error === 'EMAIL_NOT_VERIFIED') {
       setError(result.message || 'Please verify your email first');
       setShowResend(true);
@@ -150,6 +154,13 @@ export default function LoginForm() {
   // ── Normal login screen ──
   return (
     <CardWrapper title="Sign in to your account" variant="auth">
+      <p className="mb-4 text-sm text-muted-foreground">
+        New here?{" "}
+        <Link href="/auth/register" className="font-medium text-indigo-600 hover:text-indigo-500">
+          Create your own account
+        </Link>
+        . Admin-provisioned users: use your email and temporary password <strong>1234</strong>, then set a new password.
+      </p>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
           <FormField

@@ -26,6 +26,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from accounts.models import Profile, UserAccountDetails
+from accounts.utils import create_admin_provisioned_user
 from loan.models import LoanApplication
 from meter.models import Meter, Transaction
 from .models import (
@@ -99,6 +100,8 @@ class RBACMixin:
                 {"error": "Authentication required"},
                 status=status.HTTP_401_UNAUTHORIZED,
             )
+        if getattr(request.user, "is_superuser", False):
+            return True, None
         if request.user.user_role not in roles:
             return False, Response(
                 {"error": "Insufficient permissions"},
@@ -917,8 +920,11 @@ class MeterManagementView(APIView, RBACMixin):
                     "meter_no": m.meter_no,
                     "label": m.label,
                     "status": m.status,
+                    "architecture": m.architecture,
                     "units": float(m.units),
-                    "static_ip": m.static_ip,
+                    "static_ip": m.static_ip or "",
+                    "iot_device_token": m.iot_device_token or "",
+                    "has_iot_token": bool((m.iot_device_token or "").strip()),
                     "user": {
                         "id": m.user.id,
                         "email": m.user.email,
@@ -943,12 +949,36 @@ class MeterManagementView(APIView, RBACMixin):
             return err
 
         meter_no = request.data.get('meter_no', '').strip()
-        user_id = request.data.get('user_id')
         label = request.data.get('label', 'Home').strip()
+        architecture = request.data.get('architecture', Meter.ARCH_STS).strip().upper()
+        static_ip = request.data.get('static_ip', '').strip() or None
+        iot_device_token = (request.data.get('iot_device_token') or '').strip() or None
 
-        if not meter_no or not user_id:
+        owner_name = (request.data.get('owner_name') or '').strip()
+        owner_email = (request.data.get('owner_email') or '').strip()
+        owner_phone = (request.data.get('owner_phone') or '').strip()
+
+        if not meter_no:
             return Response(
-                {"error": "meter_no and user_id are required"},
+                {"error": "meter_no is required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not owner_name or not owner_email or not owner_phone:
+            return Response(
+                {"error": "owner_name, owner_email, and owner_phone are required"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if architecture not in (Meter.ARCH_STS, Meter.ARCH_AMI):
+            return Response(
+                {"error": "architecture must be STS or AMI"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if architecture == Meter.ARCH_AMI and not iot_device_token:
+            return Response(
+                {"error": "iot_device_token is required for AMI meters"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -959,16 +989,22 @@ class MeterManagementView(APIView, RBACMixin):
             )
 
         try:
-            owner = User.objects.get(id=user_id, user_role=User.CLIENT)
-        except User.DoesNotExist:
-            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+            owner = create_admin_provisioned_user(
+                owner_name=owner_name,
+                email=owner_email,
+                phone_number=owner_phone,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
 
         meter = Meter.objects.create(
             meter_no=meter_no,
             user=owner,
             label=label,
+            architecture=architecture,
+            static_ip=static_ip or '0.0.0.0',
+            iot_device_token=iot_device_token if architecture == Meter.ARCH_AMI else None,
             status=Meter.STATUS_ACTIVE,
-            static_ip='0.0.0.0',  # placeholder; real IP assigned by hardware
         )
 
         _write_audit(
@@ -977,13 +1013,21 @@ class MeterManagementView(APIView, RBACMixin):
             target_type=AuditLog.TARGET_METER,
             target_id=meter.id,
             target_repr=f"{meter_no} → {owner.email}",
-            details={"meter_no": meter_no, "user_id": user_id, "label": label},
+            details={
+                "meter_no": meter_no,
+                "owner_email": owner_email,
+                "label": label,
+                "architecture": architecture,
+                "provisioned_user": True,
+            },
         )
 
         return Response({
             "success": True,
-            "message": "Meter registered successfully",
+            "message": "Meter and owner account created. They can sign in with their email and temporary password 1234.",
             "meter_id": meter.id,
+            "user_id": owner.id,
+            "owner_email": owner.email,
         }, status=status.HTTP_201_CREATED)
 
 
@@ -1016,8 +1060,11 @@ class MeterDetailView(APIView, RBACMixin):
                 "meter_no": m.meter_no,
                 "label": m.label,
                 "status": m.status,
+                "architecture": m.architecture,
                 "units": float(m.units),
-                "static_ip": m.static_ip,
+                "static_ip": m.static_ip or "",
+                "iot_device_token": m.iot_device_token or "",
+                "has_iot_token": bool((m.iot_device_token or "").strip()),
                 "linked_user": {
                     "id": m.user.id,
                     "name": f"{m.user.first_name} {m.user.last_name}",
@@ -1032,6 +1079,81 @@ class MeterDetailView(APIView, RBACMixin):
                 "transfers_received_kwh": float(transfers_received),
                 "deactivation_reason": m.deactivation_reason,
                 "deactivated_at": m.deactivated_at.isoformat() if m.deactivated_at else None,
+            },
+        })
+
+    def patch(self, request, meter_id):
+        """Update meter fields (Operator/Admin). AMI meters may set iot_device_token."""
+        ok, err = self._require_operator_or_admin(request)
+        if not ok:
+            return err
+
+        try:
+            m = Meter.objects.get(id=meter_id)
+        except Meter.DoesNotExist:
+            return Response({"error": "Meter not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        label = request.data.get('label')
+        architecture = request.data.get('architecture')
+        static_ip = request.data.get('static_ip')
+        iot_device_token = request.data.get('iot_device_token')
+
+        if label is not None:
+            m.label = str(label).strip() or m.label
+
+        if architecture is not None:
+            arch = str(architecture).strip().upper()
+            if arch not in (Meter.ARCH_STS, Meter.ARCH_AMI):
+                return Response(
+                    {"error": "architecture must be STS or AMI"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            m.architecture = arch
+            if arch == Meter.ARCH_STS:
+                m.iot_device_token = None
+
+        if static_ip is not None:
+            m.static_ip = str(static_ip).strip() or m.static_ip
+
+        if iot_device_token is not None:
+            token = str(iot_device_token).strip()
+            if m.architecture == Meter.ARCH_AMI and not token:
+                return Response(
+                    {"error": "iot_device_token cannot be empty for AMI meters"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            m.iot_device_token = token or None
+
+        if m.architecture == Meter.ARCH_AMI and not (m.iot_device_token or "").strip():
+            return Response(
+                {"error": "iot_device_token is required for AMI meters"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        m.save()
+
+        _write_audit(
+            request,
+            action_type=AuditLog.ACTION_METER_REGISTER,
+            target_type=AuditLog.TARGET_METER,
+            target_id=m.id,
+            target_repr=m.meter_no,
+            details={
+                "event": "meter_updated",
+                "architecture": m.architecture,
+                "has_iot_token": bool((m.iot_device_token or "").strip()),
+            },
+        )
+
+        return Response({
+            "success": True,
+            "message": "Meter updated",
+            "meter": {
+                "id": m.id,
+                "meter_no": m.meter_no,
+                "architecture": m.architecture,
+                "iot_device_token": m.iot_device_token or "",
+                "has_iot_token": bool((m.iot_device_token or "").strip()),
             },
         })
 
@@ -1071,6 +1193,109 @@ class MeterDeactivateView(APIView, RBACMixin):
         )
 
         return Response({"success": True, "message": "Meter deactivated"})
+
+
+class MeterDeleteView(APIView, RBACMixin):
+    """Permanently remove a meter from a user account (Admin — soft delete + audit)."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, meter_id):
+        ok, err = self._require_admin(request)
+        if not ok:
+            return err
+
+        from meter.lifecycle import MeterDeleteError, release_meter_from_account
+        from meter.models import DeletedMeterRecord
+
+        try:
+            m = Meter.objects.select_related("user").get(id=meter_id)
+        except Meter.DoesNotExist:
+            return Response({"error": "Meter not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        reason = request.data.get("reason", "") or request.data.get("note", "")
+
+        try:
+            record = release_meter_from_account(
+                m,
+                deleted_by=request.user,
+                deleted_by_role=DeletedMeterRecord.ROLE_ADMIN,
+                reason=str(reason),
+                metadata={"channel": "ADMIN"},
+            )
+        except MeterDeleteError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+        _write_audit(
+            request,
+            action_type=AuditLog.ACTION_METER_DELETE,
+            target_type=AuditLog.TARGET_METER,
+            target_id=m.id,
+            target_repr=record.original_meter_no,
+            details={"deletion_record_id": record.id},
+            notes=str(reason),
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": f"Meter {record.original_meter_no} removed from account.",
+                "deletion_record_id": record.id,
+            }
+        )
+
+
+class DeletedMeterRecordsView(APIView, RBACMixin):
+    """List archived deleted-meter records for admin audit."""
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        ok, err = self._require_cs_or_above(request)
+        if not ok:
+            return err
+
+        from meter.models import DeletedMeterRecord
+
+        search = request.GET.get("search", "").strip()
+        page = int(request.GET.get("page", 1))
+        limit = min(int(request.GET.get("limit", 20)), 100)
+        offset = (page - 1) * limit
+
+        qs = DeletedMeterRecord.objects.all().select_related("deleted_by")
+        if search:
+            qs = qs.filter(
+                Q(original_meter_no__icontains=search)
+                | Q(former_user_email__icontains=search)
+                | Q(former_user_phone__icontains=search)
+            )
+
+        total = qs.count()
+        rows = qs.order_by("-deleted_at")[offset : offset + limit]
+
+        return Response(
+            {
+                "success": True,
+                "total": total,
+                "page": page,
+                "records": [
+                    {
+                        "id": r.id,
+                        "original_meter_no": r.original_meter_no,
+                        "architecture": r.architecture,
+                        "label": r.label,
+                        "former_user_id": r.former_user_id,
+                        "former_user_email": r.former_user_email,
+                        "units_at_deletion": float(r.units_at_deletion),
+                        "deleted_at": r.deleted_at.isoformat(),
+                        "deleted_by_role": r.deleted_by_role,
+                        "deleted_by_email": r.deleted_by.email if r.deleted_by else None,
+                        "reason": r.reason,
+                    }
+                    for r in rows
+                ],
+            }
+        )
 
 
 class MeterTransferOwnershipView(APIView, RBACMixin):
@@ -2235,7 +2460,9 @@ class TariffsView(APIView, RBACMixin):
         ok, err = self._require_cs_or_above(request)
         if not ok:
             return err
-        tariffs = ElectricityTariff.objects.filter(is_active=True)
+        tariffs = ElectricityTariff.objects.prefetch_related("blocks").order_by(
+            "-is_active", "-effective_from", "-effective_date"
+        )
         return Response(ElectricityTariffSerializer(tariffs, many=True).data)
 
     def post(self, request):
@@ -2244,9 +2471,60 @@ class TariffsView(APIView, RBACMixin):
             return err
         serializer = ElectricityTariffSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
-            return Response(serializer.data, status=201)
+            tariff = serializer.save()
+            return Response(ElectricityTariffSerializer(tariff).data, status=201)
         return Response(serializer.errors, status=400)
+
+
+class TariffSeedEraView(APIView, RBACMixin):
+    """Import ERA domestic Code 10.1 default blocks into the database."""
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        ok, err = self._require_admin(request)
+        if not ok:
+            return err
+        from loan.tariff_utils import seed_era_domestic_tariff
+
+        tariff, created = seed_era_domestic_tariff()
+        return Response(
+            {
+                "success": True,
+                "created": created,
+                "tariff": ElectricityTariffSerializer(tariff).data,
+                "message": (
+                    "ERA domestic tariff imported and set as active."
+                    if created
+                    else "ERA domestic tariff updated and set as active."
+                ),
+            },
+            status=201 if created else 200,
+        )
+
+
+class TariffActivateView(APIView, RBACMixin):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        ok, err = self._require_admin(request)
+        if not ok:
+            return err
+        try:
+            tariff = ElectricityTariff.objects.get(pk=pk)
+        except ElectricityTariff.DoesNotExist:
+            return Response({"error": "Not found"}, status=404)
+
+        from loan.tariff_utils import activate_tariff
+
+        activate_tariff(tariff)
+        return Response(
+            {
+                "success": True,
+                "message": f"{tariff.tariff_code} is now the active system-wide tariff.",
+                "tariff": ElectricityTariffSerializer(tariff).data,
+            }
+        )
 
 
 class TariffDetailView(APIView, RBACMixin):
@@ -2281,9 +2559,16 @@ class TariffDetailView(APIView, RBACMixin):
         if not ok:
             return err
         try:
-            ElectricityTariff.objects.get(pk=pk).delete()
+            tariff = ElectricityTariff.objects.get(pk=pk)
         except ElectricityTariff.DoesNotExist:
             return Response({"error": "Not found"}, status=404)
+        from loan.tariff_utils import TariffActivationError, validate_can_delete
+
+        try:
+            validate_can_delete(tariff)
+        except TariffActivationError as exc:
+            return Response({"error": str(exc)}, status=400)
+        tariff.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -2568,6 +2853,8 @@ class TOTP2FALoginVerifyView(APIView):
             details={"event": "2fa_login_success"},
         )
 
+        redirect = '/admin/dashboard' if (user.is_staff_member or user.is_superuser) else '/dashboard'
+
         return Response({
             "success": True,
             "access": str(access),
@@ -2578,7 +2865,10 @@ class TOTP2FALoginVerifyView(APIView):
                 "first_name": user.first_name,
                 "last_name": user.last_name,
                 "user_role": user.user_role,
-                "is_admin": user.user_role == User.ADMIN,
+                "is_admin": user.user_role == User.ADMIN or user.is_superuser,
+                "is_staff_member": user.is_staff_member or user.is_superuser,
+                "is_superuser": user.is_superuser,
                 "totp_enabled": user.totp_enabled,
+                "redirect_to": redirect,
             },
         })

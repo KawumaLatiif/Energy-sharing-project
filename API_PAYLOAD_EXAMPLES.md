@@ -89,7 +89,9 @@ All examples assume base URL prefix: `/api/v1`.
 
 ---
 
-## 3) Buy Units - Start Payment (`POST /meter/buy-units/`)
+## 3) TopUp Wallet — Start Payment (`POST /meter/buy-units/`)
+
+Web menu label: **TopUp Wallet** (MoMo purchase credits the unit wallet).
 
 ### Request
 
@@ -126,7 +128,7 @@ All examples assume base URL prefix: `/api/v1`.
 
 ---
 
-## 4) Buy Units - Check Status (`POST /meter/check-payment-status/`)
+## 4) TopUp Wallet — Check Status (`POST /meter/check-payment-status/`)
 
 ### Request
 
@@ -191,7 +193,8 @@ All examples assume base URL prefix: `/api/v1`.
   "success": true,
   "message": "Verification code sent to your email. Please check and verify.",
   "transaction_ref": "SHARE-A1B2C3D4",
-  "requires_verification": true
+  "requires_verification": true,
+  "receiver_architecture": "AMI"
 }
 ```
 
@@ -202,6 +205,67 @@ All examples assume base URL prefix: `/api/v1`.
   "units": [
     "Minimum 2 units required to share"
   ]
+}
+```
+
+---
+
+## 5b) Share — Receiver Preview (`GET /share/receiver-preview/?meter_number=`)
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "recipient": {
+    "name": "Jane Doe",
+    "meter_number": "6754327890",
+    "meter_type": "AMI",
+    "meter_type_label": "AMI (networked)",
+    "phone_number": "+256701234567"
+  },
+  "delivery_method": "Units will be sent directly to the AMI meter device token (ThingsBoard)."
+}
+```
+
+---
+
+## 5c) Load Units — AMI Top-Up (`POST /meter/apply-wallet-units/`)
+
+### Request
+
+```json
+{
+  "meter_no": "1234567890",
+  "amount": 5.5
+}
+```
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "units_applied": 5.5,
+  "remaining_wallet_balance": 6.0,
+  "message": "5.50 kWh sent to your AMI meter."
+}
+```
+
+---
+
+## 5d) Power Usage (`GET /meter/power-usage/?period=week`)
+
+### Success Response (200) — excerpt
+
+```json
+{
+  "success": true,
+  "data": {
+    "eligible": true,
+    "summary": { "total_kwh": 12.5, "average_daily_kwh": 1.79 },
+    "daily": [{ "date": "2026-06-16", "kwh_used": 1.8 }]
+  }
 }
 ```
 
@@ -225,7 +289,10 @@ All examples assume base URL prefix: `/api/v1`.
   "success": true,
   "message": "Units shared successfully",
   "transaction_ref": "SHARE-A1B2C3D4",
-  "units_shared": "12.50"
+  "units_shared": "12.50",
+  "receiver_architecture": "STS",
+  "share_token": "4829103746",
+  "token_sent": true
 }
 ```
 
@@ -333,6 +400,152 @@ All examples assume base URL prefix: `/api/v1`.
 
 ---
 
+## 9) Check units — AMI live read (`GET /meter/check-units/`)
+
+### Request
+
+```http
+GET /api/v1/meter/check-units/?meter_no=1236784560
+Authorization: Bearer <access_token>
+```
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "meter_no": "1236784560",
+  "units_kwh": 4.5,
+  "queried_at": "2026-06-22T14:30:00.123456+03:00",
+  "ledger_balance_kwh": 10.0,
+  "source": "thingsboard"
+}
+```
+
+### Error (502)
+
+```json
+{
+  "success": false,
+  "meter_no": "1236784560",
+  "message": "ThingsBoard device has no remaining_units attribute."
+}
+```
+
+---
+
+## 10) Meter notifications (`GET/PATCH /meter/notifications/`)
+
+### List (`GET`)
+
+```http
+GET /api/v1/meter/notifications/?unread=true
+Authorization: Bearer <access_token>
+```
+
+### Success (200)
+
+```json
+{
+  "success": true,
+  "unread_count": 1,
+  "notifications": [
+    {
+      "id": 1,
+      "notification_type": "LOW_UNITS",
+      "units_kwh": 4.5,
+      "occurred_at": "2026-06-22T14:30:00+03:00",
+      "is_read": false,
+      "message": "Low units alert: meter 1236784560 has 4.50 kWh remaining.",
+      "meter_no": "1236784560",
+      "meter_label": "Home"
+    }
+  ]
+}
+```
+
+### Mark read (`PATCH`)
+
+```json
+{ "all": true }
+```
+
+or
+
+```json
+{ "ids": [1, 2] }
+```
+
+---
+
+## 11) ThingsBoard low-units webhook (`POST /webhooks/thingsboard/low-units`)
+
+Root URL — **not** under `/api/v1/`.
+
+### Request
+
+```http
+POST /webhooks/thingsboard/low-units
+Content-Type: application/json
+X-ThingsBoard-Webhook-Secret: your-secret-if-configured
+```
+
+```json
+{
+  "device_token": "pCqLl8iPI1UKIMCA8w2Z",
+  "units_kwh": 4.5,
+  "occurred_at": "2026-06-22T14:30:00+03:00"
+}
+```
+
+### Success (201)
+
+```json
+{
+  "success": true,
+  "notification_id": 1,
+  "user_id": 42,
+  "owner_name": "Jane",
+  "email_queued": true
+}
+```
+
+---
+
+## Delete meter (`POST /meter/delete/`)
+
+Removes a meter from the authenticated user's account. The meter number becomes available for registration again; historical tokens and share records stay linked to the archived meter row.
+
+### Request
+
+```json
+{
+  "meter_no": "04123456789",
+  "reason": "Replaced meter at home"
+}
+```
+
+### Success Response (200)
+
+```json
+{
+  "success": true,
+  "message": "Meter 04123456789 removed from your account. You can register it again later if needed.",
+  "deleted_meter_no": "04123456789",
+  "deletion_record_id": 7
+}
+```
+
+### Admin delete (`POST /admin/meters/{id}/delete/`)
+
+Same lifecycle; optional body `{ "reason": "..." }`. Writes admin audit log entry `ACTION_METER_DELETE`.
+
+### Admin audit list (`GET /admin/deleted-meters/`)
+
+Query params: `search`, `page`, `page_size`. Returns paginated `DeletedMeterRecord` rows (former owner, architecture, units at deletion, deleted_by, reason).
+
+---
+
 ## Quick Testing Sequence
 
 1. Register -> Login -> copy `access` token
@@ -340,6 +553,8 @@ All examples assume base URL prefix: `/api/v1`.
 3. Buy units -> poll payment status
 4. Initiate share -> verify OTP
 5. Apply loan -> disburse -> repay
+6. Check AMI units -> `GET /meter/check-units/`
+7. Test low-units webhook -> check notification bell / `GET /meter/notifications/`
 
 ---
 

@@ -22,6 +22,7 @@ import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import { ModeToggle } from "@/components/theme-toggle";
+import NotificationBell from "./notification-bell";
 import { IconMoneybag } from "@tabler/icons-react";
 import DashboardNavLinks from "@/components/dashboard/dashboard-nav-links";
 import { Zap, Settings, LogOut, Menu } from "lucide-react";
@@ -82,6 +83,7 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
       </Sheet>
 
       <div className="flex items-center gap-3">
+        <NotificationBell />
         <ModeToggle />
 
         <DropdownMenu open={isProfileMenuOpen} onOpenChange={setIsProfileMenuOpen}>

@@ -96,17 +96,21 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let cancelled = false;
     async function fetchDashboard() {
       try {
         const res = await get<any>("admin/dashboard/");
-        if (res.status === 403 || res.status === 401) { router.push('/auth/login'); return; }
+        if (cancelled) return;
         if (res.data) setData({ ...defaultData, ...res.data });
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     }
     fetchDashboard();
-  }, [router]);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   if (loading) return <DashboardSkeleton />;
 

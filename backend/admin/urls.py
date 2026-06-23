@@ -18,6 +18,8 @@ from .views import (
     MeterManagementView,
     MeterDetailView,
     MeterDeactivateView,
+    MeterDeleteView,
+    DeletedMeterRecordsView,
     MeterTransferOwnershipView,
     # Credit & Loans (Section 5)
     CreditLoansDashboardView,
@@ -50,6 +52,8 @@ from .views import (
     LoanTierDetailView,
     TariffsView,
     TariffDetailView,
+    TariffSeedEraView,
+    TariffActivateView,
     # 2FA (Section 1.3)
     TOTP2FASetupView,
     TOTP2FAStatusView,
@@ -79,7 +83,9 @@ urlpatterns = [
     path('meters/', MeterManagementView.as_view(), name='admin-meters'),
     path('meters/<int:meter_id>/', MeterDetailView.as_view(), name='admin-meter-detail'),
     path('meters/<int:meter_id>/deactivate/', MeterDeactivateView.as_view(), name='meter-deactivate'),
+    path('meters/<int:meter_id>/delete/', MeterDeleteView.as_view(), name='meter-delete'),
     path('meters/<int:meter_id>/transfer/', MeterTransferOwnershipView.as_view(), name='meter-transfer'),
+    path('deleted-meters/', DeletedMeterRecordsView.as_view(), name='admin-deleted-meters'),
 
     # --- Credit & Loans ---
     path('loans/dashboard/', CreditLoansDashboardView.as_view(), name='loans-dashboard'),
@@ -119,6 +125,8 @@ urlpatterns = [
     path('loan-tiers/', LoanTiersView.as_view(), name='admin-loan-tiers'),
     path('loan-tiers/<int:pk>/', LoanTierDetailView.as_view(), name='admin-loan-tier-detail'),
     path('tariffs/', TariffsView.as_view(), name='admin-tariffs'),
+    path('tariffs/seed-era/', TariffSeedEraView.as_view(), name='admin-tariffs-seed-era'),
+    path('tariffs/<int:pk>/activate/', TariffActivateView.as_view(), name='admin-tariff-activate'),
     path('tariffs/<int:pk>/', TariffDetailView.as_view(), name='admin-tariff-detail'),
 
     # --- 2FA (Section 1.3) ---

@@ -10,8 +10,8 @@ class ShareUnitSerializer(serializers.ModelSerializer):
     meter_number = serializers.CharField(
         required=True,
         min_length=10,
-        max_length=10,
-        help_text="Receiver's 10-digit meter number"
+        max_length=12,
+        help_text="Receiver's meter number (10–12 digits)"
     )
     units = serializers.DecimalField(
         required=True,

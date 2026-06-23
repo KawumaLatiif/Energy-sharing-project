@@ -6,6 +6,7 @@ import { jwtDecode } from "jwt-decode";
 import { cookies } from "next/headers";
 import { AUTHENTICATION_COOKIE, AUTHENTICATION_REFRESH_COOKIE } from "@/common/constants/auth-cookie";
 import { LoginSchema } from "@/lib/schema";
+import { staffRedirectPath } from "@/lib/staff";
 import { z } from "zod";
 
 export const login = async (data: z.infer<typeof LoginSchema>) => {
@@ -74,12 +75,19 @@ export const login = async (data: z.infer<typeof LoginSchema>) => {
         requires_2fa: true,
         challenge_token: parsedRes.challenge_token as string,
         user: parsedRes.user,
+        must_change_password: !!parsedRes.user?.must_change_password,
       };
     }
 
-    const redirectTo = parsedRes.user?.is_admin ? "/admin/dashboard" : "/dashboard";
+    const redirectTo = staffRedirectPath(parsedRes.user);
 
-    return { success: "Login successful", redirectTo: redirectTo, user: parsedRes.user, isAdmin: parsedRes.user?.is_admin || false };
+    return {
+      success: "Login successful",
+      redirectTo,
+      user: parsedRes.user,
+      must_change_password: !!parsedRes.user?.must_change_password,
+      isAdmin: !!parsedRes.user?.is_admin || staffRedirectPath(parsedRes.user).startsWith("/admin"),
+    };
   } catch (err) {
     console.error("Login Error:", err);
     return { error: "SERVER_ERROR", message: "Server error occurred" };

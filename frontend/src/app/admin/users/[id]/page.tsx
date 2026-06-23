@@ -35,7 +35,7 @@ import {
   XCircle,
   Zap,
 } from 'lucide-react';
-import { get, post } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch-client';
 
 interface UserDetail {
   id: number;

@@ -8,4 +8,5 @@ export interface UserMeter {
   pending_units: number;
   status: string;
   label: string;
+  has_iot_token?: boolean;
 }

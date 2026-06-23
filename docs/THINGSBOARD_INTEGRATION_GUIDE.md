@@ -11,16 +11,18 @@ It also answers whether there is an Android app version in this repository.
 
 ## 1) Quick answer: Do we already have an Android app?
 
-Short answer: **No native Android app is present in this repo yet**.
+**Yes** — an Expo/React Native Android client lives in [`mobile/`](../mobile/README.md). It calls the same Django APIs as the web app.
 
-Current channels available:
-- **Web app** (Next.js frontend)
-- **USSD** (Django USSD endpoint + browser simulator)
-- **Backend APIs** that can be consumed by a future mobile app
+**Channels today:**
 
-Evidence in repo:
-- No `android/` project, no `build.gradle`, no Flutter/React Native project structure.
-- `MOBILE_APP` appears as a channel enum value in backend models, but there is no standalone Android client implementation here yet.
+| Channel | ThingsBoard-related features |
+|---------|------------------------------|
+| **Web** | AMI card (check units, apply wallet), notification bell, meter registration with `iot_device_token` |
+| **USSD** | Manage → check units (`6*2`), alerts (`7` / `6*3`); buy/loan paths push telemetry |
+| **Mobile** | Same REST APIs as web (check-units and notifications available; dedicated UI may vary) |
+| **ThingsBoard → gPawa** | Low-units webhook at `POST /webhooks/thingsboard/low-units` |
+
+Legacy note: this guide previously stated no Android app; that applied before `mobile/` was added.
 
 ---
 
@@ -200,12 +202,17 @@ Common failure reasons:
 In `backend/backend/settings.py`, the integration depends on:
 - `THINGSBOARD_BASE_URL`
 - `THINGSBOARD_TIMEOUT_SECONDS`
+- `THINGSBOARD_WEBHOOK_SECRET` (optional, for inbound low-units webhook)
+- `AMI_GATEWAY` — set to `utils.ami_gateway.ThingsBoardAMIGateway` for real AMI push/read (default is mock)
 
 Example `.env` values:
 
 ```env
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_WEBHOOK_SECRET=choose-a-long-random-string
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+FRONTEND_URL=http://localhost:3000
 ```
 
 ### 4.2 Meter-level mapping
@@ -248,6 +255,16 @@ Main paths:
    - Admin: `/api/v1/meter/admin-test-meter-push/`
    - These endpoints do not alter balances; they only send telemetry to ThingsBoard.
 
+5. **Check units (live read)**
+   - API: `GET /api/v1/meter/check-units/?meter_no=`
+   - Service: `query_latest_units_from_thingsboard()` in `backend/meter/services.py`
+   - Web UI: AMI card refresh in `frontend/.../ami-status-card.tsx`
+
+6. **Notifications**
+   - API: `GET/PATCH /api/v1/meter/notifications/`
+   - Web UI: notification bell in `frontend/.../notification-bell.tsx`
+   - Inbound webhook: `POST /webhooks/thingsboard/low-units` (see [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md))
+
 ---
 
 ## 5.2 USSD -> Backend -> ThingsBoard
@@ -273,6 +290,15 @@ ThingsBoard-linked USSD flows:
    - On repayment, calls:
      - `push_units_to_thingsboard(meter, units_equivalent, repayment.payment_reference)`
 
+4. **USSD Check units** — `6*2` (Manage → Check units)
+   - Helper `_check_units_for_meter(...)` → `query_latest_units_from_thingsboard()`
+   - Multi-meter: `6*2*<n>` picker
+
+5. **USSD Alerts** — `7` or `6*3`
+   - Helper `_notifications_summary(...)` — lists `MeterNotification` rows (from TB webhook)
+
+USSD main menu (2026): options **6** Manage, **7** Alerts, **8** Exit. See [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md).
+
 USSD simulator support endpoints:
 - `/api/v1/ussd/phones/` (phone list)
 - `/api/v1/ussd/meters/?phoneNumber=<sender>` (receiver meters excluding sender meter)
@@ -284,14 +310,30 @@ Frontend simulator route proxies:
 
 ---
 
-## 5.3 Mobile app linkage status
+## 5.3 Mobile app linkage
 
-There is **no native Android app implementation in this repo yet**.
+The **Android app** in [`mobile/`](../mobile/README.md) uses the same REST API as the web client. ThingsBoard behaviour is server-side:
 
-How “mobile” is currently served:
-- Browser-based responsive web app on phones.
-- USSD for feature phones.
-- Backend endpoints are ready for a future Android client; that future app would call the same APIs and get the same ThingsBoard behavior automatically.
+- Register AMI meters with `iot_device_token` via API
+- `GET /meter/check-units/` for live reads
+- `GET /meter/notifications/` for alerts
+- Apply/share/buy flows trigger the same `push_units_to_thingsboard()` paths when configured
+
+Configure `mobile/.env` with your backend URL. See [`MOBILE_APP.md`](./MOBILE_APP.md).
+
+---
+
+## 5.4 Inbound webhook (ThingsBoard → gPawa)
+
+When meter `remaining_units ≤ 5`, ThingsBoard should POST to:
+
+```text
+POST https://<your-api-host>/webhooks/thingsboard/low-units
+```
+
+Handler: `backend/webhooks/api/views.py` → `ThingsBoardLowUnitsWebhookView`
+
+Full setup: [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md).
 
 ---
 
@@ -414,6 +456,34 @@ If failed, fix `iot_device_token` / `THINGSBOARD_BASE_URL` first before deeper f
 
 ---
 
+### 6.9 Test F: Check units (live read)
+
+1. Ensure AMI meter has `iot_device_token` and ThingsBoard exposes `remaining_units`.
+2. Web: open **Tokens** / AMI card → click refresh (calls `GET /meter/check-units/`).
+3. USSD: `6` → `2` (or `6` → `2` → `1` if multiple AMI meters).
+4. Expected: `units_kwh` matches ThingsBoard attribute.
+
+---
+
+### 6.10 Test G: Low-units webhook + notifications
+
+1. Register AMI meter with token matching a ThingsBoard device.
+2. POST test webhook:
+
+```powershell
+curl.exe -X POST "http://localhost:8000/webhooks/thingsboard/low-units" `
+  -H "Content-Type: application/json" `
+  -d "{\"device_token\":\"YOUR_TOKEN\",\"units_kwh\":4.5,\"occurred_at\":\"2026-06-22T14:30:00+03:00\"}"
+```
+
+3. Verify:
+   - HTTP `201`
+   - Web notification bell shows alert
+   - USSD `7` lists alert
+   - Email queued if SMTP + user email configured
+
+---
+
 ## 7) Troubleshooting guide
 
 If push fails with meter token message:
@@ -431,9 +501,28 @@ If flow succeeds functionally but no telemetry appears:
 - Confirm you are checking the same device token/device in ThingsBoard.
 - Check backend logs for warning lines from `meter.services`.
 
+If check-units fails:
+- Ensure `remaining_units` exists as a **shared attribute** on the device.
+- Set `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` for apply flows (not just check-units).
+
+If webhook returns 404:
+- Register AMI meter with matching `iot_device_token` and `status=ACTIVE`.
+
+If notification bell is empty after webhook 201:
+- Refresh page or wait for poll (60s); call `GET /meter/notifications/` directly.
+
 ---
 
-## 8) Recommended next step (Android)
+## 8) Related documentation
+
+- [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md) — full product + technical report
+- [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md) — rule chain setup
+- [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md) — USSD menus
+- [`BACKEND_DOCS.md`](../BACKEND_DOCS.md) — API reference
+
+---
+
+## 9) Recommended next steps (mobile UI)
 
 If you want Android next, the fastest path is:
 1. Build Android client (native Kotlin or React Native/Flutter).

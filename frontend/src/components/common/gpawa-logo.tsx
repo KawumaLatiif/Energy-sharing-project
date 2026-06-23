@@ -40,6 +40,8 @@ interface LogoProps {
   className?: string;
   /** Shown beside the mark when showText is false (e.g. admin "Administrator") */
   suffix?: string;
+  /** Use sidebar tokens so suffix stays readable on admin nav (light & dark) */
+  suffixVariant?: "default" | "sidebar";
 }
 
 export function GpawaLogo({
@@ -49,6 +51,7 @@ export function GpawaLogo({
   logoSize = 36,
   className,
   suffix,
+  suffixVariant = "default",
 }: LogoProps) {
   const textClass = {
     sm: "text-sm",
@@ -72,7 +75,15 @@ export function GpawaLogo({
         </span>
       )}
       {!showText && suffix && (
-        <span className={cn("font-semibold text-foreground", textClass)}>
+        <span
+          className={cn(
+            "font-semibold tracking-tight",
+            textClass,
+            suffixVariant === "sidebar"
+              ? "gpawa-sidebar-brand"
+              : "text-foreground"
+          )}
+        >
           {suffix}
         </span>
       )}

@@ -326,7 +326,7 @@ export default function BuyUnitsForm() {
 
   return (
     <>
-      <CardWrapper title="Buy Units">
+      <CardWrapper title="TopUp Wallet">
         {/* --- SUCCESS MODAL --- */}
         <Dialog open={showSuccessModal} onOpenChange={setShowSuccessModal}>
           <DialogContent className="sm:max-w-md bg-background border-border">

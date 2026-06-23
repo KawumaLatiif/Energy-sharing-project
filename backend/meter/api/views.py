@@ -8,7 +8,11 @@ import traceback
 from django.conf import settings
 from django.http import JsonResponse
 from meter.models import Meter, MeterToken
-from meter.services import push_units_to_thingsboard
+from meter.services import (
+    push_units_to_thingsboard,
+    query_latest_units_from_thingsboard,
+    record_balance_snapshot,
+)
 from accounts.models import User
 from mtn_momo.services import MTNMoMoService
 from transactions.models import UnitTransaction
@@ -107,6 +111,141 @@ def ami_meter_status(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def check_meter_units(request):
+    """
+    GET /api/v1/meter/check-units/?meter_no=...
+
+    On-demand read of live remaining kWh from ThingsBoard (shared attribute remaining_units).
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if meter.architecture != Meter.ARCH_AMI:
+        return Response(
+            {"error": "Check units is only available for AMI meters."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    ok, msg, data = query_latest_units_from_thingsboard(meter)
+    if not ok or not data:
+        return Response(
+            {
+                "success": False,
+                "meter_no": meter.meter_no,
+                "message": msg,
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    record_balance_snapshot(
+        meter,
+        data["units_kwh"],
+        source=data.get("source", "thingsboard"),
+    )
+
+    return Response(
+        {
+            "success": True,
+            "meter_no": meter.meter_no,
+            "units_kwh": data["units_kwh"],
+            "queried_at": data["queried_at"],
+            "ledger_balance_kwh": float(meter.units),
+            "source": data.get("source", "thingsboard"),
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def meter_notifications(request):
+    """
+    GET  /api/v1/meter/notifications/ — list meter alerts (e.g. low-units from ThingsBoard).
+    PATCH /api/v1/meter/notifications/ — mark notifications read: {"ids": [1,2]} or {"all": true}
+    """
+    from meter.models import MeterNotification
+
+    if request.method == "GET":
+        unread_only = request.query_params.get("unread", "").lower() in ("1", "true", "yes")
+        qs = MeterNotification.objects.filter(user=request.user)
+        if unread_only:
+            qs = qs.filter(is_read=False)
+        qs = qs.select_related("meter")[:50]
+        items = [
+            {
+                "id": n.id,
+                "notification_type": n.notification_type,
+                "units_kwh": float(n.units_kwh),
+                "occurred_at": n.occurred_at.isoformat(),
+                "is_read": n.is_read,
+                "message": n.message,
+                "meter_no": n.meter.meter_no if n.meter else None,
+                "meter_label": n.meter.label if n.meter else None,
+            }
+            for n in qs
+        ]
+        unread_count = MeterNotification.objects.filter(user=request.user, is_read=False).count()
+        return Response(
+            {"success": True, "notifications": items, "unread_count": unread_count},
+            status=status.HTTP_200_OK,
+        )
+
+    ids = request.data.get("ids")
+    mark_all = request.data.get("all") is True
+    qs = MeterNotification.objects.filter(user=request.user, is_read=False)
+    if mark_all:
+        updated = qs.update(is_read=True)
+    elif ids:
+        updated = qs.filter(id__in=ids).update(is_read=True)
+    else:
+        return Response(
+            {"error": "Provide 'ids' list or {'all': true}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"success": True, "marked_read": updated}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def power_usage(request):
+    """
+    GET /api/v1/meter/power-usage/
+
+    AMI-only energy consumption reports (daily series + summary).
+    Query params: meter_no, period=week|month|year, year, month
+    """
+    from meter.usage_service import get_power_usage_report
+
+    period = request.query_params.get("period", "week")
+    meter_no = request.query_params.get("meter_no")
+    year_raw = request.query_params.get("year")
+    month_raw = request.query_params.get("month")
+
+    year = int(year_raw) if year_raw and year_raw.isdigit() else None
+    month = int(month_raw) if month_raw and month_raw.isdigit() else None
+
+    report = get_power_usage_report(
+        request.user,
+        meter_no=meter_no,
+        period=period,
+        year=year,
+        month=month,
+    )
+    status_code = status.HTTP_200_OK if report.get("eligible", True) else status.HTTP_200_OK
+    return Response({"success": True, "data": report}, status=status_code)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def check_user_meter(request):
     try:
         meters = Meter.objects.filter(user=request.user).order_by('create_date')
@@ -128,6 +267,7 @@ def check_user_meter(request):
                 'pending_units': float(m.pending_units),
                 'status': m.status,
                 'label': m.label,
+                'has_iot_token': bool((m.iot_device_token or '').strip()),
             }
             for m in meters
         ]
@@ -224,6 +364,66 @@ def update_meter(request):
             "error": "Update Failed",
             "message": "Failed to update meter. Please try again."
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_user_meter(request):
+    """
+    POST/DELETE /api/v1/meter/delete/
+
+    Remove a meter from the authenticated user's account. Writes DeletedMeterRecord
+    and soft-deletes the meter so the number can be registered again later.
+    """
+    from meter.lifecycle import MeterDeleteError, release_meter_from_account
+    from meter.models import DeletedMeterRecord
+
+    meter_no = request.data.get("meter_no") or request.query_params.get("meter_no")
+    reason = (request.data.get("reason") or "").strip()
+
+    if not meter_no:
+        return Response(
+            {"error": "meter_no is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found on your account."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        record = release_meter_from_account(
+            meter,
+            deleted_by=request.user,
+            deleted_by_role=DeletedMeterRecord.ROLE_USER,
+            reason=reason,
+            metadata={"channel": "WEB_PORTAL"},
+        )
+    except MeterDeleteError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.error("delete_user_meter error: %s", exc, exc_info=True)
+        return Response(
+            {"error": "Failed to remove meter."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "message": (
+                f"Meter {record.original_meter_no} removed from your account. "
+                "You can register it again later if needed."
+            ),
+            "deleted_meter_no": record.original_meter_no,
+            "deletion_record_id": record.id,
+        },
+        status=status.HTTP_200_OK,
+    )
 
 
 class MeterRegisterView(generics.CreateAPIView):

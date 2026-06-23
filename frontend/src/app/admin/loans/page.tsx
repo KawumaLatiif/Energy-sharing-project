@@ -52,7 +52,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get } from '@/lib/fetch';
+import { get } from '@/lib/fetch-client';
 import Link from 'next/link';
 import {
   Dialog,
@@ -148,11 +148,6 @@ export default function LoansManagementPage() {
       });
 
       const res = await get<any>(`admin/loans/?${params}`);
-
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
-        return;
-      }
 
       if (res.error) throw new Error('Failed to fetch loans');
 

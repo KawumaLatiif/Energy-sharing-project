@@ -70,7 +70,7 @@ backend/
 ├── transactions/       # Transaction history and unit purchase tracking
 ├── transfer/           # Meter-to-meter transfer requests (admin-approved)
 ├── wallet/             # Wallet balances and per-meter balance tracking
-├── webhooks/           # External integrations (ESP32 device callbacks)
+├── webhooks/           # ESP32 token callbacks + ThingsBoard low-units webhook
 ├── ussd/               # USSD menu-driven interface for feature phones
 ├── mtn_momo/           # MTN MoMo payment service
 ├── utils/              # Shared utilities, billing engine, AMI gateway, email
@@ -98,7 +98,7 @@ backend/
 | `admin` | Admin-only views: dashboard, user management, loan management, tier/tariff config |
 | `ussd` | USSD session state machine for feature phone access |
 | `mtn_momo` | MTN Mobile Money API client (create user, get token, request-to-pay, check status) |
-| `webhooks` | Handles callbacks from ESP32 hardware meters; token decryption and verification |
+| `webhooks` | ESP32 token decryption; ThingsBoard low-units inbound webhook |
 | `utils` | Email sender, custom exceptions, auth token generators, field validators, decorators |
 
 ---
@@ -274,8 +274,22 @@ A user may register **multiple meters** under one account (landlords / sub-meter
 | `architecture` | CharField | `STS` (token keypad) or `AMI` (networked) |
 | `label` | CharField | Display name, e.g. "Home", "Shop" |
 | `status` | CharField | `ACTIVE`, `INACTIVE`, `SUSPENDED` |
-| `iot_device_token` | CharField | ThingsBoard device token for AMI push |
+| `iot_device_token` | CharField | ThingsBoard device access token for AMI push/read |
 | `user` | ForeignKey(User) | Owning user |
+
+#### `MeterNotification`
+Low-units and other meter alerts (e.g. from ThingsBoard webhook).
+
+| Field | Type | Notes |
+|---|---|---|
+| `user` | ForeignKey(User) | Alert recipient |
+| `meter` | ForeignKey(Meter) | Nullable; linked meter |
+| `device_token` | CharField | ThingsBoard token that triggered alert |
+| `notification_type` | CharField | `LOW_UNITS` |
+| `units_kwh` | DecimalField | Remaining kWh when alert fired |
+| `occurred_at` | DateTimeField | Event time from webhook |
+| `is_read` | BooleanField | Read state for web/USSD |
+| `message` | CharField | Human-readable summary |
 
 #### `MeterToken`
 | Field | Type | Notes |
@@ -496,20 +510,31 @@ Paths below are relative to that base (e.g. `auth/login/` → `https://energy-sh
 
 | Method | Path | Description | Auth Required |
 |---|---|---|---|
-| POST | `register/` | Register meter (`architecture`, `label`, `static_ip` for AMI) | Yes |
+| POST | `register/` | Register meter (`architecture`, `label`, `static_ip`, `iot_device_token` for AMI) | Yes |
+| POST/DELETE | `delete/` | Remove meter from account (soft delete + `DeletedMeterRecord` audit; `meter_no` query/body) | Yes |
 | GET | `my-meter/` | List all user meters (multi-meter support) | Yes |
 | PUT/PATCH | `update/` | Update meter (`current_meter_no`, `label`, etc.) | Yes |
 | GET | `estimate-units/?amount=` | ERA billing estimate (no side effects) | Yes |
 | POST | `buy-units/` | Purchase kWh via MoMo → credits **unit wallet** | Yes |
 | POST | `check-payment-status/` | Poll sandbox/MoMo payment (`transaction_id`) | Yes |
 | POST | `generate-token/` | **STS:** debit wallet → 10-digit keypad token | Yes |
-| POST | `apply-wallet-units/` | **AMI:** debit wallet → push kWh to networked meter | Yes |
-| GET | `ami-status/?meter_no=` | AMI connectivity + meter/wallet balances | Yes |
+| POST | `apply-wallet-units/` | **AMI:** debit wallet → push kWh via ThingsBoard | Yes |
+| GET | `ami-status/?meter_no=` | AMI gateway status + meter/wallet balances | Yes |
+| GET | `check-units/?meter_no=` | **AMI:** live kWh from ThingsBoard `remaining_units` | Yes |
+| GET | `notifications/` | List meter alerts (low-units, etc.) | Yes |
+| PATCH | `notifications/` | Mark alerts read (`ids` or `all: true`) | Yes |
+| GET | `power-usage/?period=&meter_no=&year=&month=` | **AMI:** daily/weekly/monthly/annual kWh usage reports | Yes |
 | POST | `send-units/` | Send units to another meter | Yes |
 | POST | `receive-units/` | Receive units (accept incoming share) | Yes |
 | POST | `activate-received-units/` | STS: tokenize received/shared pending units | Yes |
 | GET | `token/` | List meter tokens (optional `?meter_no=`) | Yes |
 | POST | `test-meter-push/` | Manual ThingsBoard push test | Yes |
+| POST | `admin-test-meter-push/` | Admin ThingsBoard push test (any meter) | Yes |
+
+**Register AMI meter body:** include `iot_device_token` (ThingsBoard device access token).  
+**Delete meter:** `POST /meter/delete/` with `{ "meter_no": "...", "reason": "optional" }` — soft-deletes the row, archives a `DeletedMeterRecord`, frees the number for re-registration via `register/`.  
+**Check-units response:** `units_kwh`, `queried_at`, `ledger_balance_kwh`.  
+**Notifications PATCH body:** `{ "all": true }` or `{ "ids": [1, 2] }`.
 
 **Buy-units POST body:** `{ "amount": 5000, "phone_number": "+2567XXXXXXXX" }`  
 **Apply-wallet-units POST body:** `{ "amount": 10.5, "meter_no": "1236784560" }` (AMI only)  
@@ -550,7 +575,8 @@ See [`backend/docs/BACKEND_TRANSACTIONS.md`](backend/docs/BACKEND_TRANSACTIONS.m
 
 | Method | Path | Description | Auth Required |
 |---|---|---|---|
-| POST | `share-units/` | Initiate peer-to-peer unit share with OTP | Yes |
+| POST | `share-units/` | Share with OTP; STS receiver → token, AMI → ThingsBoard | Yes |
+| GET | `receiver-preview/?meter_number=` | Recipient details before share confirm | Yes |
 | POST | `transfer-units/` | Request meter-to-meter transfer (admin approval) | Yes |
 
 ---
@@ -575,6 +601,9 @@ All admin endpoints require `user_role == ADMIN`.
 | GET | `users/` | Paginated user list |
 | GET | `users/{user_id}/` | User detail with meter, wallet, loans |
 | GET | `meters/` | Paginated meter list |
+| GET | `meters/{meter_id}/` | Meter detail |
+| POST | `meters/{meter_id}/delete/` | Remove meter from user (soft delete + audit) |
+| GET | `deleted-meters/` | List `DeletedMeterRecord` audit rows (search/filter) |
 | GET | `stats/` | System-wide statistics |
 | POST | `toggle-user-status/` | Enable/disable user account |
 | GET/POST | `loans/` | List all loans / update loan status |
@@ -586,8 +615,12 @@ All admin endpoints require `user_role == ADMIN`.
 | GET | `account/activities/` | Admin activity log |
 | GET | `loan-tiers/` | List loan tiers |
 | GET/POST | `loan-tiers/{id}/` | Loan tier detail / update |
-| GET | `tariffs/` | List electricity tariffs |
+| GET | `tariffs/` | List all electricity tariffs (active + inactive) |
+| POST | `tariffs/` | Create tariff schedule (+ nested blocks) |
+| POST | `tariffs/seed-era/` | Import ERA domestic Code 10.1 defaults |
+| POST | `tariffs/{id}/activate/` | Set sole active system-wide tariff |
 | GET/POST | `tariffs/{id}/` | Tariff detail / update |
+| DELETE | `tariffs/{id}/` | Delete tariff (not allowed while Active) |
 
 ---
 
@@ -599,7 +632,30 @@ All admin endpoints require `user_role == ADMIN`.
 
 ---
 
-### Webhooks (`/api/v1/webhooks/`)
+### Webhooks
+
+#### ThingsBoard low-units (`POST /webhooks/thingsboard/low-units`)
+
+Root URL (not under `/api/v1/`). ThingsBoard rule chains POST here when `remaining_units ≤ 5`.
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-ThingsBoard-Webhook-Secret` | Optional; must match `THINGSBOARD_WEBHOOK_SECRET` |
+
+**Body:** `{ "device_token", "units_kwh", "occurred_at" }` → creates `MeterNotification`, queues email if user has email.
+
+Implementation: `webhooks/api/views.py` → `ThingsBoardLowUnitsWebhookView`.
+
+#### ThingsBoard daily usage (`POST /webhooks/thingsboard/daily-usage`)
+
+Root URL. Optional rule chain posts pre-aggregated daily kWh for Power Usage reports.
+
+**Body:** `{ "device_token", "usage_date": "YYYY-MM-DD", "kwh_used" }` → upserts `MeterUsageDaily`.
+
+Implementation: `webhooks/api/views.py` → `ThingsBoardDailyUsageWebhookView`.
+
+#### ESP32 / token (`/api/v1/webhooks/`)
 
 Handles callbacks from ESP32 hardware meters for token decryption and validation.
 
@@ -687,8 +743,10 @@ DEFAULT_AUTHENTICATION_CLASSES = [
 | `MTN_API_USER_ID` | MTN MoMo API user ID | |
 | `MTN_CALLBACK_HOST` | Callback URL for MoMo webhooks | `http://localhost:3030` |
 | `AMI_GATEWAY` | AMI gateway class path | `utils.ami_gateway.MockAMIGateway` |
-| `THINGSBOARD_HOST` | ThingsBoard server (production AMI) | |
-| `THINGSBOARD_ACCESS_TOKEN` | ThingsBoard device/API token | |
+| `THINGSBOARD_BASE_URL` | ThingsBoard server base URL | `https://iot.energy-share.sun.ac.ug` |
+| `THINGSBOARD_TIMEOUT_SECONDS` | HTTP timeout for TB calls | `8` |
+| `THINGSBOARD_WEBHOOK_SECRET` | Optional shared secret for inbound low-units webhook | |
+| `FRONTEND_URL` | Web app URL (emails, alert deep links) | `http://localhost:3000` (dev) |
 
 ### Database Settings (`backend/settings.py`)
 
@@ -903,8 +961,10 @@ Verify with: `python manage.py verify_era_billing`
 | Class | Purpose |
 |---|---|
 | `MockAMIGateway` | Pilot default — logs apply, returns success (no network) |
-| `ThingsBoardAMIGateway` | Stub for production ThingsBoard push |
-| `apply_units_to_meter(meter, units)` | STS → `pending_units`; AMI → gateway + `meter.units` |
+| `ThingsBoardAMIGateway` | Production — push via `push_units_to_thingsboard()`, read via `query_latest_units_from_thingsboard()` |
+| `push_units_to_thingsboard()` | `meter/services.py` — POST telemetry `{ payment, amount, tx_ref? }` |
+| `query_latest_units_from_thingsboard()` | `meter/services.py` — GET `remaining_units` shared attribute |
+| `apply_units_to_meter(meter, units)` | STS → `pending_units`; AMI → gateway + `meter.units` on success |
 | `get_ami_gateway()` | Factory from `settings.AMI_GATEWAY` |
 
 ### Email (`utils/email.py`)
@@ -920,6 +980,7 @@ Called from:
 - Loan status notifications
 - Password reset requests
 - Settings confirmation codes
+- **Low-units alerts** (`handle_send_low_units_alert_email` in `accounts/tasks.py`)
 
 ### Auth Token Generators (`utils/auth.py`)
 
@@ -1180,7 +1241,8 @@ Client                    Backend                         AMI Gateway
 
 | Action | Endpoint | Body |
 |---|---|---|
-| Register meter | `POST /meter/register/` | `{ meter_no, architecture, static_ip?, label? }` |
+| Register meter | `POST /meter/register/` | `{ meter_no, architecture, static_ip?, iot_device_token?, label? }` |
+| Remove meter | `POST /meter/delete/` | `{ meter_no, reason? }` |
 | Estimate | `GET /meter/estimate-units/?amount=5000` | — |
 | Pay for units | `POST /meter/buy-units/` | `{ amount, phone_number }` |
 | Poll payment | `POST /meter/check-payment-status/` | `{ transaction_id }` |

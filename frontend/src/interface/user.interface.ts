@@ -40,6 +40,9 @@ export interface User {
   account_is_active: boolean;
   user_role: string;
   is_admin: boolean;
+  is_staff_member?: boolean;
+  is_superuser?: boolean;
+  must_change_password?: boolean;
   account_details?: {
     account_number: string;
     address?: string;

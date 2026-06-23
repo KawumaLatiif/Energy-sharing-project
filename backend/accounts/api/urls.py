@@ -9,6 +9,7 @@ from accounts.api.views import (
     LoginAPIView,
     ForgotPasswordAPIView,
     UserConfigAPIView,
+    RequiredPasswordChangeAPIView,
     # user_profile_view,
     UserProfileAPIView,
     # RawUserProfileAPIView,
@@ -33,6 +34,11 @@ urlpatterns = [
         "get-user-config/",
         view=UserConfigAPIView.as_view(),
         name="get_user_config",
+    ),
+    path(
+        "change-required-password/",
+        view=RequiredPasswordChangeAPIView.as_view(),
+        name="change_required_password",
     ),
 
    

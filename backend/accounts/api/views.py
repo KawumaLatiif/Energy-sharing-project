@@ -44,6 +44,8 @@ from utils.decorators import (
     phone_verification_exempt,
 )
 from utils.exceptions import CustomAPIException
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connections
 from django.db.utils import OperationalError
 from django.db.models import Q
@@ -1118,7 +1120,7 @@ class LoginAPIView(TokenObtainPairView):
         get_or_create_dummy_credit_signal(user)
 
         # Staff members with 2FA enabled → issue a challenge token instead of full JWT
-        if user.is_staff_member and user.totp_enabled:
+        if (user.is_staff_member or user.is_superuser) and user.totp_enabled:
             from django.core import signing
             challenge_token = signing.dumps(
                 {'user_id': user.id},
@@ -1130,6 +1132,9 @@ class LoginAPIView(TokenObtainPairView):
                 'user': {
                     'email': user.email,
                     'user_role': user.user_role,
+                    'is_admin': user.user_role == User.ADMIN or user.is_superuser,
+                    'is_staff_member': user.is_staff_member or user.is_superuser,
+                    'is_superuser': user.is_superuser,
                 },
             }, status=status.HTTP_200_OK)
 
@@ -1137,7 +1142,9 @@ class LoginAPIView(TokenObtainPairView):
         response = super().post(request, *args, **kwargs)
 
         if response.status_code == 200:
-            redirect = '/admin/dashboard' if user.is_staff_member else '/dashboard'
+            redirect = '/admin/dashboard' if (user.is_staff_member or user.is_superuser) else '/dashboard'
+            if getattr(user, 'must_change_password', False) and not (user.is_staff_member or user.is_superuser):
+                redirect = '/change-password'
             response.data.update({
                 'user': {
                     'id': user.id,
@@ -1145,8 +1152,10 @@ class LoginAPIView(TokenObtainPairView):
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'user_role': user.user_role,
-                    'is_admin': user.user_role == User.ADMIN,
+                    'is_admin': user.user_role == User.ADMIN or user.is_superuser,
+                    'is_staff_member': user.is_staff_member or user.is_superuser,
                     'totp_enabled': user.totp_enabled,
+                    'must_change_password': user.must_change_password,
                     'redirect_to': redirect,
                 }
             })
@@ -1241,6 +1250,59 @@ class UserConfigAPIView(GenericAPIView):
         user = request.user
         serializer = self.serializer_class(user)
         return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class RequiredPasswordChangeAPIView(GenericAPIView):
+    """
+    First-login password change for admin-provisioned client accounts.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not getattr(user, "must_change_password", False):
+            return Response(
+                {"error": "Password change is not required for this account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_password = (request.data.get("new_password") or "").strip()
+        confirm_password = (request.data.get("confirm_password") or "").strip()
+
+        if not new_password or not confirm_password:
+            return Response(
+                {"error": "new_password and confirm_password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_password != confirm_password:
+            return Response(
+                {"error": "Passwords do not match."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_password == "1234":
+            return Response(
+                {"error": "Choose a password other than the temporary default."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"error": " ".join(exc.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password", "modify_date"])
+
+        return Response(
+            {"success": True, "message": "Password updated. You can now use gPawa."},
+            status=status.HTTP_200_OK,
+        )
 
 
 class ForgotPasswordAPIView(GenericAPIView):

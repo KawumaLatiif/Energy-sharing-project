@@ -45,13 +45,6 @@ export const getUserConfig = async <T>(): Promise<T | null> => {
     }
 
     const data = await response.json();
-    console.log('🔄 User Config Received:', {
-      id: data.id,
-      email: data.email,
-      is_admin: data.is_admin,
-      user_role: data.user_role
-    });
-    
     return data as T;
   } catch (error) {
     console.error('Error fetching user config:', error);

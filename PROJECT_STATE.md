@@ -43,7 +43,7 @@ A prepaid electricity management platform for Uganda. Users register smart meter
 - **User:** `postgres`  
 - **Password:** `Phaneroo1`
 - **Host:** `localhost:5432`
-- **Migrations:** 79 migrations applied — all up to date
+- **Migrations:** Run `python manage.py migrate` after pull — includes `accounts.0015_user_must_change_password`, `meter.0016_meternotification`, `meter.0017_meter_power_usage`. See [`docs/PLATFORM_ALIGNMENT.md`](docs/PLATFORM_ALIGNMENT.md).
 
 ### 3.2 Backend
 
@@ -124,12 +124,17 @@ User management, authentication, profiles, wallets.
 - On Profile creation → sends email verification if not auto-verified.
 
 ### `meter`
-Meter registration, unit purchasing, token generation.
+Meter registration, unit purchasing, token generation, ThingsBoard AMI integration.
 
 **Key models:**
-- `Meter` — Linked to user, has serial number, status, balance.
+- `Meter` — Linked to user; `architecture` (STS/AMI), `iot_device_token`, `units`, `pending_units`.
 - `MeterToken` — Generated tokens with unit values.
+- `MeterNotification` — Low-units and other alerts (ThingsBoard webhook).
 - `Transaction` — 9 types: PURCHASE, GENERATE_TOKEN, TRANSFER_OUT, TRANSFER_IN, CREDIT, REPAYMENT_AUTO, REPAYMENT_DIRECT, PENALTY, REFUND.
+
+**ThingsBoard services** (`meter/services.py`):
+- `push_units_to_thingsboard()` — outbound telemetry
+- `query_latest_units_from_thingsboard()` — read `remaining_units`
 
 **Channels:** USSD, MOBILE_APP, WEB_PORTAL, ADMIN.
 
@@ -173,6 +178,10 @@ Admin portal operations, audit log, staff management.
 ### `ussd`
 Feature phone USSD interface (Africastalking-compatible).
 
+**Main menu:** Wallet, Buy, Loans, Share, Tokens, **Manage** (meters / check units / alerts), **Alerts**, Exit.
+
+**ThingsBoard:** `6*2` check live units; `7` or `6*3` list low-units notifications.
+
 ### `mtn_momo`
 MTN Mobile Money payment integration. Service class only — no ORM models. Currently using sandbox environment.
 
@@ -199,12 +208,24 @@ Base: `http://localhost:8000/api/v1/`
 ### Meter (`/meter/`)
 | Method | Path | Description |
 |---|---|---|
-| GET | `/meter/my-meter/` | Get user's meter |
-| POST | `/meter/register/` | Register a meter |
+| GET | `/meter/my-meter/` | List user's meter(s) |
+| POST | `/meter/register/` | Register meter (`iot_device_token` for AMI) |
+| POST | `/meter/delete/` | Remove meter from account (soft delete + audit) |
 | POST | `/meter/buy-units/` | Purchase electricity units |
+| POST | `/meter/apply-wallet-units/` | AMI: apply wallet kWh to meter |
+| GET | `/meter/check-units/` | AMI: live kWh from ThingsBoard |
+| GET | `/meter/ami-status/` | AMI gateway + wallet status |
+| GET | `/meter/notifications/` | Meter alerts (low-units) |
+| PATCH | `/meter/notifications/` | Mark alerts read |
 | POST | `/meter/send-units/` | Send units to another meter |
-| POST | `/meter/token/` | Generate meter token |
-| GET | `/meter/check-payment-status/` | Check MTN MoMo payment |
+| GET | `/meter/token/` | List/generate meter tokens |
+| POST | `/meter/check-payment-status/` | Check MTN MoMo payment |
+| POST | `/meter/test-meter-push/` | Manual ThingsBoard push test |
+
+### ThingsBoard webhook (root)
+| Method | Path | Description |
+|---|---|---|
+| POST | `/webhooks/thingsboard/low-units` | Inbound low-units alert from ThingsBoard |
 
 ### Loans (`/loans/`)
 | Method | Path | Description |
@@ -257,11 +278,12 @@ Full admin API for user management, loan approvals, staff, reports, system healt
 - `/dashboard/buy-units` — Purchase units via MTN MoMo
 - `/dashboard/share` — Share units with another user
 - `/dashboard/transfering` — Transfer status
-- `/dashboard/tokens` — Token history
+- `/dashboard/tokens` — Token history + AMI meter card (check units, apply wallet)
 - `/dashboard/myloans` — Active and past loans
 - `/dashboard/request-loan` — Loan application
 - `/dashboard/request-loan/register-meter` — Register meter (part of loan flow)
 - `/dashboard/myaccount` — Account settings
+- **Notification bell** — header on all dashboard pages (low-units alerts from ThingsBoard)
 
 ### Admin Portal (`/admin/`)
 - `/admin/dashboard` — Overview stats

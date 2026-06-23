@@ -160,9 +160,12 @@ CELERY_TASK_ALWAYS_EAGER=True
 CELERY_BROKER_URL=redis://127.0.0.1:6379/0
 CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 
-# ThingsBoard (optional — for physical meter push tests)
+# ThingsBoard (optional — for physical meter push/read tests)
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_WEBHOOK_SECRET=choose-a-long-random-string
+# Real AMI push/read (default is mock simulation):
+# AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
 
 For a fuller production-style template, see `backend/.env.production.example`.
@@ -245,6 +248,9 @@ Leave this terminal running.
 | Register | http://localhost:3000/auth/register |
 | Login | http://localhost:3000/auth/login |
 | User dashboard | http://localhost:3000/dashboard |
+| TopUp Wallet | http://localhost:3000/dashboard/buy-units |
+| Load / Share Units | http://localhost:3000/dashboard/share |
+| Power Usage (AMI) | http://localhost:3000/dashboard/power-usage |
 | Admin portal | http://localhost:3000/admin/dashboard |
 | USSD simulator | http://localhost:3000/ussd-simulator |
 
@@ -253,8 +259,18 @@ Leave this terminal running.
 1. Open http://localhost:3000
 2. Log in with a seeded user (e.g. `jane@powercred.local` / `Pass1234!`)
 3. Register or view meter in dashboard
-4. Try **Buy Units** (sandbox MoMo simulation auto-completes)
-5. Open USSD simulator and test menu flows with a seeded phone number
+4. Try **TopUp Wallet** (sandbox MoMo simulation auto-completes)
+5. Try **Load / Share Units** and **Power Usage** (AMI accounts)
+6. Open USSD simulator and test menu flows with a seeded phone number
+
+After pulling latest code:
+
+```powershell
+cd backend
+python manage.py migrate
+```
+
+See [`PLATFORM_ALIGNMENT.md`](PLATFORM_ALIGNMENT.md) for full migration and env checklist.
 
 ### Android mobile app (optional)
 
@@ -293,15 +309,46 @@ More details: `USSD_INTEGRATION.md`
 
 ---
 
-## 9) ThingsBoard meter push (optional)
+## 9) ThingsBoard integration (optional)
 
-Only needed if you are testing physical meter credit updates.
+Only needed if you are testing **AMI** meters with ThingsBoard.
 
-1. Set `THINGSBOARD_BASE_URL` in `backend/.env`
-2. Set `iot_device_token` on the user's `Meter` record in DB/admin
-3. Test with API endpoint: `POST /api/v1/meter/test-meter-push/`
+### 9.1 Environment
 
-Full guide: `docs/THINGSBOARD_INTEGRATION_GUIDE.md`
+In `backend/.env`:
+
+```env
+THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
+THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_WEBHOOK_SECRET=local-dev-secret
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+```
+
+Use `dev-` prefix on `iot_device_token` to stub push/read without HTTP.
+
+### 9.2 Migrate
+
+```powershell
+python manage.py migrate meter
+```
+
+Requires `0016_meternotification` for low-units alerts.
+
+### 9.3 Test flows
+
+| Test | How |
+|------|-----|
+| Push telemetry | `POST /api/v1/meter/test-meter-push/` |
+| Check live units | `GET /api/v1/meter/check-units/?meter_no=` or web AMI card refresh |
+| Low-units webhook | `POST http://localhost:8000/webhooks/thingsboard/low-units` |
+| Web alerts | Dashboard notification bell |
+| USSD check units | Simulator: `6` → `2` |
+| USSD alerts | Simulator: `7` |
+
+Full guides:
+- [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](THINGSBOARD_INTEGRATION_GUIDE.md)
+- [`docs/THINGSBOARD_WEBHOOK.md`](THINGSBOARD_WEBHOOK.md)
+- [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md)
 
 ---
 

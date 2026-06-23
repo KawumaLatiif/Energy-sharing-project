@@ -6,6 +6,7 @@ const CardWrapper = ({
   variant = "default",
   containerClassName,
   cardClassName,
+  maxWidth = "md",
 }: {
   title: string;
   subtitle?: string;
@@ -13,7 +14,15 @@ const CardWrapper = ({
   variant?: "default" | "auth";
   containerClassName?: string;
   cardClassName?: string;
+  maxWidth?: "md" | "lg" | "xl" | "2xl" | "4xl";
 }) => {
+  const maxWidthClass = {
+    md: "sm:max-w-md",
+    lg: "sm:max-w-lg",
+    xl: "sm:max-w-xl",
+    "2xl": "sm:max-w-2xl",
+    "4xl": "sm:max-w-4xl",
+  }[maxWidth ?? "md"];
   const containerBase =
     variant === "auth"
       ? "min-h-[calc(100dvh-4rem)] flex items-start justify-center px-4 py-4 sm:min-h-screen sm:items-center sm:px-6 sm:py-8"
@@ -26,7 +35,7 @@ const CardWrapper = ({
   return (
     <div className="relative">
       <div className={`${containerBase} ${containerClassName ?? ""}`}>
-        <div className="w-full sm:mx-auto sm:mt-8 sm:w-full sm:max-w-md">
+        <div className={`w-full sm:mx-auto sm:mt-8 sm:w-full ${maxWidthClass}`}>
           <div className={`${cardBase} ${cardClassName ?? ""}`}>
             <h1 className="py-2 text-center text-xl font-semibold text-gray-900 dark:text-white sm:py-3 sm:text-2xl">
               {title}

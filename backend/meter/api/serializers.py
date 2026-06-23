@@ -9,11 +9,12 @@ from meter.models import Meter
 class MeterSerializer(serializers.ModelSerializer):
     class Meta:
         model = Meter
-        fields = ["meter_no", "static_ip", "units", "architecture", "label"]
+        fields = ["meter_no", "static_ip", "units", "architecture", "label", "iot_device_token"]
         extra_kwargs = {
             "units": {"read_only": True},
             "static_ip": {"required": False, "allow_null": True, "allow_blank": True},
             "label": {"required": False, "allow_blank": True},
+            "iot_device_token": {"required": False, "allow_null": True, "allow_blank": True, "write_only": True},
         }
 
     def validate(self, data):
@@ -24,13 +25,32 @@ class MeterSerializer(serializers.ModelSerializer):
         arch = arch or Meter.ARCH_STS
 
         static_ip = data.get("static_ip")
-        if arch == Meter.ARCH_AMI and not static_ip:
+        if static_ip is None and self.instance:
+            static_ip = self.instance.static_ip
+        static_ip = (static_ip or "").strip() or None
+
+        token = data.get("iot_device_token")
+        if token is None and self.instance:
+            token = self.instance.iot_device_token
+        token = (token or "").strip()
+
+        if arch == Meter.ARCH_AMI and not token:
             raise serializers.ValidationError(
-                {"static_ip": "IP address is required for AMI meters."}
+                {"iot_device_token": "ThingsBoard device access token is required for AMI meters."}
             )
-        if arch == Meter.ARCH_STS:
-            # STS meters have no IP — omit/ignore any value sent from the client
+
+        if arch == Meter.ARCH_AMI:
+            data["iot_device_token"] = token
+            if static_ip:
+                data["static_ip"] = static_ip
+            elif self.instance and self.instance.static_ip:
+                data["static_ip"] = self.instance.static_ip
+            else:
+                data["static_ip"] = None
+        else:
+            # STS meters have no IP or device token
             data["static_ip"] = None
+            data["iot_device_token"] = None
         return data
 
 

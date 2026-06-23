@@ -6,9 +6,7 @@ import { useEffect, useState, useCallback } from 'react';
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
-  CardTitle,
 } from '@/components/ui/card';
 import {
   Table,
@@ -32,23 +30,27 @@ import {
 import {
   Download,
   Eye,
+  KeyRound,
   Plus,
-  RefreshCw,
   Search,
   Zap,
 } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get, post } from '@/lib/fetch';
+import { get, post, patch } from '@/lib/fetch-client';
+import { getErrorMessage } from '@/lib/errors';
 
 interface Meter {
   meter_id: number;
   meter_no: string;
   label: string;
   status: string;
+  architecture: 'STS' | 'AMI';
   static_ip: string;
   units: number;
+  iot_device_token?: string;
+  has_iot_token?: boolean;
   user: {
     id: number;
     email: string;
@@ -60,9 +62,20 @@ interface Meter {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  ACTIVE: "bg-green-100 text-green-800",
-  INACTIVE: "bg-gray-100 text-gray-700",
-  SUSPENDED: "bg-red-100 text-red-800",
+  ACTIVE: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",
+  INACTIVE: "bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
+  SUSPENDED: "bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300",
+};
+
+const defaultRegisterForm = {
+  meter_no: '',
+  owner_name: '',
+  owner_email: '',
+  owner_phone: '',
+  label: 'Home',
+  architecture: 'STS' as 'STS' | 'AMI',
+  static_ip: '',
+  iot_device_token: '',
 };
 
 export default function MetersManagementPage() {
@@ -75,17 +88,18 @@ export default function MetersManagementPage() {
   const [totalPages, setTotalPages] = useState(1);
   const [totalMeters, setTotalMeters] = useState(0);
 
-  // Dialogs
   const [registerDialog, setRegisterDialog] = useState(false);
   const [deactivateDialog, setDeactivateDialog] = useState<Meter | null>(null);
   const [transferDialog, setTransferDialog] = useState<Meter | null>(null);
+  const [tokenDialog, setTokenDialog] = useState<Meter | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const [registerForm, setRegisterForm] = useState({ meter_no: '', user_id: '', label: 'Home' });
+  const [registerForm, setRegisterForm] = useState(defaultRegisterForm);
   const [deactivateReason, setDeactivateReason] = useState('');
   const [deactivateNote, setDeactivateNote] = useState('');
   const [transferUserId, setTransferUserId] = useState('');
   const [transferNote, setTransferNote] = useState('');
+  const [editToken, setEditToken] = useState('');
 
   const fetchMeters = useCallback(async () => {
     setLoading(true);
@@ -97,6 +111,8 @@ export default function MetersManagementPage() {
         setMeters(res.data.meters);
         setTotalPages(res.data.pagination?.pages ?? 1);
         setTotalMeters(res.data.pagination?.total ?? 0);
+      } else if (res.error) {
+        toast({ title: 'Error', description: getErrorMessage(res.error) || 'Failed to load meters', variant: 'destructive' });
       }
     } catch {
       toast({ title: 'Error', description: 'Failed to load meters', variant: 'destructive' });
@@ -105,20 +121,72 @@ export default function MetersManagementPage() {
     }
   }, [currentPage, search]);
 
-  useEffect(() => { fetchMeters(); }, [fetchMeters]);
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      fetchMeters();
+    }, search ? 300 : 0);
+    return () => clearTimeout(timer);
+  }, [fetchMeters, search]);
 
   async function handleRegister() {
-    if (!registerForm.meter_no || !registerForm.user_id) return;
+    if (!registerForm.meter_no || !registerForm.owner_name || !registerForm.owner_email || !registerForm.owner_phone) {
+      toast({ title: 'Missing fields', description: 'Meter number, owner name, email, and phone are required.', variant: 'destructive' });
+      return;
+    }
+    if (registerForm.architecture === 'AMI' && !registerForm.iot_device_token.trim()) {
+      toast({ title: 'Device token required', description: 'AMI meters need a ThingsBoard device access token.', variant: 'destructive' });
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await post<any>('admin/meters/', registerForm);
+      const payload: Record<string, string> = {
+        meter_no: registerForm.meter_no,
+        owner_name: registerForm.owner_name.trim(),
+        owner_email: registerForm.owner_email.trim(),
+        owner_phone: registerForm.owner_phone.trim(),
+        label: registerForm.label,
+        architecture: registerForm.architecture,
+      };
+      if (registerForm.static_ip.trim()) payload.static_ip = registerForm.static_ip.trim();
+      if (registerForm.architecture === 'AMI') {
+        payload.iot_device_token = registerForm.iot_device_token.trim();
+      }
+      const res = await post<any>('admin/meters/', payload);
       if (res.data?.success) {
-        toast({ title: 'Success', description: 'Meter registered successfully' });
+        toast({
+          title: 'Account & meter created',
+          description: `${registerForm.owner_email} can log in with temporary password 1234 and will be asked to set a new password.`,
+        });
         setRegisterDialog(false);
-        setRegisterForm({ meter_no: '', user_id: '', label: 'Home' });
+        setRegisterForm(defaultRegisterForm);
         fetchMeters();
       } else {
-        toast({ title: 'Error', description: res.data?.error || 'Registration failed', variant: 'destructive' });
+        toast({ title: 'Error', description: res.data?.error || getErrorMessage(res.error) || 'Registration failed', variant: 'destructive' });
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  async function handleSaveToken() {
+    if (!tokenDialog) return;
+    if (!editToken.trim()) {
+      toast({ title: 'Token required', description: 'Enter the ThingsBoard device access token.', variant: 'destructive' });
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await patch<any>(`admin/meters/${tokenDialog.meter_id}/`, {
+        architecture: 'AMI',
+        iot_device_token: editToken.trim(),
+      });
+      if (res.data?.success) {
+        toast({ title: 'Saved', description: 'ThingsBoard device token updated' });
+        setTokenDialog(null);
+        setEditToken('');
+        fetchMeters();
+      } else {
+        toast({ title: 'Error', description: res.data?.error || getErrorMessage(res.error) || 'Update failed', variant: 'destructive' });
       }
     } finally {
       setSubmitting(false);
@@ -167,9 +235,10 @@ export default function MetersManagementPage() {
 
   function exportCSV() {
     const rows = [
-      ['Meter No', 'Label', 'Status', 'Units', 'User', 'Email', 'Registered'],
+      ['Meter No', 'Label', 'Type', 'Status', 'Units', 'Device Token', 'User', 'Email', 'Registered'],
       ...meters.map(m => [
-        m.meter_no, m.label, m.status, String(m.units),
+        m.meter_no, m.label, m.architecture, m.status, String(m.units),
+        m.architecture === 'AMI' ? (m.iot_device_token || '') : '',
         m.user.name, m.user.email,
         new Date(m.created_at).toLocaleDateString()
       ])
@@ -182,12 +251,31 @@ export default function MetersManagementPage() {
     a.click();
   }
 
+  function openTokenDialog(m: Meter) {
+    setTokenDialog(m);
+    setEditToken(m.iot_device_token || '');
+  }
+
+  function tokenPreview(m: Meter) {
+    if (m.architecture !== 'AMI') return '—';
+    if (!m.has_iot_token) {
+      return (
+        <Badge variant="outline" className="text-amber-700 border-amber-300 bg-amber-50 dark:bg-amber-950/30">
+          Missing
+        </Badge>
+      );
+    }
+    const t = m.iot_device_token || '';
+    const preview = t.length > 8 ? `${t.slice(0, 4)}…${t.slice(-4)}` : t;
+    return <span className="font-mono text-xs">{preview}</span>;
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Meter Management</h1>
-          <p className="text-sm text-muted-foreground">{totalMeters} meters registered</p>
+          <p className="text-sm text-muted-foreground">{totalMeters} meters registered · AMI meters use ThingsBoard device tokens</p>
         </div>
         <div className="flex gap-2">
           <Button variant="outline" size="sm" onClick={exportCSV}>
@@ -221,15 +309,22 @@ export default function MetersManagementPage() {
                   <TableHeader>
                     <TableRow>
                       <TableHead>Meter</TableHead>
+                      <TableHead>Type</TableHead>
                       <TableHead>Status</TableHead>
+                      <TableHead>Device Token</TableHead>
                       <TableHead>Units</TableHead>
                       <TableHead>Owner</TableHead>
-                      <TableHead>Registered</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {meters.map((m) => (
+                    {meters.length === 0 ? (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                          No meters found
+                        </TableCell>
+                      </TableRow>
+                    ) : meters.map((m) => (
                       <TableRow key={m.meter_id}>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -241,24 +336,34 @@ export default function MetersManagementPage() {
                           </div>
                         </TableCell>
                         <TableCell>
+                          <Badge variant={m.architecture === 'AMI' ? 'default' : 'secondary'}>
+                            {m.architecture || 'STS'}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
                           <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[m.status] ?? ''}`}>
                             {m.status}
                           </span>
                         </TableCell>
-                        <TableCell className="tabular-nums">{m.units.toFixed(2)} kWh</TableCell>
+                        <TableCell>{tokenPreview(m)}</TableCell>
+                        <TableCell className="tabular-nums">{Number(m.units).toFixed(2)} kWh</TableCell>
                         <TableCell>
                           <p className="font-medium text-sm">{m.user.name}</p>
                           <p className="text-xs text-muted-foreground">{m.user.email}</p>
                         </TableCell>
-                        <TableCell className="text-sm text-muted-foreground">
-                          {new Date(m.created_at).toLocaleDateString()}
-                        </TableCell>
                         <TableCell className="text-right">
-                          <div className="flex justify-end gap-1">
+                          <div className="flex justify-end gap-1 flex-wrap">
                             <Button variant="ghost" size="sm" className="h-7 text-xs"
                               onClick={() => router.push(`/admin/meters/${m.meter_id}`)}>
                               <Eye className="h-3 w-3 mr-1" /> View
                             </Button>
+                            {m.architecture === 'AMI' && (
+                              <Button variant="ghost" size="sm" className="h-7 text-xs"
+                                onClick={() => openTokenDialog(m)}>
+                                <KeyRound className="h-3 w-3 mr-1" />
+                                {m.has_iot_token ? 'Token' : 'Set token'}
+                              </Button>
+                            )}
                             <Button variant="ghost" size="sm" className="h-7 text-xs"
                               onClick={() => setTransferDialog(m)}>
                               Transfer
@@ -292,27 +397,56 @@ export default function MetersManagementPage() {
 
       {/* Register meter dialog */}
       <Dialog open={registerDialog} onOpenChange={setRegisterDialog}>
-        <DialogContent>
+        <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Register New Meter</DialogTitle>
-            <DialogDescription>Operator or Admin can register meters. Provide the physical meter number and the user to assign it to.</DialogDescription>
+            <DialogDescription>
+              Creates a new customer account and assigns this meter. The owner signs in with their email and temporary password <strong>1234</strong>, then sets their own password. For self-registration, customers can use the public sign-up page instead.
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Meter type</label>
+              <select
+                className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                value={registerForm.architecture}
+                onChange={(e) => setRegisterForm({ ...registerForm, architecture: e.target.value as 'STS' | 'AMI' })}
+              >
+                <option value="STS">STS (token keypad)</option>
+                <option value="AMI">AMI (ThingsBoard networked)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Owner name *</label>
+              <Input
+                placeholder="e.g. John Okello"
+                value={registerForm.owner_name}
+                onChange={(e) => setRegisterForm({ ...registerForm, owner_name: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Owner email *</label>
+              <Input
+                type="email"
+                placeholder="customer@example.com"
+                value={registerForm.owner_email}
+                onChange={(e) => setRegisterForm({ ...registerForm, owner_email: e.target.value })}
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Owner phone *</label>
+              <Input
+                placeholder="e.g. +256700000000"
+                value={registerForm.owner_phone}
+                onChange={(e) => setRegisterForm({ ...registerForm, owner_phone: e.target.value })}
+              />
+            </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Meter Number *</label>
               <Input
                 placeholder="e.g. 12345678901234567890"
                 value={registerForm.meter_no}
                 onChange={(e) => setRegisterForm({ ...registerForm, meter_no: e.target.value })}
-              />
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">User ID *</label>
-              <Input
-                type="number"
-                placeholder="User's system ID"
-                value={registerForm.user_id}
-                onChange={(e) => setRegisterForm({ ...registerForm, user_id: e.target.value })}
               />
             </div>
             <div className="space-y-1">
@@ -323,11 +457,69 @@ export default function MetersManagementPage() {
                 onChange={(e) => setRegisterForm({ ...registerForm, label: e.target.value })}
               />
             </div>
+            {registerForm.architecture === 'AMI' && (
+              <>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">ThingsBoard device token *</label>
+                  <Input
+                    placeholder="Device access token from ThingsBoard"
+                    value={registerForm.iot_device_token}
+                    onChange={(e) => setRegisterForm({ ...registerForm, iot_device_token: e.target.value })}
+                    className="font-mono text-sm"
+                  />
+                  <p className="text-xs text-muted-foreground">Use dev- prefix for local testing without HTTP.</p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Static IP (optional)</label>
+                  <Input
+                    placeholder="192.168.1.1"
+                    value={registerForm.static_ip}
+                    onChange={(e) => setRegisterForm({ ...registerForm, static_ip: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setRegisterDialog(false)}>Cancel</Button>
-            <Button onClick={handleRegister} disabled={!registerForm.meter_no || !registerForm.user_id || submitting}>
+            <Button onClick={handleRegister} disabled={
+              !registerForm.meter_no ||
+              !registerForm.owner_name ||
+              !registerForm.owner_email ||
+              !registerForm.owner_phone ||
+              submitting
+            }>
               {submitting ? "Registering…" : "Register Meter"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* AMI device token dialog */}
+      <Dialog open={!!tokenDialog} onOpenChange={() => { setTokenDialog(null); setEditToken(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>ThingsBoard device token</DialogTitle>
+            <DialogDescription>
+              AMI meter <strong className="font-mono">{tokenDialog?.meter_no}</strong> — this token is used to push units and read live balance from ThingsBoard.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+            <label className="text-sm font-medium">Device access token</label>
+            <Input
+              value={editToken}
+              onChange={(e) => setEditToken(e.target.value)}
+              placeholder="Paste token from ThingsBoard device"
+              className="font-mono text-sm"
+            />
+            <p className="text-xs text-muted-foreground">
+              Find this in ThingsBoard under the device → Access token. Only applies to AMI meters.
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setTokenDialog(null); setEditToken(''); }}>Cancel</Button>
+            <Button onClick={handleSaveToken} disabled={!editToken.trim() || submitting}>
+              {submitting ? 'Saving…' : 'Save token'}
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -346,7 +538,7 @@ export default function MetersManagementPage() {
             <div className="space-y-1">
               <label className="text-sm font-medium">Reason *</label>
               <select
-                className="w-full border rounded-md px-3 py-2 text-sm"
+                className="w-full border rounded-md px-3 py-2 text-sm bg-background"
                 value={deactivateReason}
                 onChange={(e) => setDeactivateReason(e.target.value)}
               >
@@ -383,7 +575,7 @@ export default function MetersManagementPage() {
           </DialogHeader>
           <div className="space-y-3">
             <div className="space-y-1">
-              <label className="text-sm font-medium">New Owner's User ID *</label>
+              <label className="text-sm font-medium">New Owner&apos;s User ID *</label>
               <Input
                 type="number"
                 placeholder="User's system ID"

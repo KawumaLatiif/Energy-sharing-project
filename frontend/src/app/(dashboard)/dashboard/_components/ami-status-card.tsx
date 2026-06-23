@@ -6,8 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { get, post } from "@/lib/fetch-client";
+import { get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { applyWalletUnits } from "@/app/(dashboard)/dashboard/share/actions";
 import type { UserMeter } from "@/interface/meter.interface";
 
 interface AmiStatusCardProps {
@@ -48,27 +49,42 @@ export default function AmiStatusCard({
     setIsRefreshing(true);
     setError("");
     try {
-      const res = await get<any>(
-        `meter/ami-status/?meter_no=${encodeURIComponent(meter.meter_number)}`
-      );
-      if (!res.error && res.data?.success) {
-        const balance = res.data.current_balance_kwh ?? meter.units;
+      const meterQuery = encodeURIComponent(meter.meter_number);
+      const [checkRes, statusRes] = await Promise.all([
+        get<any>(`meter/check-units/?meter_no=${meterQuery}`),
+        get<any>(`meter/ami-status/?meter_no=${meterQuery}`),
+      ]);
+
+      if (!checkRes.error && checkRes.data?.success) {
+        const liveBalance = checkRes.data.units_kwh ?? meter.units;
         setStatus({
-          is_online: res.data.is_online,
-          last_seen: res.data.last_seen ?? null,
+          is_online: true,
+          last_seen: checkRes.data.queried_at ?? null,
+          current_balance_kwh: liveBalance,
+        });
+        setLocalMeterBalance(Number(liveBalance) || 0);
+      } else if (!statusRes.error && statusRes.data?.success) {
+        const balance = statusRes.data.current_balance_kwh ?? meter.units;
+        setStatus({
+          is_online: statusRes.data.is_online,
+          last_seen: statusRes.data.last_seen ?? null,
           current_balance_kwh: balance,
         });
         setLocalMeterBalance(Number(balance) || 0);
-        if (typeof res.data.wallet_balance === "number") {
-          setLocalWalletBalance(res.data.wallet_balance);
-        }
+        setError(checkRes.data?.message || "");
       } else {
         setStatus({
           is_online: false,
           last_seen: null,
           current_balance_kwh: meter.units,
         });
-        setError(res.data?.message || "Could not reach meter.");
+        setError(
+          checkRes.data?.message || statusRes.data?.message || "Could not reach meter."
+        );
+      }
+
+      if (!statusRes.error && typeof statusRes.data?.wallet_balance === "number") {
+        setLocalWalletBalance(statusRes.data.wallet_balance);
       }
     } catch {
       setStatus({
@@ -102,7 +118,7 @@ export default function AmiStatusCard({
     setApplyMessage("");
 
     try {
-      const res = await post<any>("meter/apply-wallet-units/", {
+      const res = await applyWalletUnits({
         amount: amt,
         meter_no: meter.meter_number,
       });
@@ -145,7 +161,7 @@ export default function AmiStatusCard({
         </div>
         <CardDescription>
           Buy units to load your wallet, then apply them here. AMI meters update over the network —
-          no token entry required.
+          no token entry required. Use refresh to read live units from ThingsBoard.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

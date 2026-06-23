@@ -667,12 +667,16 @@ class UserConfigSerializer(serializers.ModelSerializer):
     account_details = UserAccountDetailsSerializer(read_only=True)
     
     is_admin = serializers.SerializerMethodField()
+    is_staff_member = serializers.SerializerMethodField()
     is_staff = serializers.SerializerMethodField()
     is_superuser = serializers.SerializerMethodField()
     phone_number = serializers.SerializerMethodField()  # Convert PhoneNumber to string
 
     def get_is_admin(self, obj):
-        return obj.user_role == User.ADMIN
+        return obj.user_role == User.ADMIN or getattr(obj, "is_superuser", False)
+
+    def get_is_staff_member(self, obj):
+        return obj.is_staff_member or getattr(obj, "is_superuser", False)
     
     def get_is_staff(self, obj):
         return hasattr(obj, 'is_staff') and obj.is_staff
@@ -689,8 +693,8 @@ class UserConfigSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'email', 'first_name', 'last_name', 
             'phone_number', 'profile', 'account_is_active',
-            'account_details', 'is_admin', 'is_staff', 'is_superuser',
-            'user_role'
+            'account_details', 'is_admin', 'is_staff_member', 'is_staff', 'is_superuser',
+            'user_role', 'must_change_password'
         ]
 
     def to_representation(self, instance):

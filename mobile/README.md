@@ -11,8 +11,15 @@ That single guide covers:
 - Phone + local PC (step-by-step with `ipconfig`, firewall, rebuild APK)
 - Phone + hosted production server
 - Building and installing `gpawa-debug.apk`
-- Using the app (login, buy units, STS tokens)
+- Using the app (login, buy units, share, loans, STS/AMI tokens, **My Meters** register/check/load/remove, alerts, transactions)
+- ThingsBoard / AMI notes (server-side integration)
 - Troubleshooting
+
+**Tabs:** Home · **Meters** · TopUp Wallet · **Load/Share** · Tokens · Usage · Loans · Account
+
+**AMI Power Usage:** see [`../docs/POWER_USAGE.md`](../docs/POWER_USAGE.md)
+
+**Related:** [`../docs/PLATFORM_ALIGNMENT.md`](../docs/PLATFORM_ALIGNMENT.md) — migrations & deploy checklist · [`../docs/THINGSBOARD_INTEGRATION_GUIDE.md`](../docs/THINGSBOARD_INTEGRATION_GUIDE.md) — AMI / ThingsBoard
 
 ## Quick reference
 

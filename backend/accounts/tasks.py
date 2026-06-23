@@ -377,3 +377,38 @@ def handle_send_share_token(user_id, token, units, meter_number, sender_meter=No
     except Exception as e:
         logger.exception(f"[SHARE TOKEN] Error in handle_send_share_token: {str(e)}")
         return False
+
+
+@app.task()
+def handle_send_low_units_alert_email(user_id, meter_no, units_kwh, notification_id):
+    """Email alert when ThingsBoard reports low remaining units on an AMI meter."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user or not user.email:
+            logger.warning("[LOW UNITS] No user/email for notification %s", notification_id)
+            return False
+
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        meter_path = f"{frontend_url}/dashboard/tokens"
+        subject = f"gPawa: Low units on meter {meter_no}"
+        message = (
+            f"<p>Hello {user.first_name or 'there'},</p>"
+            f"<p>Your AMI meter <strong>{meter_no}</strong> is running low: "
+            f"<strong>{units_kwh:.2f} kWh</strong> remaining.</p>"
+            f"<p><a href=\"{meter_path}\">Open your meter dashboard</a> to check units or top up.</p>"
+            f"<p>— gPawa Energy Wallet</p>"
+        )
+
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[LOW UNITS] Failed to email user %s: %s", user.email, email_message)
+        return sent
+    except Exception as exc:
+        logger.exception("[LOW UNITS] Email task error: %s", exc)
+        return False

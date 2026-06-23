@@ -35,6 +35,7 @@ function parseMeters(payload: any): UserMeter[] {
     pending_units: Number(m.pending_units) || 0,
     status: m.status || "ACTIVE",
     label: m.label || "Home",
+    has_iot_token: !!m.has_iot_token,
   }));
 }
 

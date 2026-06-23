@@ -111,7 +111,7 @@ export default function BuyUnitsScreen() {
   return (
     <ScrollView keyboardShouldPersistTaps="handled">
       <Screen>
-        <Title>Buy Units</Title>
+        <Title>TopUp Wallet</Title>
         <Subtitle>Pay with MTN Mobile Money (ERA tariff)</Subtitle>
         {error ? <ErrorText>{error}</ErrorText> : null}
         {status ? (

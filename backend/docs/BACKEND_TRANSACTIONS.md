@@ -114,9 +114,9 @@ All buy/estimate flows use `utils/billing.py` with the ERA domestic tariff (`DOM
 | Setting | Gateway | Behaviour |
 |---------|---------|-----------|
 | `AMI_GATEWAY=utils.ami_gateway.MockAMIGateway` (default) | Mock | Logs success; no real network call (pilot) |
-| `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` | ThingsBoard stub | Real push when implemented |
+| `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` | ThingsBoard | Push via `push_units_to_thingsboard()`; read via `query_latest_units_from_thingsboard()` |
 
-`get_ami_gateway().get_status(meter)` powers the AMI status card (online/offline, balance).
+`get_ami_gateway().get_status(meter)` powers the AMI status card. Live kWh on refresh uses `GET /meter/check-units/` (ThingsBoard `remaining_units`).
 
 ---
 
@@ -133,7 +133,8 @@ All buy/estimate flows use `utils/billing.py` with the ERA domestic tariff (`DOM
   "meter_no": "1236784560",
   "architecture": "AMI",
   "static_ip": "192.168.1.100",
-  "label": "Home"
+  "label": "Home",
+  "iot_device_token": "pCqLl8iPI1UKIMCA8w2Z"
 }
 ```
 
@@ -142,6 +143,7 @@ All buy/estimate flows use `utils/billing.py` with the ERA domestic tariff (`DOM
 | `meter_no` | Yes | Unique meter identifier |
 | `architecture` | Yes | `"STS"` or `"AMI"` |
 | `static_ip` | AMI only | Required when `architecture` is `AMI`; ignored for STS |
+| `iot_device_token` | AMI only | ThingsBoard **device access token**; use `dev-*` for local stub |
 | `label` | No | Display name (e.g. "Shop", "Tenant A") |
 
 **Success (201):**
@@ -362,7 +364,40 @@ This is the AMI-specific step after buying units. **STS users must use `generate
 
 ---
 
-### 4.7 STS — Generate token from wallet
+### 4.7 AMI — Check units (ThingsBoard live read)
+
+**`GET /api/v1/meter/check-units/?meter_no=1236784560`**
+
+Reads ThingsBoard shared attribute `remaining_units`. AMI meters only.
+
+**Success (200):**
+
+```json
+{
+  "success": true,
+  "meter_no": "1236784560",
+  "units_kwh": 4.5,
+  "queried_at": "2026-06-22T14:30:00+03:00",
+  "ledger_balance_kwh": 10.0,
+  "source": "thingsboard"
+}
+```
+
+Web AMI card refresh and USSD `6*2` use this endpoint / same service.
+
+---
+
+### 4.8 Meter notifications (low-units alerts)
+
+**`GET /api/v1/meter/notifications/`** — list alerts (`?unread=true` optional)
+
+**`PATCH /api/v1/meter/notifications/`** — `{ "all": true }` or `{ "ids": [1,2] }`
+
+Created by `POST /webhooks/thingsboard/low-units` (ThingsBoard rule chain). Web notification bell polls GET.
+
+---
+
+### 4.9 STS — Generate token from wallet
 
 **`POST /api/v1/meter/generate-token/`**
 

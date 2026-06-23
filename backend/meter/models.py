@@ -9,6 +9,16 @@ from django.utils import timezone
 from accounts.models import User, TimestampMixin
 
 
+class ActiveMeterQuerySet(models.QuerySet):
+    def active(self):
+        return self.filter(is_deleted=False)
+
+
+class ActiveMeterManager(models.Manager.from_queryset(ActiveMeterQuerySet)):
+    def get_queryset(self):
+        return super().get_queryset().filter(is_deleted=False)
+
+
 def generate_random_string(length):
     # Define the character set excluding 'i' and '0'
     characters = string.ascii_uppercase.replace('i', '').replace('O', '') + '123456789'
@@ -49,7 +59,9 @@ class Meter(TimestampMixin):
 
     meter_no = models.CharField(max_length=100, unique=True)
     static_ip = models.GenericIPAddressField(null=True, blank=True)
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='devices', null=True, blank=True
+    )
     units = models.DecimalField(
         max_digits=20,
         decimal_places=2,
@@ -86,9 +98,168 @@ class Meter(TimestampMixin):
         User, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='deactivated_meters'
     )
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='meters_deleted_by_user'
+    )
+    deleted_reason = models.TextField(blank=True, default="")
+
+    objects = ActiveMeterManager()
+    all_objects = models.Manager()
 
     def __str__(self):
         return f"{self.meter_no} - {self.label} ({self.architecture}/{self.status})"
+
+
+class DeletedMeterRecord(TimestampMixin):
+    """
+    Immutable audit row created when a meter is removed from a user account.
+    The live Meter row is soft-deleted (renamed meter_no) so the number can be
+    registered again later.
+    """
+
+    ROLE_USER = "USER"
+    ROLE_ADMIN = "ADMIN"
+    ROLE_CHOICES = [
+        (ROLE_USER, "Customer"),
+        (ROLE_ADMIN, "Admin"),
+    ]
+
+    original_meter_no = models.CharField(max_length=100, db_index=True)
+    meter = models.ForeignKey(
+        Meter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="deletion_records",
+    )
+    former_user_id = models.IntegerField(null=True, blank=True, db_index=True)
+    former_user_email = models.EmailField(blank=True, default="")
+    former_user_phone = models.CharField(max_length=32, blank=True, default="")
+    architecture = models.CharField(max_length=3)
+    label = models.CharField(max_length=50, blank=True, default="")
+    static_ip = models.GenericIPAddressField(null=True, blank=True)
+    units_at_deletion = models.DecimalField(max_digits=20, decimal_places=2)
+    pending_units_at_deletion = models.DecimalField(
+        max_digits=20, decimal_places=2, default=Decimal("0.00")
+    )
+    had_iot_token = models.BooleanField(default=False)
+    status_at_deletion = models.CharField(max_length=12, blank=True, default="")
+    deleted_at = models.DateTimeField(default=timezone.now, db_index=True)
+    deleted_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="meter_deletions_performed",
+    )
+    deleted_by_role = models.CharField(max_length=10, choices=ROLE_CHOICES)
+    reason = models.TextField(blank=True, default="")
+    metadata = models.JSONField(default=dict, blank=True)
+
+    class Meta:
+        ordering = ["-deleted_at"]
+        indexes = [
+            models.Index(fields=["original_meter_no", "-deleted_at"]),
+            models.Index(fields=["former_user_id", "-deleted_at"]),
+        ]
+
+    def __str__(self):
+        return f"Deleted {self.original_meter_no} @ {self.deleted_at:%Y-%m-%d}"
+
+
+class MeterNotification(TimestampMixin):
+    """Low-units and other meter alerts (e.g. from ThingsBoard webhooks)."""
+
+    TYPE_LOW_UNITS = "LOW_UNITS"
+    TYPE_CHOICES = [
+        (TYPE_LOW_UNITS, "Low units"),
+    ]
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name="meter_notifications"
+    )
+    meter = models.ForeignKey(
+        Meter, on_delete=models.SET_NULL, null=True, blank=True, related_name="notifications"
+    )
+    device_token = models.CharField(max_length=128, blank=True, default="")
+    notification_type = models.CharField(
+        max_length=32, choices=TYPE_CHOICES, default=TYPE_LOW_UNITS
+    )
+    units_kwh = models.DecimalField(max_digits=12, decimal_places=4)
+    occurred_at = models.DateTimeField()
+    is_read = models.BooleanField(default=False)
+    message = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        ordering = ["-occurred_at", "-create_date"]
+        indexes = [
+            models.Index(fields=["user", "is_read", "-occurred_at"]),
+            models.Index(fields=["device_token"]),
+        ]
+
+    def __str__(self):
+        return f"{self.notification_type} — {self.user_id} — {self.units_kwh} kWh"
+
+
+class MeterBalanceSnapshot(TimestampMixin):
+    """Point-in-time remaining kWh reading from ThingsBoard (AMI meters)."""
+
+    meter = models.ForeignKey(
+        Meter, on_delete=models.CASCADE, related_name="balance_snapshots"
+    )
+    remaining_kwh = models.DecimalField(max_digits=14, decimal_places=4)
+    recorded_at = models.DateTimeField(db_index=True)
+    source = models.CharField(max_length=32, default="thingsboard")
+
+    class Meta:
+        ordering = ["-recorded_at"]
+        indexes = [
+            models.Index(fields=["meter", "-recorded_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.meter.meter_no} @ {self.recorded_at}: {self.remaining_kwh} kWh"
+
+
+class MeterUsageDaily(TimestampMixin):
+    """Aggregated daily energy consumption (kWh used) for an AMI meter."""
+
+    SOURCE_SNAPSHOT = "SNAPSHOT"
+    SOURCE_THINGSBOARD = "THINGSBOARD"
+    SOURCE_WEBHOOK = "WEBHOOK"
+    SOURCE_STUB = "STUB"
+    SOURCE_CHOICES = [
+        (SOURCE_SNAPSHOT, "Balance snapshots"),
+        (SOURCE_THINGSBOARD, "ThingsBoard telemetry"),
+        (SOURCE_WEBHOOK, "ThingsBoard webhook"),
+        (SOURCE_STUB, "Development stub"),
+    ]
+
+    meter = models.ForeignKey(
+        Meter, on_delete=models.CASCADE, related_name="daily_usage"
+    )
+    usage_date = models.DateField(db_index=True)
+    kwh_used = models.DecimalField(max_digits=12, decimal_places=4)
+    source = models.CharField(max_length=16, choices=SOURCE_CHOICES, default=SOURCE_SNAPSHOT)
+
+    class Meta:
+        ordering = ["-usage_date"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["meter", "usage_date"],
+                name="unique_meter_usage_date",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["meter", "-usage_date"]),
+        ]
+
+    def __str__(self):
+        return f"{self.meter.meter_no} {self.usage_date}: {self.kwh_used} kWh"
+
 
     
 class MeterToken(TimestampMixin):

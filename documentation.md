@@ -21,7 +21,10 @@ This is a full-stack web application with:
 - Next.js frontend
 - PostgreSQL database
 - Integration with external services (MTN Mobile Money)
-- IoT integration with ESP32-based smart meters
+- IoT integration with ESP32-based smart meters (STS tokens)
+- **ThingsBoard** integration for AMI (networked) meters — push units, check live balance, low-units webhook alerts (see [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md))
+
+**Deployment & migrations:** see [`docs/PLATFORM_ALIGNMENT.md`](docs/PLATFORM_ALIGNMENT.md) for required migrations, env vars, and smoke tests after updates.
 
 ### Architecture Pattern
 The application follows a layered architecture with clear separation of concerns:
@@ -252,10 +255,16 @@ The frontend follows a modern Next.js application structure:
 
 #### `Meter` (backend/meter/models.py)
 - **Responsibility**: Represents a physical energy meter
-- **Attributes**: Meter number, static IP, user, units
+- **Attributes**: Meter number, architecture, label, static IP, ThingsBoard device token (AMI), user, units, soft-delete flags (`is_deleted`, `deleted_at`, …)
+- **Managers**: `objects` (active meters only), `all_objects` (includes soft-deleted)
 - **Methods**: String representation
 - **Inheritance**: Extends TimestampMixin
-- **Relationships**: Belongs to a User, has many tokens
+- **Relationships**: Belongs to a User (optional after removal), has many tokens
+
+#### `DeletedMeterRecord` (backend/meter/models.py)
+- **Responsibility**: Immutable audit snapshot when a meter is removed from an account
+- **Attributes**: Original meter number, former user contact info, balances at deletion, who deleted (user/admin), reason
+- **Relationships**: Optional FK to archived `Meter` row; meter number can be re-registered via normal registration flow
 
 #### `MeterToken` (backend/meter/models.py)
 - **Responsibility**: Represents a token for loading units onto a meter
@@ -421,7 +430,7 @@ The frontend follows a modern Next.js application structure:
 
 ### Components
 1. **User Management**: Authentication, profiles, roles
-2. **Meter Management**: Registration, monitoring, tokens
+2. **Meter Management**: Registration, removal (soft delete + audit), monitoring, tokens
 3. **gPawa**: Peer-to-peer unit transfers
 4. **Financial System**: Wallets, transactions, mobile money
 5. **Loan System**: Applications, credit scoring, disbursements

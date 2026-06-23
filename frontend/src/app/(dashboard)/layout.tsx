@@ -1,6 +1,7 @@
 import { User } from "@/interface/user.interface";
 import { getUserConfig } from "@/lib/account";
 import authenticated from "@/lib/authenticated";
+import { isStaffUser } from "@/lib/staff";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { SelectedMeterProvider } from "./dashboard/_components/selected-meter-context";
@@ -19,6 +20,15 @@ export default async function UserProtectedLayout({
   }
 
   const userConfig = await getUserConfig<User>();
+
+  if (userConfig && isStaffUser(userConfig)) {
+    redirect("/admin/dashboard");
+  }
+
+  if (userConfig?.must_change_password) {
+    redirect("/change-password");
+  }
+
   const email_verified = userConfig?.profile?.email_verified;
 
   if (userConfig && email_verified === false && pathname !== "/ck/verify/email") {

@@ -4,6 +4,7 @@ import { API_URL } from "@/common/constants/api";
 import { jwtDecode } from "jwt-decode";
 import { cookies } from "next/headers";
 import { AUTHENTICATION_COOKIE, AUTHENTICATION_REFRESH_COOKIE } from "@/common/constants/auth-cookie";
+import { staffRedirectPath } from "@/lib/staff";
 
 export const verify2FA = async (challengeToken: string, code: string) => {
   try {
@@ -47,12 +48,7 @@ export const verify2FA = async (challengeToken: string, code: string) => {
       });
     }
 
-    const redirectTo =
-      parsedRes.user?.user_role === "ADMIN" ||
-      parsedRes.user?.user_role === "OPERATOR" ||
-      parsedRes.user?.user_role === "CUSTOMER_SERVICE"
-        ? "/admin/dashboard"
-        : "/dashboard";
+    const redirectTo = staffRedirectPath(parsedRes.user);
 
     return {
       success: true,

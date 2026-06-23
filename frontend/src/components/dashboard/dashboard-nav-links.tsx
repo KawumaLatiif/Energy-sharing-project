@@ -4,8 +4,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
+  Activity,
   FileTextIcon,
   Forward,
+  Gauge,
   Home,
   PlusCircleIcon,
 } from "lucide-react";
@@ -19,6 +21,7 @@ export default function DashboardNavLinks({ className }: { className?: string })
   const { meters, selectedMeter } = useSelectedMeter();
 
   const hasStsMeter = meters.some((m) => m.architecture === "STS");
+  const hasAmiMeter = meters.some((m) => m.architecture === "AMI");
   const selectedIsSts = selectedMeter?.architecture === "STS";
   const showTokensNav = hasStsMeter && (meters.length < 2 || selectedIsSts);
 
@@ -34,18 +37,34 @@ export default function DashboardNavLinks({ className }: { className?: string })
         <Home className="h-4 w-4" />
         Dashboard
       </Link>
+      <Link
+        href="/dashboard/my-meters"
+        className={linkClass(pathname.startsWith("/dashboard/my-meters"))}
+      >
+        <Gauge className="h-4 w-4" />
+        My Meters
+      </Link>
       <Link href="/dashboard/buy-units" className={linkClass(pathname === "/dashboard/buy-units")}>
         <PlusCircleIcon className="h-4 w-4" />
-        Buy Units
+        TopUp Wallet
       </Link>
       <Link href="/dashboard/share" className={linkClass(pathname === "/dashboard/share")}>
         <Forward className="h-4 w-4" />
-        Share Units
+        Load / Share Units
       </Link>
       {showTokensNav && (
         <Link href="/dashboard/tokens" className={linkClass(pathname === "/dashboard/tokens")}>
           <ArrowUpRight className="h-4 w-4" />
           STS Tokens
+        </Link>
+      )}
+      {hasAmiMeter && (
+        <Link
+          href="/dashboard/power-usage"
+          className={linkClass(pathname === "/dashboard/power-usage")}
+        >
+          <Activity className="h-4 w-4" />
+          Power Usage
         </Link>
       )}
       <Link

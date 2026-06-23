@@ -1,6 +1,6 @@
 import os
-# from datetime import timedelta
-# from celery.schedules import crontab
+from datetime import timedelta
+from celery.schedules import crontab
 from kombu import Exchange, Queue
 from meteringapi.settings_utils import get_env_variable
 
@@ -53,9 +53,12 @@ CELERY_TASK_ROUTES = (route_for_task,)
 
 # Celery beat tasks that run on a schedule
 CELERY_BEAT_SCHEDULE = {
-    # 'task_name': {
-    #     'task': 'testapp.tasks.task_name',
-    #     'schedule': crontab(minute="*/1")  # every minute
-    #     'schedule': timedelta(seconds=5),  # for seconds
-    # },
+    "ami-meter-balance-snapshots": {
+        "task": "meter.tasks.snapshot_ami_meter_balances",
+        "schedule": crontab(minute=0, hour="*/6"),
+    },
+    "ami-daily-usage-aggregate": {
+        "task": "meter.tasks.aggregate_daily_ami_usage",
+        "schedule": crontab(minute=15, hour=1),
+    },
 }

@@ -316,7 +316,19 @@ These are good to do but not required for the pilot to function:
 
 - **Switch to a Celery worker** for background email (set `CELERY_TASK_ALWAYS_EAGER=False` and run `celery -A backend worker -l info`). Moves email sending off the request thread. Install and start Redis first: `sudo apt install redis-server`.
 - **Switch MTN MoMo** from `sandbox` to production credentials once real payments are needed.
-- **Switch AMI gateway** from `MockAMIGateway` to `ThingsBoardAMIGateway` when real networked meters are available (ask the developer for ThingsBoard connection details first).
+- **Switch AMI gateway** from `MockAMIGateway` to `ThingsBoardAMIGateway` when real networked meters are available.
+- **Configure ThingsBoard** in `backend/.env`:
+
+```env
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
+THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_WEBHOOK_SECRET=<long-random-secret>
+FRONTEND_URL=https://energy-share.sun.ac.ug
+```
+
+- **Expose webhook** to ThingsBoard: `POST https://<api-host>/webhooks/thingsboard/low-units` (configure TB rule chain — see [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md)).
+- **Run migration** `meter.0016_meternotification` if not already applied.
 - **Database backups**: `pg_dump metering | gzip > backup.sql.gz` — set up a cron job.
 - **Firewall**: `sudo ufw allow 22 && sudo ufw allow 80 && sudo ufw allow 443 && sudo ufw enable`
 

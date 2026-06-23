@@ -87,6 +87,10 @@ MTN_MOMO_CONFIG = {
 
 THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
 THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 8, cast=int)
+THINGSBOARD_WEBHOOK_SECRET = get_env_variable("THINGSBOARD_WEBHOOK_SECRET", "")
+THINGSBOARD_TENANT_USERNAME = get_env_variable("THINGSBOARD_TENANT_USERNAME", "")
+THINGSBOARD_TENANT_PASSWORD = get_env_variable("THINGSBOARD_TENANT_PASSWORD", "")
+THINGSBOARD_USAGE_TELEMETRY_KEY = get_env_variable("THINGSBOARD_USAGE_TELEMETRY_KEY", "daily_kwh")
 
 # Application definition
 
@@ -282,6 +286,21 @@ CELERY_TASK_ALWAYS_EAGER = get_env_variable("CELERY_TASK_ALWAYS_EAGER", "True") 
 CELERY_TASK_EAGER_PROPAGATES = True
 # In dev (ALWAYS_EAGER), don't store results — avoids any backend connection
 CELERY_TASK_IGNORE_RESULT = True
+
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    "ami-meter-balance-snapshots": {
+        "task": "meter.tasks.snapshot_ami_meter_balances",
+        "schedule": crontab(minute=0, hour="*/6"),
+        "options": {"queue": "celery"},
+    },
+    "ami-daily-usage-aggregate": {
+        "task": "meter.tasks.aggregate_daily_ami_usage",
+        "schedule": crontab(minute=15, hour=1),
+        "options": {"queue": "celery"},
+    },
+}
 
 # JWT settings
 REST_FRAMEWORK = {

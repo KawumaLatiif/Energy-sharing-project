@@ -22,7 +22,7 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
-import { get } from '@/lib/fetch';
+import { get } from '@/lib/fetch-client';
 import {
     ArrowLeft,
     DollarSign,
@@ -199,11 +199,6 @@ export default function LoanDetailPage() {
             const res = await get<any>(`admin/loans/${loanId}/`);
 
             console.log('API Response:', res);
-
-            if (res.status === 403 || res.status === 401) {
-                router.push('/dashboard');
-                return;
-            }
 
             if (res.error) throw new Error('Failed to fetch loan details');
 

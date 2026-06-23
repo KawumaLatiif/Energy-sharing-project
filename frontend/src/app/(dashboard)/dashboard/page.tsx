@@ -3,6 +3,8 @@ export const dynamic = "force-dynamic";
 import { Suspense } from 'react';
 import { getUserConfig } from '@/lib/account';
 import { get } from '@/lib/fetch';
+import { isStaffUser } from '@/lib/staff';
+import { redirect } from 'next/navigation';
 import DashboardClient from './dashboard-client';
 import { User } from '@/interface/user.interface';
 
@@ -24,13 +26,8 @@ async function getInitialData(): Promise<{
       };
     }
 
-    // Check if user is admin - skip setup for admins
-    if (config.is_admin || config.user_role === 'ADMIN') {
-      return {
-        userConfig: config,
-        currentStep: 'complete',
-        userHasMeter: true
-      };
+    if (isStaffUser(config)) {
+      redirect('/admin/dashboard');
     }
 
     // Check meter registration

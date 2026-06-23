@@ -33,7 +33,7 @@ interface MeterManagementModalProps {
 
 const emptyForm = () => ({
   meter_no: "",
-  static_ip: "",
+  iot_device_token: "",
   architecture: "STS" as MeterArchitecture,
   label: "",
 });
@@ -53,8 +53,6 @@ export default function MeterManagementModal({
   const [formData, setFormData] = useState(emptyForm());
 
   const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
-  const isValidIP = (v: string) =>
-    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v);
 
   const fetchMeterData = async () => {
     setIsRefreshing(true);
@@ -105,7 +103,7 @@ export default function MeterManagementModal({
     setEditingMeterNo(meter.meter_number);
     setFormData({
       meter_no: meter.meter_number || "",
-      static_ip: meter.static_ip || "",
+      iot_device_token: "",
       architecture: (meter.architecture as MeterArchitecture) || "STS",
       label: meter.label || "",
     });
@@ -128,8 +126,8 @@ export default function MeterManagementModal({
       return;
     }
 
-    if (formData.architecture === "AMI" && !isValidIP(formData.static_ip)) {
-      setMessage({ type: "error", text: "Please enter a valid IP address for your AMI meter" });
+    if (formData.architecture === "AMI" && !formData.iot_device_token.trim() && !isUpdate) {
+      setMessage({ type: "error", text: "ThingsBoard device access token is required for AMI meters" });
       return;
     }
 
@@ -142,8 +140,8 @@ export default function MeterManagementModal({
       architecture: formData.architecture,
     };
     if (formData.label.trim()) payload.label = formData.label.trim();
-    if (formData.architecture === "AMI") {
-      payload.static_ip = formData.static_ip.trim();
+    if (formData.architecture === "AMI" && formData.iot_device_token.trim()) {
+      payload.iot_device_token = formData.iot_device_token.trim();
     }
     if (isUpdate && editingMeterNo) {
       payload.current_meter_no = editingMeterNo;
@@ -268,7 +266,7 @@ export default function MeterManagementModal({
                           )}
                           <p className="text-xs text-muted-foreground mt-1">
                             {m.architecture === "AMI" ? "AMI platform" : "STS platform"}
-                            {m.architecture === "AMI" && m.static_ip ? ` · ${m.static_ip}` : ""}
+                            {m.architecture === "AMI" && m.has_iot_token ? " · ThingsBoard linked" : ""}
                           </p>
                         </div>
                         <Button variant="outline" size="sm" onClick={() => startEdit(m)}>
@@ -315,7 +313,7 @@ export default function MeterManagementModal({
                   setFormData((prev) => ({
                     ...prev,
                     architecture: arch,
-                    static_ip: arch === "STS" ? "" : prev.static_ip,
+                    iot_device_token: arch === "STS" ? "" : prev.iot_device_token,
                   }))
                 }
                 disabled={isLoading}
@@ -366,34 +364,27 @@ export default function MeterManagementModal({
 
               {formData.architecture === "AMI" && (
                 <div className="space-y-2">
-                  <Label htmlFor="static_ip">
-                    Static IP Address <span className="text-destructive">*</span>
+                  <Label htmlFor="iot_device_token">
+                    ThingsBoard access token <span className="text-destructive">*</span>
                   </Label>
                   <Input
-                    id="static_ip"
-                    name="static_ip"
+                    id="iot_device_token"
+                    name="iot_device_token"
                     type="text"
-                    value={formData.static_ip}
+                    value={formData.iot_device_token}
                     onChange={handleInputChange}
-                    placeholder="192.168.1.100"
+                    placeholder="Device access token from your utility"
                     required
                     disabled={isLoading}
-                    className={cn(
-                      !isValidIP(formData.static_ip) &&
-                        formData.static_ip.length > 0 &&
-                        "border-destructive"
-                    )}
+                    className="font-mono text-sm"
                   />
-                  {!isValidIP(formData.static_ip) && formData.static_ip.length > 0 && (
-                    <p className="text-xs text-destructive">Please enter a valid IP address</p>
-                  )}
                 </div>
               )}
 
               <div className="text-xs text-muted-foreground space-y-1">
                 <p>• Find meter number on your electricity bill or meter display</p>
                 {formData.architecture === "AMI" && (
-                  <p>• Contact your Electricity Utility for the static IP address</p>
+                  <p>• Contact your utility for the ThingsBoard device access token</p>
                 )}
               </div>
 
@@ -415,7 +406,9 @@ export default function MeterManagementModal({
                   disabled={
                     isLoading ||
                     !formData.meter_no ||
-                    (formData.architecture === "AMI" && !formData.static_ip)
+                    (formData.architecture === "AMI" &&
+                      !formData.iot_device_token.trim() &&
+                      !editingMeterNo)
                   }
                 >
                   {isLoading ? (

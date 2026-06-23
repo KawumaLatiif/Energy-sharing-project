@@ -85,6 +85,7 @@ class AuditLog(models.Model):
     ACTION_KYC_REJECT = "KYC Reject"
     ACTION_METER_REGISTER = "Meter Register"
     ACTION_METER_DEACTIVATE = "Meter Deactivate"
+    ACTION_METER_DELETE = "Meter Delete"
     ACTION_METER_TRANSFER = "Meter Transfer"
     ACTION_REFUND = "Refund"
     ACTION_PENALTY_WAIVER = "Penalty Waiver"
@@ -108,6 +109,7 @@ class AuditLog(models.Model):
         (ACTION_KYC_REJECT, "KYC Reject"),
         (ACTION_METER_REGISTER, "Meter Register"),
         (ACTION_METER_DEACTIVATE, "Meter Deactivate"),
+        (ACTION_METER_DELETE, "Meter Delete"),
         (ACTION_METER_TRANSFER, "Meter Transfer"),
         (ACTION_REFUND, "Refund"),
         (ACTION_PENALTY_WAIVER, "Penalty Waiver"),

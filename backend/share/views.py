@@ -28,6 +28,85 @@ from accounts.tasks import (
 
 logger = logging.getLogger(__name__)
 
+
+def _validate_meter_number(meter_number: str) -> tuple[bool, str]:
+    if not meter_number.isdigit():
+        return False, "Meter number must contain only digits."
+    if len(meter_number) < 10 or len(meter_number) > 12:
+        return False, "Meter number must be 10–12 digits."
+    return True, ""
+
+
+class ShareReceiverPreviewView(APIView):
+    """
+    GET /api/v1/share/receiver-preview/?meter_number=
+
+    Returns recipient details for the share confirmation step (no side effects).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        meter_number = (request.query_params.get("meter_number") or "").strip()
+        if not meter_number:
+            return Response(
+                {"error": "meter_number is required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        ok, msg = _validate_meter_number(meter_number)
+        if not ok:
+            return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meter = Meter.objects.select_related("user").get(meter_no=meter_number)
+        except Meter.DoesNotExist:
+            return Response(
+                {"error": "Receiver meter not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if meter.user_id == request.user.id:
+            return Response(
+                {
+                    "error": (
+                        "This is your own meter. Use Load Units to top up your AMI meter "
+                        "from your wallet."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if meter.status != Meter.STATUS_ACTIVE:
+            return Response(
+                {"error": "Receiver meter is not active."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        owner = meter.user
+        display_name = f"{owner.first_name or ''} {owner.last_name or ''}".strip()
+        if not display_name:
+            display_name = owner.email or "Unknown"
+
+        is_ami = meter.architecture == Meter.ARCH_AMI
+        return Response(
+            {
+                "success": True,
+                "recipient": {
+                    "name": display_name,
+                    "meter_number": meter.meter_no,
+                    "meter_type": meter.architecture,
+                    "meter_type_label": "AMI (networked)" if is_ami else "STS (token keypad)",
+                    "phone_number": owner.phone_number or "Not on file",
+                },
+                "delivery_method": (
+                    "Units will be sent directly to the AMI meter device token (ThingsBoard)."
+                    if is_ami
+                    else "An STS keypad token will be generated and sent to the recipient."
+                ),
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
 class ShareUnitsView(APIView):
     permission_classes = [IsAuthenticated]
     
@@ -75,12 +154,22 @@ class ShareUnitsView(APIView):
                     try:
                         receiver_meter = Meter.objects.select_for_update().get(
                             meter_no=receiver_meter_no,
-                            # is_active=True  # Uncomment if Meter has is_active field
                         )
                     except Meter.DoesNotExist:
                         return Response(
                             {"error": "Receiver meter not found or inactive"},
-                            status=status.HTTP_400_BAD_REQUEST
+                            status=status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    if receiver_meter.user_id == sender.id:
+                        return Response(
+                            {
+                                "error": (
+                                    "To load units onto your own AMI meter, use "
+                                    "Load Units instead of Share."
+                                ),
+                            },
+                            status=status.HTTP_400_BAD_REQUEST,
                         )
                     
                     # Get receiver user
@@ -136,7 +225,8 @@ class ShareUnitsView(APIView):
                         "success": True,
                         "message": "Verification code sent to your email. Please check and verify.",
                         "transaction_ref": pending_share.share_transaction_id,
-                        "requires_verification": True
+                        "requires_verification": True,
+                        "receiver_architecture": receiver_meter.architecture,
                     }, status=status.HTTP_200_OK)
                     
             except Exception as e:
@@ -190,11 +280,10 @@ class ShareUnitsView(APIView):
                     sender_wallet.balance -= units_to_share
                     sender_wallet.save()
 
-                    is_self_share = sender_meter.meter_no == receiver_meter_no
                     share_token = None
+                    token_issued = False
 
-                    if is_self_share:
-                        # Self-share: issue token to load units to sender's meter
+                    if receiver_meter.architecture == Meter.ARCH_STS:
                         share_token = generate_numeric_token()
                         MeterToken.objects.create(
                             token=share_token,
@@ -204,13 +293,14 @@ class ShareUnitsView(APIView):
                             is_used=False,
                             source='SHARE',
                             share_transaction_id=transaction_ref,
-                            share_sender=user
+                            share_sender=user,
                         )
+                        token_issued = True
                     else:
-                        # Share to another meter — delivery method depends on receiver's architecture
-                        apply_units_to_meter(receiver_meter, units_to_share)
-                        # STS: units land in receiver_meter.pending_units (token needed to load)
-                        # AMI: units applied directly via gateway and added to receiver_meter.units
+                        if not apply_units_to_meter(receiver_meter, units_to_share):
+                            raise ValueError(
+                                "Failed to deliver units to AMI meter via ThingsBoard."
+                            )
                     
                     # Create share record using legacy accounts wallet relation used by Share model
                     sender_account_wallet = AccountWallet.objects.filter(user=user).order_by('-create_date').first()
@@ -234,7 +324,7 @@ class ShareUnitsView(APIView):
                     pending_share.verified_at = timezone.now()
                     pending_share.message = (
                         f"Shared {units_to_share} units from {sender_meter.meter_no} to {receiver_meter_no}"
-                        + (" (token issued)" if is_self_share else " (wallet credited)")
+                        + (" (STS token issued)" if token_issued else " (AMI device top-up)")
                     )
                     pending_share.save(update_fields=['status', 'verified_at', 'message', 'modify_date'])
 
@@ -257,28 +347,24 @@ class ShareUnitsView(APIView):
                     )
                     dispatch_task(handle_send_wallet_update, user.id, update_details)
 
-                    if is_self_share and share_token:
-                        dispatch_task(handle_send_share_token,
-                            user.id, share_token, str(units_to_share), receiver_meter_no,
-                            sender_meter=sender_meter.meter_no, sender_email=user.email)
-                    else:
-                        receiver_meter.refresh_from_db(fields=['pending_units', 'units'])
-                        if receiver_meter.architecture == 'STS':
-                            receiver_update = (
-                                f"You have received {units_to_share} units from meter {sender_meter.meter_no}.\n"
-                                f"Transaction ID: {transaction_ref}\n"
-                                f"Action required: Log in and go to 'Activate Received Units' to generate a token "
-                                f"and load these units onto your meter.\n"
-                                f"Pending units: {receiver_meter.pending_units} kWh\n"
-                                f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                            )
-                        else:
-                            receiver_update = (
-                                f"{units_to_share} units applied to your AMI meter {receiver_meter_no}.\n"
-                                f"Transaction ID: {transaction_ref}\n"
-                                f"Current meter balance: {receiver_meter.units} kWh\n"
-                                f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
-                            )
+                    if token_issued and share_token:
+                        dispatch_task(
+                            handle_send_share_token,
+                            receiver_meter.user.id,
+                            share_token,
+                            str(units_to_share),
+                            receiver_meter_no,
+                            sender_meter=sender_meter.meter_no,
+                            sender_email=user.email,
+                        )
+                    elif receiver_meter.architecture == Meter.ARCH_AMI:
+                        receiver_meter.refresh_from_db(fields=['units'])
+                        receiver_update = (
+                            f"{units_to_share} units applied to your AMI meter {receiver_meter_no}.\n"
+                            f"Transaction ID: {transaction_ref}\n"
+                            f"Current meter balance: {receiver_meter.units} kWh\n"
+                            f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        )
                         dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
                     
                     logger.info(f"Share completed: {units_to_share} units from wallet to {receiver_meter_no}")
@@ -290,10 +376,11 @@ class ShareUnitsView(APIView):
                         "transaction_id": transaction_ref,
                         "units_shared": str(units_to_share),
                         "new_sender_wallet_balance": str(sender_wallet.balance),
-                        "token_sent": is_self_share,
+                        "token_sent": token_issued,
+                        "share_token": share_token if token_issued else None,
                         "receiver_architecture": receiver_meter.architecture,
-                        "receiver_pending_units": str(receiver_meter.pending_units) if receiver_meter.architecture == 'STS' else None,
-                        "receiver_wallet_credited": False if is_self_share else True,
+                        "receiver_pending_units": None,
+                        "receiver_wallet_credited": receiver_meter.architecture == Meter.ARCH_AMI,
                         "timestamp": timezone.now().isoformat()
                     }, status=status.HTTP_200_OK)
                     

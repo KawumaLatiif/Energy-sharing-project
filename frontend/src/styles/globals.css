@@ -53,13 +53,14 @@
     --chart-4: 280 65% 58%;
     --chart-5: 340 75% 55%;
 
-    /* Admin sidebar tokens */
-    --sidebar-bg: 222 47% 10%;
-    --sidebar-text: 215 20% 72%;
-    --sidebar-text-active: 0 0% 100%;
-    --sidebar-active-bg: 213 94% 48% / 0.18;
-    --sidebar-active-border: 213 94% 58%;
-    --sidebar-hover-bg: 215 20% 16%;
+    /* Admin sidebar — light mode */
+    --sidebar-bg: 0 0% 100%;
+    --sidebar-border: 214 24% 88%;
+    --sidebar-text: 215 16% 46%;
+    --sidebar-text-active: 222 47% 11%;
+    --sidebar-active-bg: 213 94% 48% / 0.1;
+    --sidebar-active-border: 213 94% 48%;
+    --sidebar-hover-bg: 210 28% 96%;
   }
 
   .dark {
@@ -84,6 +85,7 @@
     --ring: 213 90% 64%;
 
     --sidebar-bg: 222 52% 6%;
+    --sidebar-border: 217 28% 18%;
     --sidebar-text: 215 18% 60%;
     --sidebar-text-active: 0 0% 100%;
     --sidebar-active-bg: 213 90% 50% / 0.2;
@@ -152,7 +154,16 @@
 
 /* ── gPawa Admin Sidebar ──────────────────────────────────────── */
 .gpawa-sidebar {
-  background: hsl(var(--sidebar-bg));
+  background-color: hsl(var(--sidebar-bg)) !important;
+  color: hsl(var(--sidebar-text)) !important;
+  border-color: hsl(var(--sidebar-border));
+}
+
+.gpawa-sidebar-brand {
+  color: hsl(var(--sidebar-text-active)) !important;
+}
+
+.gpawa-sidebar .gpawa-sidebar-footer {
   color: hsl(var(--sidebar-text));
 }
 

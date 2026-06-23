@@ -29,8 +29,12 @@ export default function LoginScreen() {
     }
     setLoading(true);
     try {
-      await signIn(email.trim(), password);
-      router.replace("/(app)/(tabs)");
+      const result = await signIn(email.trim(), password);
+      if (result.mustChangePassword) {
+        router.replace("/change-password");
+      } else {
+        router.replace("/(app)/(tabs)");
+      }
     } catch (e) {
       const msg =
         e instanceof ApiError
@@ -54,6 +58,9 @@ export default function LoginScreen() {
         <Screen>
           <Title>gPawa</Title>
           <Subtitle>Sign in to manage your energy account</Subtitle>
+          <Text style={{ color: "#64748b", marginBottom: 12, lineHeight: 20 }}>
+            Admin-created accounts: use temporary password 1234, then set a new password.
+          </Text>
           {error ? <ErrorText>{error}</ErrorText> : null}
           <FieldLabel>Email</FieldLabel>
           <Input

@@ -76,12 +76,113 @@ gPawa
 3. Loans
 4. Share Units
 5. My Tokens
-6. Exit
+6. Manage
+7. Alerts
+8. Exit
+9. Power Usage
 ```
 
 Response: **`CON`**
 
-Selecting **6** or any unknown first digit ends the session with **`END`** (thank-you / invalid path message).
+Selecting **8** ends the session with **`END`** (thank-you). **9** shows a weekly AMI power-usage summary (see below).
+
+---
+
+## 6) Manage — `text`: `6`
+
+### Submenu (`text`: `6`)
+
+```text
+Manage
+1. My meters
+2. Check units (AMI)
+3. Alerts
+4. Apply wallet (AMI)
+```
+
+**`CON`**
+
+### 6.1 My meters — `6*1`
+
+**`END`**: lists all meters on the account with architecture (`STS`/`AMI`), ledger balance (kWh), and whether a ThingsBoard token is configured (`TB` / `no-token`).
+
+### 6.2 Check units (AMI) — `6*2` …
+
+Reads **live** remaining kWh from ThingsBoard (`remaining_units` shared attribute) via `query_latest_units_from_thingsboard()`.
+
+- **Single AMI meter:** `6*2` → **`END`** with live (TB) and ledger balances.
+- **Multiple AMI meters:** `6*2` → pick list (`CON`), then `6*2*<n>` → **`END`**.
+
+Requires `iot_device_token` on the meter and `THINGSBOARD_BASE_URL` configured. Tokens starting with `dev-` return stub readings (no HTTP).
+
+Example response:
+
+```text
+Meter 12345678901
+Live (TB): 4.50 kWh
+Ledger: 10.00 kWh
+```
+
+### 6.3 Alerts — `6*3`
+
+Same as main-menu **7** (see below).
+
+### 6.4 Apply wallet (AMI) — `6*4` …
+
+Moves kWh from the unit wallet to an AMI meter via the same AMI gateway as the web portal (`POST /meter/apply-wallet-units/`).
+
+- **Single AMI meter:** `6*4` → enter amount (`CON`) → `6*4*<kWh>` → **`END`** with meter and wallet balances.
+- **Multiple AMI meters:** `6*4` → pick meter (`CON`) → `6*4*<n>` → enter amount → `6*4*<n>*<kWh>` → **`END`**.
+
+Requires sufficient wallet balance. Uses `apply_units_to_meter()` (not manual ledger-only updates).
+
+---
+
+## 7) Alerts — `text`: `7` (or `6*3`)
+
+**`END`**: up to 5 recent `meter_notifications` (e.g. low-units from ThingsBoard webhook). Unread items are prefixed with `*`. Includes unread count.
+
+Alerts are created when ThingsBoard POSTs to `POST /webhooks/thingsboard/low-units` (see [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md)).
+
+---
+
+## 8) Exit — `text`: `8`
+
+**`END`**: “Thank you for using gPawa.”
+
+---
+
+## 9) Power Usage — `text`: `9`
+
+Weekly **text-only** energy consumption summary for **AMI meter users** only.
+
+- **Single AMI meter:** `9` → **`END`** with 7-day totals and daily breakdown.
+- **Multiple AMI meters:** `9` → pick meter (`CON`) → `9*<n>` → **`END`**.
+
+Example response:
+
+```text
+Power Usage (7 days)
+Meter 12345678901
+Total: 12.50 kWh
+Avg/day: 1.79 kWh
+Peak: 3.20 kWh (Mo)
+---
+Mo 3.2
+Tu 1.8
+We 1.5
+...
+```
+
+Non-AMI users receive **`END`**: “This is only for AMI meter users.”
+
+Uses the same backend as web/mobile `GET /meter/power-usage/?period=week`.
+
+---
+
+## Legacy note
+
+Older docs listed **6. Exit**. Exit is now **8**; **6** opens **Manage** (meters, check units, alerts).
 
 ---
 
@@ -208,7 +309,7 @@ Rules:
 
 ## 4) Share Units — `text`: `4`
 
-OTP is created in the database (`share.VerificationCode`, purpose `share_units`, 10 minutes). The **same email/Celery flow as the web app is not triggered from USSD initiate** in the current code—OTP must be obtained from DB/admin or extended later. For testing, check verification codes in Django admin or DB after initiate.
+OTP is created in the database (`share.VerificationCode`, purpose `share_units`, 10 minutes). On initiate, the **same email/Celery flow as the web app** runs (`handle_send_share_verification`) so the OTP is sent to the sender's registered email.
 
 ### Submenu (`text`: `4`)
 
@@ -230,6 +331,7 @@ Rules:
 
 - Sender must have a meter and enough **unit wallet** balance
 - Receiver meter must exist
+- **Cannot share to your own meter** — use Manage → Apply wallet (AMI) or Tokens → Generate (STS)
 - Minimum **2** units
 - Cancels older pending shares from same sender
 
@@ -241,17 +343,29 @@ Rules:
 2. `4*2*SHARE-ABC12345` → 6-digit OTP (`CON`)
 3. `4*2*<ref>*123456` or `4*2*0*123456` (ref **`0`** = last share ref)
 
-On success:
+On success (aligned with web `ShareUnitsView`):
 
 - Deducts sender wallet
-- **Self-share** (same meter): issues **meter token** in response
-- **Other meter**: credits receiver unit wallet
+- **STS receiver**: generates keypad **token** and emails receiver (token also shown in USSD response)
+- **AMI receiver**: pushes units to device via **ThingsBoard** (`apply_units_to_meter`)
 
 **`END`** with completion details.
 
 ---
 
 ## 5) My Tokens — `text`: `5`
+
+### Submenu (`text`: `5`)
+
+```text
+My Tokens
+1. List unused
+2. Generate STS token
+```
+
+**`CON`**
+
+### 5.1 List unused — `5*1`
 
 Lists up to **3** unused (`is_used=False`) tokens for the user:
 
@@ -260,6 +374,15 @@ Lists up to **3** unused (`is_used=False`) tokens for the user:
 ```
 
 **`END`**. If none: “No active tokens found.”
+
+### 5.2 Generate STS token — `5*2` …
+
+Deducts kWh from the unit wallet and creates an STS keypad token (same as web `POST /meter/generate-token/`).
+
+1. `5*2` → **`CON`**: “Enter kWh from wallet (max …)”
+2. `5*2*<kWh>` → **`END`**: token value, units, remaining wallet balance
+
+Requires an STS meter on the account and sufficient wallet balance.
 
 ---
 
@@ -271,8 +394,40 @@ These exist on the web/API but **not** in the USSD menu:
 - Account registration / login
 - Admin operations
 - Loan MoMo repay via dedicated USSD MoMo flow (web has `repay/momo/`)
+- Customer **meter self-registration** or **removal** (web/mobile **My Meters**; USSD lists meters only via `6*1`)
+- **Load / Share Units** combined UI (web/mobile; USSD uses menus **4**, **5*2**, **6*4**)
+- Share **receiver preview** before OTP (web/mobile show name/type/phone; USSD verifies on complete)
 
----
+### Feature parity (customer web vs USSD)
+
+| Feature | Web | USSD |
+|---------|-----|------|
+| TopUp Wallet (MoMo) | Yes | Yes (menu **2** Buy Units) |
+| **My Meters** (list/register/check/load/**delete**) | Yes | Partial (**6*1**, **6*2**, **6*4**; no register/delete) |
+| Load Units (own STS) | Yes | Yes (menu **5*2**) |
+| Load Units (own AMI) | Yes | Yes (menu **6*4**) |
+| Share units + OTP | Yes | Yes (menu **4**; STS token / AMI device on verify) |
+| Share receiver preview | Yes | No |
+| STS token generate | Yes | Yes (`5*2`) |
+| Loans apply/disburse/repay | Yes | Yes |
+| Loan MoMo repay | Yes | No |
+| AMI check units | Yes | Yes (`6*2`) |
+| Power Usage (weekly) | Yes | Yes (`9`) |
+| Low-units alerts | Yes | Yes (`6*3`, `7`) |
+| Transaction history | Yes | No |
+| Meter self-registration / removal | Yes | No |
+| Admin-provisioned password change | Yes | N/A |
+
+### ThingsBoard on USSD
+
+| USSD path | ThingsBoard interaction |
+|-----------|-------------------------|
+| `6*2` / `6*2*<n>` | **Read** `remaining_units` from ThingsBoard (check units) |
+| `6*4` / `6*4*…` | **Apply** wallet kWh via AMI gateway (ThingsBoard telemetry when configured) |
+| `6*3`, `7` | List low-units **alerts** from TB webhook (no live TB call) |
+| Buy / loan disburse / repay | **Push** telemetry via `push_units_to_thingsboard()` |
+
+See [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md) for webhook setup.
 
 ## Browser simulator (recommended for local testing)
 
@@ -305,6 +460,9 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 | Disburse latest approved | `3` → `3` → `0` |
 | Share 10 units | `4` → `1` → `<receiver_meter>` → `10`, then verify `4` → `2` → `0` → `<otp>` |
 | List tokens | `5` |
+| List meters | `6` → `1` |
+| Check AMI units (ThingsBoard) | `6` → `2` (or `6` → `2` → `1` if multiple AMI meters) |
+| View low-units alerts | `7` or `6` → `3` |
 
 ### Seeded test users (heavy dump)
 
@@ -433,3 +591,5 @@ ngrok http 8000
 - `database/LOAD_SAMPLE_DB.md` — seed dumps
 - `API_ROUTE_CATALOG.md` — full REST API list
 - `API_PAYLOAD_EXAMPLES.md` — REST examples (separate from USSD plain-text flow)
+- [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md) — AMI / ThingsBoard
+- [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md) — low-units webhook

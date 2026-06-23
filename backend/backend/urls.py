@@ -7,6 +7,7 @@ from django.http import HttpResponse
 from django.urls import path, include
 from django.conf import settings
 from django.conf.urls.static import static
+from webhooks.api.views import ThingsBoardLowUnitsWebhookView, ThingsBoardDailyUsageWebhookView
 
 def home(request):
     return HttpResponse("Welcome to the Metering API! Visit /api/v1/ for API endpoints or /admin/ for the admin interface.")
@@ -17,6 +18,16 @@ urlpatterns = [
     path('api/v1/', include(("backend.api1", "api1"), namespace="api1")),
     path('api/v1/admin/', include('admin.urls')),
     path('api/v1/wallet/', include('wallet.urls')),
+    path(
+        'webhooks/thingsboard/low-units',
+        ThingsBoardLowUnitsWebhookView.as_view(),
+        name='thingsboard-low-units-webhook',
+    ),
+    path(
+        'webhooks/thingsboard/daily-usage',
+        ThingsBoardDailyUsageWebhookView.as_view(),
+        name='thingsboard-daily-usage-webhook',
+    ),
 ]
 
 urlpatterns += static(

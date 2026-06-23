@@ -33,27 +33,48 @@ Native Android client for the gPawa energy-sharing platform. The app uses the sa
 | Feature | Description |
 |---------|-------------|
 | **Register / Login** | Email + password; JWT stored securely on device |
-| **Dashboard** | Meter balance, STS/AMI type, wallet, loan summary |
-| **Buy Units** | Pay with MTN Mobile Money; ERA tariff estimate; payment polling |
-| **STS Tokens** | List unused tokens; generate token from wallet for meter keypad |
-| **Loans** | View pending/active loans and outstanding balance |
-| **Account** | Profile info, **API endpoint display**, sign out |
+| **Change password** | Required on first login when admin-provisioned (`must_change_password`) |
+| **Dashboard** | Multi-meter summary, wallet, loan outstanding |
+| **My Meters** | List meters, register STS/AMI (+ ThingsBoard token), check units, load, **remove** |
+| **TopUp Wallet** | Pay with MTN Mobile Money; ERA tariff estimate; payment polling |
+| **Load / Share** | Hub: load own meter (AMI push / STS token) or share with preview + OTP |
+| **Tokens** | STS: list/generate keypad tokens (multi-meter); AMI quick check/apply |
+| **Power Usage** | AMI-only: daily/weekly/monthly/annual kWh charts and summaries |
+| **Share** | *(merged into Load/Share tab)* |
+| **Loans** | Apply, view pending/active loans, disburse, repay (wallet or MoMo) |
+| **Account** | Profile, low-units alerts, recent transactions, API URL, sign out |
 
-### What is not in v1 yet
+### What is not in the mobile app yet
 
-- Share units (OTP flow)
-- Full loan apply / disburse / MoMo repay (use web portal for now)
-- Push notifications
-- Deep links for email verification and password reset
-- Admin portal
+- Meter **transfer** between meters (`share/transfer-units/`) — web legacy page only
+- Full profile edit (name, phone, etc.)
+- Push notifications (poll-only alerts)
+- Deep links for email verification and password reset (reset still via web)
+- Admin portal (web only)
 
 ### Related documentation
 
 | Document | Purpose |
 |----------|---------|
+| [`PLATFORM_ALIGNMENT.md`](PLATFORM_ALIGNMENT.md) | Migrations, env vars, deploy checklist |
 | [`LOCAL_DEVELOPMENT.md`](LOCAL_DEVELOPMENT.md) | Run backend + web locally |
 | [`API_ROUTE_CATALOG.md`](../API_ROUTE_CATALOG.md) | Full API reference |
 | [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md) | USSD feature parity checklist |
+
+### Feature parity (customer web vs mobile)
+
+| Feature | Web | Mobile | USSD |
+|---------|-----|--------|------|
+| TopUp Wallet | Yes | Yes | Yes (menu **2** Buy Units) |
+| **My Meters** (list/register/check/load/**delete**) | Yes | Yes | Partial (6*1 list; no delete/register on USSD) |
+| Load Units (own meter, AMI+STS) | Yes | Yes (Load/Share + Meters) | Yes (**6*4** AMI, **5*2** STS) |
+| Share units + preview + OTP | Yes | Yes | Yes (menu **4**; STS token / AMI device on verify) |
+| Power Usage (AMI) | Yes | Yes | Yes (menu **9** weekly text) |
+| Loans apply/disburse/repay | Yes | Yes | Yes (menu **3**) |
+| Loan MoMo repay | Yes | Yes | No |
+| Transaction history (full) | Yes | Partial (Account) | No |
+| Admin portal | Yes | No | No |
+| Meter transfer | Legacy web page | No | No |
 
 ---
 
@@ -281,6 +302,7 @@ EXTRA_ALLOWED_HOSTS=energy-share.sun.ac.ug
 - JWT Bearer tokens (not cookies); stored in **expo-secure-store**.
 - API URL from `EXPO_PUBLIC_API_URL` in `mobile/.env` at **build time**.
 - Native apps are not blocked by browser CORS.
+- **ThingsBoard** is server-side only: register AMI meters with `iot_device_token`; use `GET /meter/check-units/` and `GET /meter/notifications/` (same as web). See [`THINGSBOARD_INTEGRATION_GUIDE.md`](THINGSBOARD_INTEGRATION_GUIDE.md).
 
 ### Project structure
 
@@ -400,14 +422,15 @@ eas build --platform android --profile production
 
 1. Install the APK ([§3 Step 7](#step-7--install-on-your-phone)).
 2. Open gPawa → **Register** or **Sign in**.
-3. **Verify email** from the link in your inbox.
-4. Register a meter via the **web portal** if you do not have one yet.
+3. If admin created your account, you will be prompted to **change your password** before using the app.
+4. **Verify email** from the link in your inbox (web link for now).
+5. Register a meter via the **web portal** if you do not have one yet.
 
 ### Home tab
 
-Meter number, STS/AMI type, kWh balance, pending STS units, wallet, loan outstanding. Pull to refresh.
+Meter list, STS/AMI type, kWh balance, pending STS units, wallet, loan outstanding. Pull to refresh.
 
-### Buy Units tab
+### TopUp Wallet tab
 
 1. Enter amount (UGX). First purchase each month needs ~**UGX 4,000+** (ERA service charge + VAT).
 2. Review estimate (kWh, charges).
@@ -415,17 +438,24 @@ Meter number, STS/AMI type, kWh balance, pending STS units, wallet, loan outstan
 4. Tap **Review & Pay** and approve on your phone.
 5. For STS meters, generate a token under **Tokens**.
 
-### Tokens tab (STS)
+### Tokens tab
 
-Generate a keypad token from wallet kWh; enter it on the physical meter.
+- **STS:** list unused tokens; generate a keypad token from wallet kWh.
+- **AMI:** check live remaining units (ThingsBoard); apply wallet kWh to the meter (no token entry).
+
+### Share tab
+
+1. Enter receiver meter number and units (minimum 2 kWh).
+2. Check your email for the 6-digit OTP.
+3. Enter transaction ref + OTP to complete the share.
 
 ### Loans tab
 
-View stats; full apply/repay on web portal for now.
+View loan stats; **apply** for a new loan; **disburse** approved loans to wallet; **repay** from wallet or MTN MoMo.
 
 ### Account tab
 
-Shows name, email, **connected API URL**, and sign out.
+Shows name, email, **connected API URL**, low-units alerts, recent transactions, and sign out.
 
 ---
 

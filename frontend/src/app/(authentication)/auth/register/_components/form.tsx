@@ -85,6 +85,13 @@ export default function RegisterForm() {
   return (
     <>
       <CardWrapper title="Create an account" variant="auth">
+        <p className="mb-4 text-sm text-muted-foreground">
+          Register yourself here. If your utility admin already created your meter account, use{" "}
+          <Link href="/auth/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+            sign in
+          </Link>{" "}
+          with the email they registered and temporary password <strong>1234</strong>.
+        </p>
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

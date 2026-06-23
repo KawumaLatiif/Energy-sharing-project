@@ -29,18 +29,16 @@ export default function MeterRegistrationPopup({
 }: MeterRegistrationPopupProps) {
   const [architecture, setArchitecture] = useState<MeterArchitecture>("STS");
   const [meterNo, setMeterNo] = useState("");
-  const [staticIp, setStaticIp] = useState("");
+  const [iotDeviceToken, setIotDeviceToken] = useState("");
   const [label, setLabel] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
   const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
-  const isValidIP = (v: string) =>
-    /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(v);
 
   const handleArchChange = (arch: MeterArchitecture) => {
     setArchitecture(arch);
-    if (arch === "STS") setStaticIp("");
+    if (arch === "STS") setIotDeviceToken("");
   };
 
   useEffect(() => {
@@ -72,8 +70,8 @@ export default function MeterRegistrationPopup({
       return;
     }
 
-    if (architecture === "AMI" && !isValidIP(staticIp)) {
-      setMessage({ type: "error", text: "Please enter a valid IP address for your AMI meter" });
+    if (architecture === "AMI" && !iotDeviceToken.trim()) {
+      setMessage({ type: "error", text: "ThingsBoard device access token is required for AMI meters" });
       return;
     }
 
@@ -86,7 +84,7 @@ export default function MeterRegistrationPopup({
     };
     if (label.trim()) payload.label = label.trim();
     if (architecture === "AMI") {
-      payload.static_ip = staticIp.trim();
+      payload.iot_device_token = iotDeviceToken.trim();
     }
 
     try {
@@ -108,7 +106,7 @@ export default function MeterRegistrationPopup({
 
   const canSubmit =
     isValidMeterNumber(meterNo) &&
-    (architecture === "STS" || isValidIP(staticIp));
+    (architecture === "STS" || iotDeviceToken.trim().length > 0);
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -204,31 +202,26 @@ export default function MeterRegistrationPopup({
 
             {architecture === "AMI" && (
               <div className="space-y-2">
-                <Label htmlFor="staticIp">
-                  Static IP Address <span className="text-destructive">*</span>
+                <Label htmlFor="iotDeviceToken">
+                  ThingsBoard access token <span className="text-destructive">*</span>
                 </Label>
                 <Input
-                  id="staticIp"
+                  id="iotDeviceToken"
                   type="text"
-                  value={staticIp}
-                  onChange={(e) => setStaticIp(e.target.value)}
-                  placeholder="192.168.1.100"
+                  value={iotDeviceToken}
+                  onChange={(e) => setIotDeviceToken(e.target.value)}
+                  placeholder="Device access token from your utility"
                   required
                   disabled={isLoading}
-                  className={cn(
-                    !isValidIP(staticIp) && staticIp.length > 0 && "border-destructive"
-                  )}
+                  className="font-mono text-sm"
                 />
-                {!isValidIP(staticIp) && staticIp.length > 0 && (
-                  <p className="text-xs text-destructive">Please enter a valid IP address</p>
-                )}
               </div>
             )}
 
             <div className="text-xs text-muted-foreground space-y-1">
               <p>• Find your meter number on your electricity bill or the meter display</p>
               {architecture === "AMI" && (
-                <p>• Contact your Electricity Utility for the static IP address</p>
+                <p>• Contact your utility for the ThingsBoard device access token</p>
               )}
             </div>
 

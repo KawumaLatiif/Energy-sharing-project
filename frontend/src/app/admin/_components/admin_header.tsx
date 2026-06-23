@@ -1,20 +1,6 @@
-'use client';
-import {
-  ActivityIcon,
-  ArrowUpRight,
-  CircleUser,
-  FileTextIcon,
-  Forward,
-  Home,
-  LineChart,
-  Menu,
-  Package,
-  Package2,
-  PlusCircleIcon,
-  Search,
-  ShoppingCart,
-  Users,
-} from "lucide-react";
+"use client";
+
+import { CircleUser, Menu } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import {
@@ -27,15 +13,19 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
-import { cn } from "@/lib/utils";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
 import { ModeToggle } from "@/components/theme-toggle";
-import { IconMoneybag } from "@tabler/icons-react";
-import { Zap } from "lucide-react";
 import logout from "@/app/(dashboard)/dashboard/logout";
+import AdminNavLinks from "./admin-nav-links";
+import { Badge } from "@/components/ui/badge";
 
-export default function AdminRightHeader() {
+interface AdminRightHeaderProps {
+  userRole?: string | null;
+  isSuperuser?: boolean;
+}
+
+export default function AdminRightHeader({ userRole, isSuperuser }: AdminRightHeaderProps) {
   const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
 
@@ -44,7 +34,7 @@ export default function AdminRightHeader() {
   }, [pathname]);
 
   return (
-    <header className="flex justify-between sm:justify-end h-14 items-center gap-4 border-b bg-muted/40 px-4 lg:h-[60px] lg:px-6">
+    <header className="flex h-14 items-center justify-between gap-4 border-b bg-card px-4 lg:h-[60px] lg:px-6">
       <Sheet open={isOpen} onOpenChange={setIsOpen}>
         <SheetTrigger asChild>
           <Button variant="outline" size="icon" className="shrink-0 md:hidden">
@@ -52,104 +42,66 @@ export default function AdminRightHeader() {
             <span className="sr-only">Toggle navigation menu</span>
           </Button>
         </SheetTrigger>
-        <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
-          <nav className="grid gap-2 text-lg font-medium">
+        <SheetContent side="left" className="gpawa-sidebar flex w-[88vw] max-w-[360px] flex-col overflow-y-auto border-r p-4">
+          <div className="mb-4">
             <GpawaLogo
-              href="/"
+              href="/admin/dashboard"
               showText={false}
-              suffix="Administrator"
+              suffix="Admin Panel"
+              suffixVariant="sidebar"
               textSize={LOGO_SIZES.sidebar.textSize}
               logoSize={LOGO_SIZES.sidebar.logoSize}
             />
-            <Link
-              href="/admin/dashboard"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/admin/dashboard" }
-              )}
-            >
-              <Home className="h-4 w-4" />
-              Dashboard
-            </Link>
-            <Link
-              href="/admin/users"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/users") }
-              )}
-            >
-              <Users className="h-4 w-4" />
-              Manage Users
-            </Link>
-            <Link
-              href="/admin/meters"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/meters") }
-              )}
-            >
-              <Zap className="h-4 w-4" />
-              Manage Meters
-            </Link>
-            <Link
-              href="/admin/loans"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/loans") }
-              )}
-            >
-              <IconMoneybag className="h-4 w-4" />
-              Manage Loans
-            </Link>
-            <Link
-              href="/admin/analytics"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/analytics") }
-              )}
-            >
-              <ActivityIcon className="h-4 w-4" />
-              Analytics info
-            </Link>
-            <Link
-              href="/admin/myaccount"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/admin/myaccount" }
-              )}
-            >
-              <Forward className="h-4 w-4" />
-              My Account
-            </Link>
-          </nav>
+            {userRole && (
+              <Badge
+                variant="outline"
+                className="mt-2 border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-hover-bg))] text-[hsl(var(--sidebar-text-active))] text-[10px] uppercase"
+              >
+                {userRole.replace("_", " ")}
+              </Badge>
+            )}
+          </div>
+          <AdminNavLinks
+            userRole={userRole}
+            isSuperuser={isSuperuser}
+            onNavigate={() => setIsOpen(false)}
+          />
         </SheetContent>
       </Sheet>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <Button variant="secondary" size="icon" className="rounded-full">
-            <CircleUser className="h-5 w-5" />
-            <span className="sr-only">Toggle user menu</span>
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <Link href="/admin/myaccount">Settings</Link>
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem asChild>
-            <span
-              onClick={async () => {
-                await logout();
-              }}
-            >
-              Logout
-            </span>
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-      <ModeToggle />
+
+      <p className="hidden text-sm text-muted-foreground md:block">
+        gPawa management · staff only
+      </p>
+
+      <div className="flex items-center gap-2">
+        <ModeToggle />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="secondary" size="icon" className="rounded-full">
+              <CircleUser className="h-5 w-5" />
+              <span className="sr-only">Toggle user menu</span>
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuLabel>Staff account</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <Link href="/admin/myaccount">Settings</Link>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem asChild>
+              <span
+                onClick={async () => {
+                  await logout();
+                }}
+                className="cursor-pointer"
+              >
+                Logout
+              </span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
     </header>
   );
 }

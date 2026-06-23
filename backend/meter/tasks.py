@@ -1,0 +1,25 @@
+from datetime import timedelta
+
+from celery import shared_task
+from django.utils import timezone
+
+from meter.models import Meter
+from meter.usage_service import snapshot_all_ami_meters, sync_meter_usage
+
+
+@shared_task(name="meter.tasks.snapshot_ami_meter_balances")
+def snapshot_ami_meter_balances():
+    """Periodic task: record remaining_units for all active AMI meters."""
+    return snapshot_all_ami_meters()
+
+
+@shared_task(name="meter.tasks.aggregate_daily_ami_usage")
+def aggregate_daily_ami_usage():
+    """Periodic task: aggregate yesterday's usage from snapshots / ThingsBoard."""
+    yesterday = timezone.localdate() - timedelta(days=1)
+    start = yesterday - timedelta(days=7)
+    count = 0
+    for meter in Meter.objects.filter(architecture=Meter.ARCH_AMI, status=Meter.STATUS_ACTIVE):
+        sync_meter_usage(meter, start, yesterday)
+        count += 1
+    return count

@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Plus, Trash2 } from 'lucide-react';
 import { useToast } from '@/components/ui/use-toast';
-import { post, put } from '@/lib/fetch';  // Use plain post/put
+import { post, put } from '@/lib/fetch-client';
 import { Switch } from '@headlessui/react';
 import { getApiErrorMessage } from '@/lib/api-response';
 

@@ -92,36 +92,44 @@ class MockAMIGateway(AMIGatewayBase):
 
 class ThingsBoardAMIGateway(AMIGatewayBase):
     """
-    STUB — real ThingsBoard AMI gateway.
+    Real ThingsBoard AMI gateway using per-meter device access tokens.
 
-    Before implementing, ask the developer for:
-      - ThingsBoard host (THINGSBOARD_HOST in .env)
-      - Device access token per meter (THINGSBOARD_ACCESS_TOKEN or per-meter token)
-      - API endpoint for pushing telemetry/attributes
+    Push: POST /api/v1/{token}/telemetry  (payment + amount)
+    Read:  GET  /api/v1/{token}/attributes?sharedKeys=remaining_units
 
     ThingsBoard REST API reference: https://thingsboard.io/docs/reference/http-api/
     """
 
-    def __init__(self):
-        from django.conf import settings
-        self.host = getattr(settings, 'THINGSBOARD_HOST', None)
-        self.access_token = getattr(settings, 'THINGSBOARD_ACCESS_TOKEN', None)
-        if not self.host or not self.access_token:
-            logger.warning(
-                "ThingsBoardAMIGateway: THINGSBOARD_HOST or THINGSBOARD_ACCESS_TOKEN "
-                "not set. Calls will fail until configured."
-            )
-
     def apply_units(self, meter, units: Decimal) -> bool:
-        raise NotImplementedError(
-            "ThingsBoardAMIGateway.apply_units() is a stub. "
-            "Implement with ThingsBoard device API and connection details from the developer."
-        )
+        from meter.services import push_units_to_thingsboard
+
+        ok, msg = push_units_to_thingsboard(meter, units)
+        if not ok:
+            logger.error(
+                "ThingsBoardAMIGateway: push failed for meter %s: %s",
+                meter.meter_no,
+                msg,
+            )
+        return ok
 
     def get_status(self, meter) -> Optional[MeterStatus]:
-        raise NotImplementedError(
-            "ThingsBoardAMIGateway.get_status() is a stub. "
-            "Implement with ThingsBoard telemetry API."
+        from meter.services import query_latest_units_from_thingsboard
+
+        ok, msg, data = query_latest_units_from_thingsboard(meter)
+        if not ok or not data:
+            logger.warning(
+                "ThingsBoardAMIGateway: status read failed for meter %s: %s",
+                meter.meter_no,
+                msg,
+            )
+            return None
+
+        return MeterStatus(
+            meter_no=meter.meter_no,
+            is_online=True,
+            last_seen=data.get("queried_at"),
+            current_balance_kwh=data.get("units_kwh"),
+            raw=data,
         )
 
 
@@ -171,7 +179,7 @@ def apply_units_to_meter(meter, units: Decimal) -> bool:
                 )
                 meter.refresh_from_db(fields=['units'])
             logger.info(
-                "AMI meter %s: applied %.4f kWh via gateway (balance: %.4f)",
+                "AMI meter %s: applied %.4f kWh via gateway (ledger balance: %.4f)",
                 meter.meter_no, units, meter.units
             )
         else:
