@@ -252,7 +252,11 @@ export default function MyMetersClient() {
                 <div className="grid gap-3 sm:grid-cols-2">
                   <InfoTile label="Ledger balance" value={`${selected.units.toFixed(2)} kWh`} />
                   <InfoTile
-                    label="Pending units"
+                    label={
+                      selected.architecture === "AMI"
+                        ? "Pending delivery to meter"
+                        : "Pending units"
+                    }
                     value={`${selected.pending_units.toFixed(2)} kWh`}
                   />
                   <InfoTile label="Status" value={selected.status} />
@@ -280,6 +284,13 @@ export default function MyMetersClient() {
                     />
                   )}
                 </div>
+
+                {selected.architecture === "AMI" && selected.pending_units > 0 && (
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                    {selected.pending_units.toFixed(2)} kWh are queued for your meter. Delivery
+                    retries automatically every few minutes and when you tap Check Units.
+                  </div>
+                )}
 
                 {liveQueriedAt && (
                   <p className="text-xs text-muted-foreground">

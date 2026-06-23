@@ -74,13 +74,17 @@ class Meter(TimestampMixin):
         blank=True,
         help_text="ThingsBoard device access token used to push purchased units."
     )
-    # STS pending units: credited but not yet loaded via token
+    # STS pending units: credited but not yet loaded via STS token.
+    # AMI: kWh queued when ThingsBoard delivery fails (auto-retried).
     pending_units = models.DecimalField(
         max_digits=20,
         decimal_places=2,
         default=0.00,
         validators=[MinValueValidator(Decimal('0.00'))],
-        help_text="Units credited but not yet activated via STS token (STS meters only)"
+        help_text=(
+            "STS: units waiting for token generation. "
+            "AMI: units queued for ThingsBoard delivery when the meter is offline."
+        )
     )
     architecture = models.CharField(
         max_length=3,

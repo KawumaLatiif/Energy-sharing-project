@@ -265,6 +265,63 @@ def _find_thingsboard_device_id(meter, tenant_token):
     return None, "ThingsBoard device not found for meter."
 
 
+def set_shared_remaining_units(meter, value):
+    """
+    Write remaining_units on the device shared scope (tenant REST API).
+    Returns (ok: bool, message: str).
+    """
+    token = _meter_device_token(meter)
+    if token.startswith("dev-"):
+        return True, "Dev stub — attribute sync skipped."
+
+    tenant_token, msg = _thingsboard_tenant_token()
+    if not tenant_token:
+        return False, msg
+
+    device_id, msg = _find_thingsboard_device_id(meter, tenant_token)
+    if not device_id:
+        return False, msg
+
+    base_url = _thingsboard_base_url()
+    url = f"{base_url}/api/plugins/telemetry/DEVICE/{device_id}/SHARED_SCOPE"
+    headers = {
+        "X-Authorization": f"Bearer {tenant_token}",
+        "Content-Type": "application/json",
+    }
+    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    try:
+        response = requests.post(
+            url,
+            json={"remaining_units": float(Decimal(str(value)))},
+            headers=headers,
+            timeout=timeout,
+        )
+        if 200 <= response.status_code < 300:
+            return True, "remaining_units attribute updated."
+        return False, f"Attribute write failed (HTTP {response.status_code})."
+    except requests.RequestException as exc:
+        return False, f"Attribute write failed: {exc.__class__.__name__}"
+
+
+def increment_shared_remaining_units(meter, delta):
+    """
+    Add delta kWh to the ThingsBoard remaining_units shared attribute.
+    Reads current value first (0 if missing).
+    """
+    delta = Decimal(str(delta))
+    if delta <= 0:
+        return False, "Delta must be positive."
+
+    token = _meter_device_token(meter)
+    if token.startswith("dev-"):
+        return True, "Dev stub — attribute sync skipped."
+
+    ok, _msg, data = query_latest_units_from_thingsboard(meter)
+    current = Decimal(str(data["units_kwh"])) if ok and data else Decimal("0")
+    new_value = current + delta
+    return set_shared_remaining_units(meter, new_value)
+
+
 def query_usage_timeseries_from_thingsboard(meter, start_date, end_date):
     """
     Read daily kWh usage from ThingsBoard telemetry timeseries.

@@ -1122,8 +1122,9 @@ class LoginAPIView(TokenObtainPairView):
         # Staff members with 2FA enabled → issue a challenge token instead of full JWT
         if (user.is_staff_member or user.is_superuser) and user.totp_enabled:
             from django.core import signing
+            remember_me = bool(request.data.get("remember_me"))
             challenge_token = signing.dumps(
-                {'user_id': user.id},
+                {'user_id': user.id, 'remember_me': remember_me},
                 salt='2fa_login_challenge',
             )
             return Response({

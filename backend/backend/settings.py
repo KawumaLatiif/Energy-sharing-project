@@ -300,6 +300,11 @@ CELERY_BEAT_SCHEDULE = {
         "schedule": crontab(minute=15, hour=1),
         "options": {"queue": "celery"},
     },
+    "ami-pending-unit-delivery": {
+        "task": "meter.tasks.retry_pending_ami_deliveries",
+        "schedule": crontab(minute="*/5"),
+        "options": {"queue": "celery"},
+    },
 }
 
 # JWT settings
@@ -326,3 +331,6 @@ SIMPLE_JWT = {
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+# Extended refresh when user checks "Remember me" on login (days)
+REMEMBER_ME_REFRESH_DAYS = 30

@@ -8,7 +8,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertCircle, CheckCircle, Zap, X } from "lucide-react";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { post } from "@/lib/fetch-client";
+import { post, get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import MeterArchitecturePicker, {
   type MeterArchitecture,
@@ -45,18 +45,22 @@ export default function MeterRegistrationPopup({
     if (isOpen) {
       const checkAdmin = async () => {
         try {
-          const response = await fetch("/api/v1/auth/get-user-config/");
-          if (response.status === 401) {
-            document.cookie = "Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            document.cookie = "RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;";
-            window.location.href = "/auth/login";
+          const response = await get<{ is_admin?: boolean; user_role?: string }>(
+            "auth/get-user-config/"
+          );
+          if (response.error) {
+            if (response.status === 401) {
+              window.location.href = "/auth/login?session=expired";
+            }
             return;
           }
-          const userData = await response.json();
-          if (userData.is_admin || userData.user_role === "ADMIN") {
+          const userData = response.data;
+          if (userData?.is_admin || userData?.user_role === "ADMIN") {
             onSuccess();
           }
-        } catch {}
+        } catch {
+          /* ignore */
+        }
       };
       checkAdmin();
     }

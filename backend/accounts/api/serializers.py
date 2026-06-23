@@ -1,11 +1,13 @@
 import logging
+from datetime import timedelta
+
+from django.conf import settings
 from rest_framework import serializers
 from cities_light.models import Country
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.validators import UniqueValidator
-from django.conf import settings
-from accounts.models import (    
+from accounts.models import (
     Profile,
     SettingsConfirmationEmailCode,
     User,
@@ -593,6 +595,7 @@ class EmailTokenObtainSerializer(TokenObtainPairSerializer):
 
 class LoginSerializer(EmailTokenObtainSerializer):
     tokens = serializers.CharField(read_only=True)
+    remember_me = serializers.BooleanField(required=False, default=False, write_only=True)
     email = serializers.EmailField(required=True,
         error_messages={
             'required': 'Email address is required',
@@ -613,10 +616,15 @@ class LoginSerializer(EmailTokenObtainSerializer):
     }
 
     @classmethod
-    def get_token(cls, user):
-        return RefreshToken.for_user(user)
+    def get_token(cls, user, *, remember_me=False):
+        refresh = RefreshToken.for_user(user)
+        if remember_me:
+            days = getattr(settings, "REMEMBER_ME_REFRESH_DAYS", 30)
+            refresh.set_exp(lifetime=timedelta(days=days))
+        return refresh
 
     def validate(self, attrs):
+        remember_me = bool(attrs.pop("remember_me", False))
         try:
             data = super().validate(attrs)
         except serializers.ValidationError:
@@ -626,6 +634,11 @@ class LoginSerializer(EmailTokenObtainSerializer):
             raise serializers.ValidationError({
                 'non_field_errors': ['Invalid email or password. Please try again.']
             })
+
+        if remember_me:
+            refresh = self.get_token(self.user, remember_me=True)
+            data["refresh"] = str(refresh)
+            data["access"] = str(refresh.access_token)
 
         user = self.user
         if not user.profile.email_verified:

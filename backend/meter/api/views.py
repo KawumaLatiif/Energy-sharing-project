@@ -135,7 +135,18 @@ def check_meter_units(request):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    from meter.ami_delivery import retry_pending_for_meter
+
+    retry_result = retry_pending_for_meter(meter)
+    meter.refresh_from_db(fields=["units", "pending_units"])
+
     ok, msg, data = query_latest_units_from_thingsboard(meter)
+    if not ok and meter.units > 0 and meter.pending_units <= 0:
+        from meter.services import set_shared_remaining_units
+
+        bootstrap_ok, _bootstrap_msg = set_shared_remaining_units(meter, meter.units)
+        if bootstrap_ok:
+            ok, msg, data = query_latest_units_from_thingsboard(meter)
     if not ok or not data:
         return Response(
             {
@@ -159,6 +170,8 @@ def check_meter_units(request):
             "units_kwh": data["units_kwh"],
             "queried_at": data["queried_at"],
             "ledger_balance_kwh": float(meter.units),
+            "pending_delivery_kwh": float(meter.pending_units),
+            "pending_retry": retry_result,
             "source": data.get("source", "thingsboard"),
         },
         status=status.HTTP_200_OK,
@@ -1049,22 +1062,30 @@ class ApplyWalletToMeterView(APIView):
                 locked_wallet.balance -= amount
                 locked_wallet.save(update_fields=["balance"])
 
-                success = apply_units_to_meter(meter, amount)
-                if not success:
+                if not apply_units_to_meter(meter, amount):
                     raise ValueError("AMI gateway could not apply units to the meter.")
 
-                meter.refresh_from_db(fields=["units"])
+                meter.refresh_from_db(fields=["units", "pending_units"])
+
+            if meter.pending_units > 0:
+                load_message = (
+                    f"{float(amount):.2f} kWh queued for delivery to your meter. "
+                    "Units will be sent automatically when the meter is reachable."
+                )
+            else:
+                load_message = (
+                    f"{float(amount):.2f} kWh sent to your AMI meter. "
+                    "No token entry is required."
+                )
 
             return Response(
                 {
                     "success": True,
                     "units_applied": float(amount),
                     "meter_balance": float(meter.units),
+                    "pending_delivery_kwh": float(meter.pending_units),
                     "remaining_wallet_balance": float(locked_wallet.balance),
-                    "message": (
-                        f"{float(amount):.2f} kWh sent to your AMI meter. "
-                        "No token entry is required."
-                    ),
+                    "message": load_message,
                 },
                 status=status.HTTP_200_OK,
             )

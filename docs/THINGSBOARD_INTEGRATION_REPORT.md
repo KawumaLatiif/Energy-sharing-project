@@ -48,7 +48,20 @@ When the customer registers an AMI meter (web, mobile app, USSD, or admin), they
 
 #### A. Sending units **to** the meter (gPAWA → ThingsBoard)
 
-When a user **applies** or **shares** kWh to an AMI meter, gPAWA sends a payment message to ThingsBoard. If ThingsBoard rejects the message, gPAWA **rolls back** the transaction so the customer does not lose units without delivery.
+When a user **loads** or **shares** kWh to an AMI meter, gPAWA:
+
+1. Sends a **payment telemetry** message to ThingsBoard (`payment: true`, `amount: kWh`).
+2. Updates the **`remaining_units`** shared attribute so **Check units** reflects the credit.
+3. If the meter is **offline** or ThingsBoard rejects the message, the kWh are stored in **pending delivery** on the meter and **retried automatically** every 5 minutes (and when the user taps **Check units**). The customer’s wallet is already debited; units are not lost.
+
+#### Ledger balance vs live balance
+
+| | **Ledger balance** | **Live balance (Check units)** |
+|--|-------------------|-------------------------------|
+| **Meaning** | kWh successfully delivered to ThingsBoard via gPAWA | `remaining_units` on the device / in ThingsBoard |
+| **Updates when** | Load or share succeeds (or pending queue clears) | Device reports consumption; attribute sync after delivery |
+
+If ledger is higher than live, the meter may have **consumed** power since the last credit, or an older load happened before attribute sync was enabled. New loads update both paths.
 
 #### B. Checking units **on demand** (gPAWA asks ThingsBoard)
 

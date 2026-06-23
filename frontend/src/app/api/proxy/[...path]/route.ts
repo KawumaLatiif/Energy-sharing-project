@@ -2,16 +2,15 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/common/constants/api";
 import { AUTHENTICATION_COOKIE } from "@/common/constants/auth-cookie";
+import { refreshAuthSession, ensureValidSession } from "@/lib/refresh-session";
 
 type RouteContext = { params: Promise<{ path: string[] }> };
 
-async function proxyToBackend(req: NextRequest, context: RouteContext) {
-  const { path } = await context.params;
-  const cookieStore = await cookies();
-  const token = cookieStore.get(AUTHENTICATION_COOKIE)?.value;
-
-  const targetPath = path.join("/");
-  // Django APPEND_SLASH requires trailing slashes on API paths.
+async function forwardToBackend(
+  req: NextRequest,
+  targetPath: string,
+  token: string | undefined
+) {
   const normalizedPath = targetPath.endsWith("/") ? targetPath : `${targetPath}/`;
   const url = `${API_URL}/${normalizedPath}${req.nextUrl.search}`;
 
@@ -27,13 +26,33 @@ async function proxyToBackend(req: NextRequest, context: RouteContext) {
   const hasBody = req.method !== "GET" && req.method !== "HEAD";
   const body = hasBody ? await req.text() : undefined;
 
+  return fetch(url, {
+    method: req.method,
+    headers,
+    body,
+    cache: "no-store",
+  });
+}
+
+async function proxyToBackend(req: NextRequest, context: RouteContext) {
+  const { path } = await context.params;
+  const cookieStore = await cookies();
+  let token = cookieStore.get(AUTHENTICATION_COOKIE)?.value;
+  await ensureValidSession();
+  token = (await cookies()).get(AUTHENTICATION_COOKIE)?.value;
+
+  const targetPath = path.join("/");
+
   try {
-    const res = await fetch(url, {
-      method: req.method,
-      headers,
-      body,
-      cache: "no-store",
-    });
+    let res = await forwardToBackend(req, targetPath, token);
+
+    if (res.status === 401) {
+      const refreshed = await refreshAuthSession();
+      if (refreshed) {
+        token = (await cookies()).get(AUTHENTICATION_COOKIE)?.value;
+        res = await forwardToBackend(req, targetPath, token);
+      }
+    }
 
     const responseBody = await res.text();
     return new NextResponse(responseBody, {

@@ -23,3 +23,11 @@ def aggregate_daily_ami_usage():
         sync_meter_usage(meter, start, yesterday)
         count += 1
     return count
+
+
+@shared_task(name="meter.tasks.retry_pending_ami_deliveries")
+def retry_pending_ami_deliveries():
+    """Retry queued AMI unit deliveries when meters come back online."""
+    from meter.ami_delivery import retry_all_pending_ami_deliveries
+
+    return retry_all_pending_ami_deliveries()

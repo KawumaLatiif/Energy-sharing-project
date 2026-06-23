@@ -1,5 +1,5 @@
 'use client';
-import { useState, useTransition } from 'react';
+import { useState, useTransition, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
@@ -32,6 +32,13 @@ export default function LoginForm() {
   const [totpLoading, setTotpLoading] = useState(false);
   const [staffEmail, setStaffEmail] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('session') === 'expired') {
+      setError('Your session expired. Please sign in again.');
+    }
+  }, [searchParams]);
 
   const form = useForm<z.infer<typeof LoginSchema>>({
     resolver: zodResolver(LoginSchema),
@@ -42,12 +49,13 @@ export default function LoginForm() {
     setError('');
     setShowResend(false);
 
-    const result = await login(values);
+    const result = await login(values, rememberMe);
 
     if ('requires_2fa' in result && result.requires_2fa) {
       // Staff member — show TOTP challenge
       setChallengeToken(result.challenge_token ?? null);
       setStaffEmail(result.user?.email ?? values.email);
+      setRememberMe(result.rememberMe ?? rememberMe);
       return;
     }
 
@@ -71,7 +79,7 @@ export default function LoginForm() {
     setTotpLoading(true);
     setError('');
     try {
-      const result = await verify2FA(challengeToken, totpCode);
+      const result = await verify2FA(challengeToken, totpCode, rememberMe);
       if (result.success) {
         window.location.href = result.redirectTo || '/admin/dashboard';
       } else {
@@ -162,7 +170,7 @@ export default function LoginForm() {
         . Admin-provisioned users: use your email and temporary password <strong>1234</strong>, then set a new password.
       </p>
       <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+        <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6" autoComplete="on">
           <FormField
             control={form.control}
             name="email"
@@ -170,7 +178,14 @@ export default function LoginForm() {
               <FormItem>
                 <FormLabel>Email</FormLabel>
                 <FormControl>
-                  <Input disabled={isPending} type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
+                  <Input
+                    disabled={isPending}
+                    type="email"
+                    name="email"
+                    autoComplete="username email"
+                    placeholder="johndoe@example.com"
+                    {...field}
+                  />
                 </FormControl>
                 <FormMessage />
               </FormItem>
@@ -187,6 +202,7 @@ export default function LoginForm() {
                     <Input
                       disabled={isPending}
                       type={showPassword ? 'text' : 'password'}
+                      name="password"
                       autoComplete="current-password"
                       placeholder="Password"
                       className="pr-10"
@@ -219,10 +235,12 @@ export default function LoginForm() {
                 id="remember-me"
                 name="remember-me"
                 type="checkbox"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
                 className="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
               />
               <label htmlFor="remember-me" className="ml-2 block text-sm text-gray-900 dark:text-gray-300">
-                Remember me
+                Remember me on this device
               </label>
             </div>
             <div className="text-sm">

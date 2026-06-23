@@ -62,10 +62,29 @@ const buildRequestOptions = (
   };
 };
 
-const request = async <T>(path: string, options: RequestInit): Promise<ApiResponse<T>> => {
+const request = async <T>(
+  path: string,
+  options: RequestInit,
+  allowRefresh = true
+): Promise<ApiResponse<T>> => {
   try {
-    const res = await fetch(`${CLIENT_API_BASE}/${path}`, options);
-    const parsedBody = await parseResponseBody(res);
+    let res = await fetch(`${CLIENT_API_BASE}/${path}`, options);
+    let parsedBody = await parseResponseBody(res);
+
+    if (res.status === 401 && allowRefresh) {
+      const refreshRes = await fetch("/api/auth/refresh", {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+      });
+      if (refreshRes.ok) {
+        res = await fetch(`${CLIENT_API_BASE}/${path}`, options);
+        parsedBody = await parseResponseBody(res);
+      } else if (typeof window !== "undefined") {
+        window.location.href = "/auth/login?session=expired";
+        return buildErrorResponse({ message: "Session expired" }, 401);
+      }
+    }
 
     if (!res.ok) {
       return buildErrorResponse(parsedBody, res.status);

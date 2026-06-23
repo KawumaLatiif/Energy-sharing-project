@@ -61,4 +61,8 @@ CELERY_BEAT_SCHEDULE = {
         "task": "meter.tasks.aggregate_daily_ami_usage",
         "schedule": crontab(minute=15, hour=1),
     },
+    "ami-pending-unit-delivery": {
+        "task": "meter.tasks.retry_pending_ami_deliveries",
+        "schedule": crontab(minute="*/5"),
+    },
 }

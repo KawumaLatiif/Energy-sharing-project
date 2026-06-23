@@ -2841,7 +2841,13 @@ class TOTP2FALoginVerifyView(APIView):
             )
 
         # Issue full JWT tokens
+        remember_me = bool(payload.get('remember_me'))
         refresh = RefreshToken.for_user(user)
+        if remember_me:
+            from datetime import timedelta
+            from django.conf import settings
+            days = getattr(settings, "REMEMBER_ME_REFRESH_DAYS", 30)
+            refresh.set_exp(lifetime=timedelta(days=days))
         access = refresh.access_token
 
         _write_audit(
@@ -2859,6 +2865,7 @@ class TOTP2FALoginVerifyView(APIView):
             "success": True,
             "access": str(access),
             "refresh": str(refresh),
+            "remember_me": remember_me,
             "user": {
                 "id": user.id,
                 "email": user.email,

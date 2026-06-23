@@ -153,8 +153,8 @@ def apply_units_to_meter(meter, units: Decimal) -> bool:
     """
     Apply credited units to a meter.
     For STS meters: adds to pending_units (a token must be generated separately).
-    For AMI meters: calls the AMI gateway and updates meter.units directly on success.
-    Returns True on success.
+    For AMI meters: delivers via ThingsBoard immediately, or queues in
+    pending_units when offline (auto-retried). Returns True when credited or queued.
     """
     from django.db import transaction as db_transaction
 
@@ -170,21 +170,6 @@ def apply_units_to_meter(meter, units: Decimal) -> bool:
         )
         return True
     else:
-        gateway = get_ami_gateway()
-        success = gateway.apply_units(meter, units)
-        if success:
-            with db_transaction.atomic():
-                meter.__class__.objects.filter(pk=meter.pk).update(
-                    units=meter.units + units
-                )
-                meter.refresh_from_db(fields=['units'])
-            logger.info(
-                "AMI meter %s: applied %.4f kWh via gateway (ledger balance: %.4f)",
-                meter.meter_no, units, meter.units
-            )
-        else:
-            logger.error(
-                "AMI gateway failed to apply %.4f kWh to meter %s",
-                units, meter.meter_no
-            )
-        return success
+        from meter.ami_delivery import credit_ami_meter
+
+        return credit_ami_meter(meter, units)
