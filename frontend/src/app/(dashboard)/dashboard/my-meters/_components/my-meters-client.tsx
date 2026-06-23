@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import {
   Activity,
   Gauge,
@@ -27,6 +27,7 @@ import { get } from "@/lib/fetch-client";
 import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
 import { deleteMeter } from "../actions";
 import AddMeterDialog from "./add-meter-dialog";
+import LedgerHistoryDialog, { LedgerLink } from "./ledger-history-dialog";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import {
   AlertDialog,
@@ -39,6 +40,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import type { UserMeter } from "@/interface/meter.interface";
+import type { AmiLoadSuccessResult } from "@/app/(dashboard)/dashboard/share/actions";
 
 export default function MyMetersClient() {
   const { meters, isLoading, refreshMeters } = useSelectedMeter();
@@ -53,6 +55,14 @@ export default function MyMetersClient() {
   const [liveQueriedAt, setLiveQueriedAt] = useState<string | null>(null);
   const [checkError, setCheckError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
+  const [ledgerOpen, setLedgerOpen] = useState(false);
+  const [ledgerMeter, setLedgerMeter] = useState<UserMeter | null>(null);
+
+  const openLedgerHistory = (meter: UserMeter, e?: MouseEvent) => {
+    e?.stopPropagation();
+    setLedgerMeter(meter);
+    setLedgerOpen(true);
+  };
 
   const selected = meters.find((m) => m.meter_number === selectedNo) ?? meters[0] ?? null;
 
@@ -79,6 +89,21 @@ export default function MyMetersClient() {
   useEffect(() => {
     fetchWallet();
   }, [fetchWallet]);
+
+  const handleLoadSuccess = useCallback(
+    async (result?: AmiLoadSuccessResult) => {
+      await refreshMeters();
+      await fetchWallet();
+      if (!result) return;
+      setActionMessage(result.message);
+      setCheckError("");
+      if (result.live_units_kwh != null && Number.isFinite(result.live_units_kwh)) {
+        setLiveUnits(result.live_units_kwh);
+        setLiveQueriedAt(result.live_queried_at ?? new Date().toISOString());
+      }
+    },
+    [refreshMeters, fetchWallet]
+  );
 
   const handleCheckUnits = async () => {
     if (!selected || selected.architecture !== "AMI") return;
@@ -213,7 +238,8 @@ export default function MyMetersClient() {
                 </div>
                 <p className="mt-3 text-sm">
                   <span className="font-semibold tabular-nums">{meter.units.toFixed(2)}</span>
-                  <span className="text-muted-foreground ml-1">kWh ledger</span>
+                  <span className="text-muted-foreground ml-1">kWh </span>
+                  <LedgerLink onClick={(e) => openLedgerHistory(meter, e)} />
                 </p>
               </button>
             ))}
@@ -250,7 +276,21 @@ export default function MyMetersClient() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="grid gap-3 sm:grid-cols-2">
-                  <InfoTile label="Ledger balance" value={`${selected.units.toFixed(2)} kWh`} />
+                  <InfoTile
+                    label={
+                      <span>
+                        <LedgerLink
+                          className="text-muted-foreground underline-offset-2 hover:underline hover:text-primary"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openLedgerHistory(selected);
+                          }}
+                        />{" "}
+                        balance
+                      </span>
+                    }
+                    value={`${selected.units.toFixed(2)} kWh`}
+                  />
                   <InfoTile
                     label={
                       selected.architecture === "AMI"
@@ -378,6 +418,12 @@ export default function MyMetersClient() {
         </div>
       )}
 
+      <LedgerHistoryDialog
+        meter={ledgerMeter}
+        open={ledgerOpen}
+        onOpenChange={setLedgerOpen}
+      />
+
       <AddMeterDialog
         open={addOpen}
         onOpenChange={setAddOpen}
@@ -390,7 +436,7 @@ export default function MyMetersClient() {
         onOpenChange={setLoadOpen}
         walletBalance={walletBalance}
         onWalletBalanceChange={setWalletBalance}
-        onSuccess={() => refreshMeters()}
+        onSuccess={handleLoadSuccess}
       />
 
       <AlertDialog open={deleteOpen} onOpenChange={(o) => !deleting && setDeleteOpen(o)}>
@@ -433,7 +479,7 @@ function InfoTile({
   highlight,
   muted,
 }: {
-  label: string;
+  label: ReactNode;
   value: string;
   mono?: boolean;
   highlight?: boolean;

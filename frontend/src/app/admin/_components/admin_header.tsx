@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
@@ -43,6 +43,7 @@ export default function AdminRightHeader({ userRole, isSuperuser }: AdminRightHe
           </Button>
         </SheetTrigger>
         <SheetContent side="left" className="gpawa-sidebar flex w-[88vw] max-w-[360px] flex-col overflow-y-auto border-r p-4">
+          <SheetTitle className="sr-only">Admin navigation menu</SheetTitle>
           <div className="mb-4">
             <GpawaLogo
               href="/admin/dashboard"

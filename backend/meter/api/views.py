@@ -111,6 +111,32 @@ def ami_meter_status(request):
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def meter_ledger_history(request):
+    """
+    GET /api/v1/meter/ledger-history/?meter_no=...
+
+    Credits that contribute to the meter ledger balance (``meter.units``).
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    from meter.ledger import get_meter_ledger_history
+
+    payload = get_meter_ledger_history(meter)
+    return Response({"success": True, **payload}, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def check_meter_units(request):
     """
     GET /api/v1/meter/check-units/?meter_no=...
@@ -1067,24 +1093,59 @@ class ApplyWalletToMeterView(APIView):
 
                 meter.refresh_from_db(fields=["units", "pending_units"])
 
-            if meter.pending_units > 0:
+            delivered = meter.pending_units <= 0
+            live_units_kwh = None
+            live_queried_at = None
+            live_read_message = None
+            ok, live_msg, live_data = query_latest_units_from_thingsboard(meter)
+            if ok and live_data:
+                live_units_kwh = float(live_data["units_kwh"])
+                live_queried_at = live_data.get("queried_at")
+                record_balance_snapshot(
+                    meter,
+                    live_data["units_kwh"],
+                    source=live_data.get("source", "thingsboard"),
+                )
+            else:
+                live_read_message = live_msg
+
+            wallet_remaining = float(locked_wallet.balance)
+            meter_ledger = float(meter.units)
+            units_applied = float(amount)
+            pending_kwh = float(meter.pending_units)
+
+            if not delivered:
                 load_message = (
-                    f"{float(amount):.2f} kWh queued for delivery to your meter. "
+                    f"{units_applied:.2f} kWh queued for delivery to your meter. "
+                    f"Wallet remaining: {wallet_remaining:.2f} kWh. "
                     "Units will be sent automatically when the meter is reachable."
+                )
+            elif live_units_kwh is not None:
+                load_message = (
+                    f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+                    f"Live meter reading: {live_units_kwh:.2f} kWh. "
+                    f"Meter ledger: {meter_ledger:.2f} kWh. "
+                    f"Wallet remaining: {wallet_remaining:.2f} kWh."
                 )
             else:
                 load_message = (
-                    f"{float(amount):.2f} kWh sent to your AMI meter. "
-                    "No token entry is required."
+                    f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+                    f"Meter ledger: {meter_ledger:.2f} kWh. "
+                    f"Wallet remaining: {wallet_remaining:.2f} kWh."
                 )
+                if live_read_message:
+                    load_message += f" Live reading unavailable: {live_read_message}"
 
             return Response(
                 {
                     "success": True,
-                    "units_applied": float(amount),
-                    "meter_balance": float(meter.units),
-                    "pending_delivery_kwh": float(meter.pending_units),
-                    "remaining_wallet_balance": float(locked_wallet.balance),
+                    "units_applied": units_applied,
+                    "meter_balance": meter_ledger,
+                    "pending_delivery_kwh": pending_kwh,
+                    "remaining_wallet_balance": wallet_remaining,
+                    "live_units_kwh": live_units_kwh,
+                    "live_queried_at": live_queried_at,
+                    "delivery_status": "delivered" if delivered else "pending",
                     "message": load_message,
                 },
                 status=status.HTTP_200_OK,

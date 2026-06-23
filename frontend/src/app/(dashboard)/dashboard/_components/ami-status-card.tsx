@@ -8,7 +8,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
-import { applyWalletUnits } from "@/app/(dashboard)/dashboard/share/actions";
+import {
+  applyWalletUnits,
+} from "@/app/(dashboard)/dashboard/share/actions";
 import type { UserMeter } from "@/interface/meter.interface";
 
 interface AmiStatusCardProps {
@@ -123,12 +125,28 @@ export default function AmiStatusCard({
         meter_no: meter.meter_number,
       });
       if (res.data?.success) {
+        const live =
+          res.data.live_units_kwh != null ? Number(res.data.live_units_kwh) : null;
+        const walletRem = Number(res.data.remaining_wallet_balance) || 0;
+        const ledger = Number(res.data.meter_balance) || 0;
+
         setApplyMessage(res.data.message || "Units applied to your AMI meter.");
-        setLocalWalletBalance(Number(res.data.remaining_wallet_balance) || 0);
-        setLocalMeterBalance(Number(res.data.meter_balance) || 0);
+        setLocalWalletBalance(walletRem);
+        setLocalMeterBalance(ledger);
+
+        if (live != null && Number.isFinite(live)) {
+          setStatus((prev) => ({
+            is_online: true,
+            last_seen: res.data.live_queried_at ?? new Date().toISOString(),
+            current_balance_kwh: live,
+          }));
+          setLocalMeterBalance(live);
+        } else {
+          void fetchStatus();
+        }
+
         setAmount("");
         onApplied?.();
-        fetchStatus();
       } else {
         setError(getApiErrorMessage(res.error, res.data?.error || "Failed to apply units."));
       }

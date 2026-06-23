@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import logout from "../logout";
 import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
 import { cn } from "@/lib/utils";
@@ -61,6 +61,7 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
           </Button>
         </SheetTrigger>
         <SheetContent side="left" className="flex w-[88vw] max-w-[360px] flex-col overflow-y-auto">
+          <SheetTitle className="sr-only">Navigation menu</SheetTitle>
           <nav className="grid gap-2 text-lg font-medium">
             <GpawaLogo
               href="/"

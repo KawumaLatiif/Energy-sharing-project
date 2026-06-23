@@ -198,6 +198,16 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
         walletBalance={walletBalance}
         initialAmount={reviewAmount}
         onWalletBalanceChange={setWalletBalance}
+        onSuccess={() => {
+          void (async () => {
+            const res = await get<{ success?: boolean; wallet?: { balance?: string } }>(
+              "wallet/balance"
+            );
+            if (!res.error && res.data?.success) {
+              setWalletBalance(parseFloat(res.data.wallet?.balance ?? "0") || 0);
+            }
+          })();
+        }}
       />
     </>
   );

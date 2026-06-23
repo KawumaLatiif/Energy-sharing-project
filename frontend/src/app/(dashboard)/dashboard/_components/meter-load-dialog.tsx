@@ -2,13 +2,15 @@
 
 import { useEffect, useState } from "react";
 import {
-  Copy,
   Check,
+  CheckCircle2,
+  Copy,
   Cpu,
   Hash,
   KeyRound,
   Loader2,
   Wallet,
+  Wifi,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -23,7 +25,10 @@ import {
 } from "@/components/ui/dialog";
 import { FormError } from "@/components/common/form-error";
 import { getApiErrorMessage } from "@/lib/api-response";
-import { applyWalletUnits } from "@/app/(dashboard)/dashboard/share/actions";
+import {
+  applyWalletUnits,
+  type AmiLoadSuccessResult,
+} from "@/app/(dashboard)/dashboard/share/actions";
 import { generateTokenFromWallet } from "@/app/(dashboard)/dashboard/my-meters/actions";
 import type { UserMeter } from "@/interface/meter.interface";
 
@@ -34,7 +39,7 @@ interface MeterLoadDialogProps {
   walletBalance: number;
   initialAmount?: number;
   onWalletBalanceChange?: (balance: number) => void;
-  onSuccess?: () => void;
+  onSuccess?: (result?: AmiLoadSuccessResult) => void;
 }
 
 export default function MeterLoadDialog({
@@ -47,7 +52,7 @@ export default function MeterLoadDialog({
   onSuccess,
 }: MeterLoadDialogProps) {
   const [amount, setAmount] = useState("1");
-  const [step, setStep] = useState<"form" | "confirm" | "token">("form");
+  const [step, setStep] = useState<"form" | "confirm" | "token" | "ami-success">("form");
   const [isPending, setIsPending] = useState(false);
   const [error, setError] = useState("");
   const [tokenResult, setTokenResult] = useState<{
@@ -55,6 +60,7 @@ export default function MeterLoadDialog({
     units: number;
     remaining: number;
   } | null>(null);
+  const [amiResult, setAmiResult] = useState<AmiLoadSuccessResult | null>(null);
   const [copied, setCopied] = useState(false);
 
   const isAmi = meter?.architecture === "AMI";
@@ -66,6 +72,7 @@ export default function MeterLoadDialog({
       setAmount("1");
       setError("");
       setTokenResult(null);
+      setAmiResult(null);
       setCopied(false);
     } else if (initialAmount != null && initialAmount > 0) {
       setAmount(String(initialAmount));
@@ -98,11 +105,22 @@ export default function MeterLoadDialog({
           amount: parsedAmount,
         });
         if (res.data?.success) {
-          if (res.data.remaining_wallet_balance != null) {
-            onWalletBalanceChange?.(Number(res.data.remaining_wallet_balance));
-          }
-          onSuccess?.();
-          onOpenChange(false);
+          const result: AmiLoadSuccessResult = {
+            units_applied: Number(res.data.units_applied) || parsedAmount,
+            meter_balance: Number(res.data.meter_balance) || 0,
+            pending_delivery_kwh: Number(res.data.pending_delivery_kwh) || 0,
+            remaining_wallet_balance: Number(res.data.remaining_wallet_balance) || 0,
+            live_units_kwh:
+              res.data.live_units_kwh != null ? Number(res.data.live_units_kwh) : null,
+            live_queried_at: res.data.live_queried_at ?? null,
+            delivery_status:
+              res.data.delivery_status === "pending" ? "pending" : "delivered",
+            message: res.data.message ?? "Units loaded successfully.",
+          };
+          onWalletBalanceChange?.(result.remaining_wallet_balance);
+          setAmiResult(result);
+          setStep("ami-success");
+          onSuccess?.(result);
         } else {
           setError(
             getApiErrorMessage(res.error, res.data?.error ?? "Failed to load units to meter.")
@@ -147,7 +165,58 @@ export default function MeterLoadDialog({
   return (
     <Dialog open={open} onOpenChange={(o) => !isPending && onOpenChange(o)}>
       <DialogContent className="sm:max-w-md">
-        {step === "token" && tokenResult ? (
+        {step === "ami-success" && amiResult ? (
+          <>
+            <DialogHeader>
+              <div className="flex items-center gap-2 text-green-700">
+                <CheckCircle2 className="h-5 w-5" />
+                <DialogTitle>
+                  {amiResult.delivery_status === "pending"
+                    ? "Units queued for delivery"
+                    : "Units loaded successfully"}
+                </DialogTitle>
+              </div>
+              <DialogDescription>{amiResult.message}</DialogDescription>
+            </DialogHeader>
+            <div className="rounded-xl border bg-green-50/60 dark:bg-green-950/20 divide-y text-sm overflow-hidden">
+              <SuccessRow
+                icon={<Zap className="h-4 w-4" />}
+                label="Units loaded"
+                value={`${amiResult.units_applied.toFixed(2)} kWh`}
+              />
+              {amiResult.live_units_kwh != null && (
+                <SuccessRow
+                  icon={<Wifi className="h-4 w-4" />}
+                  label="Live meter reading (ThingsBoard)"
+                  value={`${amiResult.live_units_kwh.toFixed(2)} kWh`}
+                  highlight
+                />
+              )}
+              <SuccessRow
+                icon={<Cpu className="h-4 w-4" />}
+                label="Meter ledger"
+                value={`${amiResult.meter_balance.toFixed(2)} kWh`}
+              />
+              {amiResult.pending_delivery_kwh > 0 && (
+                <SuccessRow
+                  icon={<Loader2 className="h-4 w-4" />}
+                  label="Pending delivery"
+                  value={`${amiResult.pending_delivery_kwh.toFixed(2)} kWh`}
+                />
+              )}
+              <SuccessRow
+                icon={<Wallet className="h-4 w-4" />}
+                label="Wallet remaining"
+                value={`${amiResult.remaining_wallet_balance.toFixed(2)} kWh`}
+              />
+            </div>
+            <DialogFooter>
+              <Button onClick={() => onOpenChange(false)} className="w-full">
+                Done
+              </Button>
+            </DialogFooter>
+          </>
+        ) : step === "token" && tokenResult ? (
           <>
             <DialogHeader>
               <DialogTitle>STS token generated</DialogTitle>
@@ -207,7 +276,7 @@ export default function MeterLoadDialog({
                 {isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Processing…
+                    Loading to meter…
                   </>
                 ) : isAmi ? (
                   "Confirm load"
@@ -279,6 +348,34 @@ function DetailRow({
       <div>
         <p className="text-xs text-muted-foreground">{label}</p>
         <p className="font-medium">{value}</p>
+      </div>
+    </div>
+  );
+}
+
+function SuccessRow({
+  icon,
+  label,
+  value,
+  highlight,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div
+      className={`flex items-center gap-3 px-4 py-3 ${
+        highlight ? "bg-sky-50/80 dark:bg-sky-950/30" : ""
+      }`}
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      <div>
+        <p className="text-xs text-muted-foreground">{label}</p>
+        <p className={`font-semibold tabular-nums ${highlight ? "text-sky-800 dark:text-sky-200" : ""}`}>
+          {value}
+        </p>
       </div>
     </div>
   );

@@ -149,7 +149,15 @@ def get_ami_gateway() -> AMIGatewayBase:
     return cls()
 
 
-def apply_units_to_meter(meter, units: Decimal) -> bool:
+def apply_units_to_meter(
+    meter,
+    units: Decimal,
+    *,
+    reference_id="",
+    ledger_type=None,
+    ledger_source=None,
+    payment_reference="",
+) -> bool:
     """
     Apply credited units to a meter.
     For STS meters: adds to pending_units (a token must be generated separately).
@@ -172,4 +180,11 @@ def apply_units_to_meter(meter, units: Decimal) -> bool:
     else:
         from meter.ami_delivery import credit_ami_meter
 
-        return credit_ami_meter(meter, units)
+        return credit_ami_meter(
+            meter,
+            units,
+            reference_id=reference_id,
+            ledger_type=ledger_type,
+            ledger_source=ledger_source,
+            payment_reference=payment_reference,
+        )

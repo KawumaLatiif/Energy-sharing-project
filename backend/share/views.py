@@ -15,7 +15,7 @@ from .serializers import ShareUnitSerializer, VerifyOTPSerializer, TransferUnits
 from .models import Share, ShareTransaction
 from accounts.models import User, Wallet as AccountWallet
 from wallet.models import Wallet
-from meter.models import Meter, MeterToken
+from meter.models import Meter, MeterToken, Transaction as MeterLedgerTransaction
 from share.services import VerificationService, VerificationCode
 from utils.general import format_currency, dispatch_task
 from utils.ami_gateway import apply_units_to_meter
@@ -297,7 +297,13 @@ class ShareUnitsView(APIView):
                         )
                         token_issued = True
                     else:
-                        if not apply_units_to_meter(receiver_meter, units_to_share):
+                        if not apply_units_to_meter(
+                            receiver_meter,
+                            units_to_share,
+                            ledger_type=MeterLedgerTransaction.TYPE_TRANSFER_IN,
+                            ledger_source=sender_meter.meter_no,
+                            payment_reference=transaction_ref,
+                        ):
                             raise ValueError(
                                 "Failed to deliver units to AMI meter via ThingsBoard."
                             )

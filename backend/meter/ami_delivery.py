@@ -48,7 +48,15 @@ def attempt_ami_delivery(meter, units, reference_id=""):
     return True, push_msg
 
 
-def credit_ami_meter(meter, units, reference_id=""):
+def credit_ami_meter(
+    meter,
+    units,
+    reference_id="",
+    *,
+    ledger_type=None,
+    ledger_source=None,
+    payment_reference="",
+):
     """
     Try immediate AMI delivery. On failure, queue in pending_units.
     Always returns True when units are accounted for (delivered or queued).
@@ -61,6 +69,17 @@ def credit_ami_meter(meter, units, reference_id=""):
                 units=F("units") + units,
             )
         meter.refresh_from_db(fields=["units", "pending_units"])
+        from meter.ledger import record_meter_ledger_credit
+        from meter.models import Transaction
+
+        record_meter_ledger_credit(
+            meter,
+            units,
+            ledger_type or Transaction.TYPE_CREDIT,
+            source=ledger_source or "wallet_load",
+            destination=meter.meter_no,
+            payment_reference=payment_reference or reference_id or "",
+        )
         logger.info(
             "AMI meter %s: delivered %.4f kWh (ledger %.4f)",
             meter.meter_no,
@@ -119,6 +138,17 @@ def retry_pending_for_meter(meter):
             pending_units=Decimal("0"),
         )
     meter.refresh_from_db(fields=["units", "pending_units"])
+    from meter.ledger import record_meter_ledger_credit
+    from meter.models import Transaction
+
+    record_meter_ledger_credit(
+        meter,
+        pending,
+        Transaction.TYPE_CREDIT,
+        source="pending_delivery",
+        destination=meter.meter_no,
+        payment_reference="pending-retry",
+    )
     logger.info(
         "AMI meter %s: reconciled %.4f kWh from pending (ledger %.4f)",
         meter.meter_no,
