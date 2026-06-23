@@ -66,9 +66,67 @@ def push_units_to_thingsboard(meter, units, reference_id=""):
         return False, f"ThingsBoard request failed: {exc.__class__.__name__}"
 
 
+def _parse_remaining_units_value(raw):
+    """Normalize ThingsBoard remaining_units from attribute or telemetry payloads."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool):
+        return None
+    if isinstance(raw, (int, float, Decimal)):
+        return float(raw)
+    if isinstance(raw, str):
+        try:
+            return float(Decimal(raw.strip()))
+        except Exception:
+            return None
+    if isinstance(raw, dict):
+        if "value" in raw:
+            return _parse_remaining_units_value(raw.get("value"))
+        if "remaining_units" in raw:
+            return _parse_remaining_units_value(raw.get("remaining_units"))
+        return None
+    if isinstance(raw, list) and raw:
+        last = raw[-1]
+        if isinstance(last, dict):
+            return _parse_remaining_units_value(last.get("value", last))
+        return _parse_remaining_units_value(last)
+    return None
+
+
+def _read_remaining_from_thingsboard_scope(token, base_url, timeout, scope_key):
+    """Read remaining_units from shared or server device attributes."""
+    url = f"{base_url}/api/v1/{token}/attributes"
+    params = {scope_key: "remaining_units"}
+    response = requests.get(url, params=params, timeout=timeout)
+    if not (200 <= response.status_code < 300):
+        return None, response
+
+    payload = response.json()
+    bucket = payload.get(scope_key.replace("Keys", "")) or {}
+    if not isinstance(bucket, dict):
+        bucket = {}
+    remaining = _parse_remaining_units_value(bucket.get("remaining_units"))
+    return remaining, response
+
+
+def _read_remaining_from_thingsboard_telemetry(token, base_url, timeout):
+    """Fallback: latest remaining_units telemetry point."""
+    url = f"{base_url}/api/v1/{token}/telemetry"
+    params = {"keys": "remaining_units", "limit": 1}
+    response = requests.get(url, params=params, timeout=timeout)
+    if not (200 <= response.status_code < 300):
+        return None, response
+
+    payload = response.json()
+    series = payload.get("remaining_units")
+    remaining = _parse_remaining_units_value(series)
+    return remaining, response
+
+
 def query_latest_units_from_thingsboard(meter):
     """
-    Read live remaining kWh from ThingsBoard shared attribute `remaining_units`.
+    Read live remaining kWh from ThingsBoard (`remaining_units` shared/server/client
+    attribute, with telemetry fallback).
     Returns (ok: bool, message: str, data: dict | None).
     """
     token = _meter_device_token(meter)
@@ -88,33 +146,44 @@ def query_latest_units_from_thingsboard(meter):
     if not base_url:
         return False, "THINGSBOARD_BASE_URL is not configured.", None
 
-    url = f"{base_url}/api/v1/{token}/attributes"
-    params = {"sharedKeys": "remaining_units"}
     timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
 
     try:
-        response = requests.get(url, params=params, timeout=timeout)
-        if not (200 <= response.status_code < 300):
-            logger.warning(
-                "ThingsBoard attribute read failed for meter=%s status=%s body=%s",
-                meter.meter_no,
-                response.status_code,
-                response.text[:300],
+        remaining = None
+        for scope_key in ("sharedKeys", "serverKeys", "clientKeys"):
+            remaining, response = _read_remaining_from_thingsboard_scope(
+                token, base_url, timeout, scope_key
             )
-            return (
-                False,
-                f"ThingsBoard rejected attribute read (HTTP {response.status_code}).",
-                None,
-            )
+            if remaining is not None:
+                break
+            if response is not None and not (200 <= response.status_code < 300):
+                logger.warning(
+                    "ThingsBoard attribute read failed for meter=%s scope=%s status=%s body=%s",
+                    meter.meter_no,
+                    scope_key,
+                    response.status_code,
+                    response.text[:300],
+                )
 
-        payload = response.json()
-        shared = payload.get("shared") or {}
-        remaining = shared.get("remaining_units")
+        if remaining is None:
+            remaining, telemetry_response = _read_remaining_from_thingsboard_telemetry(
+                token, base_url, timeout
+            )
+            if remaining is None and telemetry_response is not None and not (
+                200 <= telemetry_response.status_code < 300
+            ):
+                logger.warning(
+                    "ThingsBoard telemetry read failed for meter=%s status=%s body=%s",
+                    meter.meter_no,
+                    telemetry_response.status_code,
+                    telemetry_response.text[:300],
+                )
+
         if remaining is None:
             return False, "ThingsBoard device has no remaining_units attribute.", None
 
         return True, "OK", {
-            "units_kwh": float(Decimal(str(remaining))),
+            "units_kwh": remaining,
             "queried_at": queried_at,
             "source": "thingsboard",
         }

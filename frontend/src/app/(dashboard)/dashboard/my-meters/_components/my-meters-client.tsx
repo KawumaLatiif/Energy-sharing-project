@@ -25,7 +25,7 @@ import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { get } from "@/lib/fetch-client";
 import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
-import { checkMeterUnits, deleteMeter } from "../actions";
+import { deleteMeter } from "../actions";
 import AddMeterDialog from "./add-meter-dialog";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import {
@@ -86,18 +86,33 @@ export default function MyMetersClient() {
     setCheckError("");
     setActionMessage("");
     try {
-      const res = await checkMeterUnits(selected.meter_number);
-      if (res.data?.success && res.data.units_kwh != null) {
-        setLiveUnits(res.data.units_kwh);
+      const res = await get<{
+        success?: boolean;
+        units_kwh?: number | string;
+        queried_at?: string;
+        message?: string;
+      }>(`meter/check-units/?meter_no=${encodeURIComponent(selected.meter_number)}`);
+
+      if (!res.error && res.data?.success) {
+        const units = Number(res.data.units_kwh);
+        if (!Number.isFinite(units)) {
+          setCheckError("ThingsBoard returned an invalid balance.");
+          setLiveUnits(null);
+          return;
+        }
+        setLiveUnits(units);
         setLiveQueriedAt(res.data.queried_at ?? new Date().toISOString());
-        setActionMessage("Live balance read from ThingsBoard.");
-        await refreshMeters();
+        setActionMessage(
+          `Live balance: ${units.toFixed(2)} kWh (from ThingsBoard).`
+        );
       } else {
+        setLiveUnits(null);
         setCheckError(
           getApiErrorMessage(res.error, res.data?.message ?? "Could not read meter balance.")
         );
       }
     } catch {
+      setLiveUnits(null);
       setCheckError("Network error while checking units.");
     } finally {
       setCheckingUnits(false);
@@ -250,11 +265,18 @@ export default function MyMetersClient() {
                   {selected.static_ip && (
                     <InfoTile label="Static IP" value={selected.static_ip} mono />
                   )}
-                  {liveUnits != null && selected.architecture === "AMI" && (
+                  {selected.architecture === "AMI" && (
                     <InfoTile
                       label="Live balance (ThingsBoard)"
-                      value={`${liveUnits.toFixed(2)} kWh`}
+                      value={
+                        checkingUnits
+                          ? "Checking…"
+                          : liveUnits != null
+                          ? `${liveUnits.toFixed(2)} kWh`
+                          : "—"
+                      }
                       highlight
+                      muted={liveUnits == null && !checkingUnits}
                     />
                   )}
                 </div>
@@ -262,6 +284,13 @@ export default function MyMetersClient() {
                 {liveQueriedAt && (
                   <p className="text-xs text-muted-foreground">
                     Last checked: {new Date(liveQueriedAt).toLocaleString()}
+                    {liveUnits != null &&
+                      Math.abs(liveUnits - selected.units) > 0.01 && (
+                        <span className="block mt-1 text-amber-800/90">
+                          Ledger ({selected.units.toFixed(2)} kWh) and live device balance can differ
+                          until ThingsBoard updates <code className="text-xs">remaining_units</code>.
+                        </span>
+                      )}
                   </p>
                 )}
 
@@ -391,11 +420,13 @@ function InfoTile({
   value,
   mono,
   highlight,
+  muted,
 }: {
   label: string;
   value: string;
   mono?: boolean;
   highlight?: boolean;
+  muted?: boolean;
 }) {
   return (
     <div
@@ -405,7 +436,15 @@ function InfoTile({
       )}
     >
       <p className="text-xs text-muted-foreground">{label}</p>
-      <p className={cn("font-semibold mt-1", mono && "font-mono text-sm")}>{value}</p>
+      <p
+        className={cn(
+          "font-semibold mt-1 tabular-nums",
+          mono && "font-mono text-sm",
+          muted && "text-muted-foreground font-normal"
+        )}
+      >
+        {value}
+      </p>
     </div>
   );
 }
