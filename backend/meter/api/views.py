@@ -13,6 +13,7 @@ from meter.services import (
     push_units_to_thingsboard,
     query_latest_units_from_thingsboard,
     record_balance_snapshot,
+    _thingsboard_base_url,
 )
 from accounts.models import User
 from mtn_momo.services import MTNMoMoService
@@ -181,6 +182,8 @@ def check_meter_units(request):
                 "success": False,
                 "meter_no": meter.meter_no,
                 "message": msg,
+                "ledger_balance_kwh": float(meter.units),
+                "thingsboard_host": _thingsboard_base_url(),
             },
             status=status.HTTP_502_BAD_GATEWAY,
         )

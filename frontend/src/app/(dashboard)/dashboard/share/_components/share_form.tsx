@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { Loader2, Shield, CheckCircle, Zap, User, Phone, Hash, Cpu, ArrowLeft } from "lucide-react";
@@ -37,20 +37,29 @@ import {
 } from "@/components/ui/dialog";
 
 import { Badge } from "@/components/ui/badge";
+import {
+  isValidMeterNumber,
+  METER_NO_MAX_LENGTH,
+  meterNumberFieldSchema,
+} from "@/lib/meter-validation";
 
-const ShareSchema = z.object({
-  meter_number: z
-    .string()
-    .min(10, "Meter number must be at least 10 digits")
-    .max(12, "Meter number must be at most 12 digits")
-    .regex(/^\d+$/, "Meter number must contain only digits"),
-  units: z
-    .number()
-    .min(2, "Minimum units should be greater than 2 units")
-    .max(1000, "Cannot share more than 1000 units at once"),
-});
+function createShareSchema(maxUnits: number) {
+  const cap = Math.max(maxUnits, 2);
+  return z.object({
+    meter_number: meterNumberFieldSchema(),
+    units: z
+      .number()
+      .min(2, "Minimum share is 2 kWh")
+      .max(
+        cap,
+        cap > 2
+          ? `Cannot share more than your available balance (${cap.toFixed(2)} kWh)`
+          : "Insufficient wallet balance to share"
+      ),
+  });
+}
 
-type ShareFormValues = z.infer<typeof ShareSchema>;
+type ShareFormValues = z.infer<ReturnType<typeof createShareSchema>>;
 
 type WalletBalanceResponse = {
   success: boolean;
@@ -140,8 +149,10 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
     return () => window.removeEventListener(WALLET_BALANCE_UPDATED, onWalletUpdate);
   }, [refreshWallet]);
 
+  const shareSchema = useMemo(() => createShareSchema(totalUnits), [totalUnits]);
+
   const form = useForm<ShareFormValues>({
-    resolver: zodResolver(ShareSchema),
+    resolver: zodResolver(shareSchema),
     defaultValues: {
       meter_number: "",
       units: 2,
@@ -152,7 +163,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
 
   useEffect(() => {
     const meter = (watchedMeter || "").trim();
-    if (meter.length < 10 || meter.length > 12 || !/^\d+$/.test(meter)) {
+    if (!isValidMeterNumber(meter)) {
       setMeterPreview(null);
       setMeterPreviewError("");
       setDeliveryMethod("");
@@ -360,9 +371,9 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
                     <FormLabel>Receiver&apos;s Meter Number</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="e.g., 08381234567"
+                      placeholder="e.g., EM_SRT002"
                       {...field}
-                      maxLength={12}
+                      maxLength={METER_NO_MAX_LENGTH}
                     />
                   </FormControl>
                   {meterPreview && (

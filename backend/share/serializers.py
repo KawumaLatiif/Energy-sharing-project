@@ -3,15 +3,16 @@ import logging
 from rest_framework import serializers
 from .models import Share
 from django.core.validators import MinValueValidator
+from meter.validators import METER_NO_MAX_LEN, METER_NO_MIN_LEN, normalize_meter_no, validate_meter_no
 
 logger = logging.getLogger(__name__)
 
 class ShareUnitSerializer(serializers.ModelSerializer):
     meter_number = serializers.CharField(
         required=True,
-        min_length=10,
-        max_length=12,
-        help_text="Receiver's meter number (10–12 digits)"
+        min_length=METER_NO_MIN_LEN,
+        max_length=METER_NO_MAX_LEN,
+        help_text="Receiver's meter number (e.g. EM_SRT002 or legacy 10–12 digit ID)",
     )
     units = serializers.DecimalField(
         required=True,
@@ -29,10 +30,10 @@ class ShareUnitSerializer(serializers.ModelSerializer):
         ]
     
     def validate_meter_number(self, value):
-        # Ensure meter number contains only digits
-        if not value.isdigit():
-            raise serializers.ValidationError("Meter number must contain only digits")
-        return value
+        ok, result = validate_meter_no(value)
+        if not ok:
+            raise serializers.ValidationError(result)
+        return result
     
     def validate_units(self, value):
         if value < Decimal('2.00'):
@@ -43,30 +44,28 @@ class ShareUnitSerializer(serializers.ModelSerializer):
 class TransferUnitsSerializer(serializers.Serializer):
     meter_no_old = serializers.CharField(
         required=True,
-        min_length=10,
-        max_length=10,
-        help_text="Your current 10-digit meter number"
+        min_length=METER_NO_MIN_LEN,
+        max_length=METER_NO_MAX_LEN,
+        help_text="Your current meter number",
     )
     meter_no_new = serializers.CharField(
         required=True,
-        min_length=10,
-        max_length=10,
-        help_text="New 10-digit meter number"
+        min_length=METER_NO_MIN_LEN,
+        max_length=METER_NO_MAX_LEN,
+        help_text="New meter number",
     )
     
     def validate(self, data):
-        # Ensure old and new meter numbers are different
         if data['meter_no_old'] == data['meter_no_new']:
             raise serializers.ValidationError(
                 "Old and new meter numbers must be different"
             )
         
-        # Ensure meter numbers contain only digits
         for field in ['meter_no_old', 'meter_no_new']:
-            if not data[field].isdigit():
-                raise serializers.ValidationError(
-                    f"{field} must contain only digits"
-                )
+            ok, result = validate_meter_no(data[field])
+            if not ok:
+                raise serializers.ValidationError({field: result})
+            data[field] = result
         
         return data
     

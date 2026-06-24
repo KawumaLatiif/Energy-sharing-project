@@ -26,15 +26,9 @@ from accounts.tasks import (
     handle_send_share_token,
 )
 
+from meter.validators import normalize_meter_no, validate_meter_no
+
 logger = logging.getLogger(__name__)
-
-
-def _validate_meter_number(meter_number: str) -> tuple[bool, str]:
-    if not meter_number.isdigit():
-        return False, "Meter number must contain only digits."
-    if len(meter_number) < 10 or len(meter_number) > 12:
-        return False, "Meter number must be 10–12 digits."
-    return True, ""
 
 
 def _phone_for_api(phone) -> str:
@@ -53,13 +47,13 @@ class ShareReceiverPreviewView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        meter_number = (request.query_params.get("meter_number") or "").strip()
+        meter_number = normalize_meter_no(request.query_params.get("meter_number") or "")
         if not meter_number:
             return Response(
                 {"error": "meter_number is required."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
-        ok, msg = _validate_meter_number(meter_number)
+        ok, msg = validate_meter_no(meter_number)
         if not ok:
             return Response({"error": msg}, status=status.HTTP_400_BAD_REQUEST)
 

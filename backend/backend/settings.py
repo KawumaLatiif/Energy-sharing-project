@@ -82,7 +82,12 @@ from mtn_momo.config import MTN_MOMO_CONFIG, should_simulate_payments  # noqa: E
 MTN_USE_SIMULATED_PAYMENTS = should_simulate_payments()
 
 THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
-THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 8, cast=int)
+# Server-to-server URL when TB runs on the same host (bypasses public DNS/firewall hairpin).
+THINGSBOARD_INTERNAL_BASE_URL = get_env_variable("THINGSBOARD_INTERNAL_BASE_URL", "")
+THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 15, cast=int)
+THINGSBOARD_VERIFY_SSL = str(
+    get_env_variable("THINGSBOARD_VERIFY_SSL", "true")
+).strip().lower() in ("1", "true", "yes", "on")
 THINGSBOARD_WEBHOOK_SECRET = get_env_variable("THINGSBOARD_WEBHOOK_SECRET", "")
 THINGSBOARD_TENANT_USERNAME = get_env_variable("THINGSBOARD_TENANT_USERNAME", "")
 THINGSBOARD_TENANT_PASSWORD = get_env_variable("THINGSBOARD_TENANT_PASSWORD", "")

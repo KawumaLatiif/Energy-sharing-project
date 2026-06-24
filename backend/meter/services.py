@@ -11,7 +11,56 @@ logger = logging.getLogger(__name__)
 
 
 def _thingsboard_base_url():
+    """URL used for outbound server→ThingsBoard HTTP calls."""
+    internal = (getattr(settings, "THINGSBOARD_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+    if internal:
+        return internal
     return (getattr(settings, "THINGSBOARD_BASE_URL", "") or "").rstrip("/")
+
+
+def _thingsboard_public_base_url():
+    return (getattr(settings, "THINGSBOARD_BASE_URL", "") or "").rstrip("/")
+
+
+def _thingsboard_request_kwargs():
+    return {
+        "timeout": int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 15)),
+        "verify": getattr(settings, "THINGSBOARD_VERIFY_SSL", True),
+    }
+
+
+def _thingsboard_connection_error_message(exc, *, action="reach ThingsBoard") -> str:
+    host = _thingsboard_base_url() or "(not configured)"
+    public = _thingsboard_public_base_url()
+    detail = str(exc).strip()
+    name = exc.__class__.__name__
+    parts = [f"ThingsBoard request failed: could not {action} at {host} ({name}"]
+    if detail and detail != name:
+        parts.append(f": {detail}")
+    parts.append(").")
+    msg = "".join(parts)
+
+    hints = []
+    if name in ("ConnectionError", "ConnectTimeout", "ReadTimeout", "ConnectionRefusedError"):
+        hints.append(
+            "Confirm ThingsBoard is running and the backend server can reach it "
+            "(firewall, DNS, nginx)."
+        )
+        if public and host != public:
+            hints.append(f"Public URL is {public}; backend is using internal URL {host}.")
+        elif public:
+            hints.append(
+                "If ThingsBoard is on this same machine, set THINGSBOARD_INTERNAL_BASE_URL "
+                "in backend .env (e.g. http://127.0.0.1:8080)."
+            )
+    elif name == "SSLError":
+        hints.append(
+            "TLS verification failed. Use a valid certificate or set THINGSBOARD_VERIFY_SSL=false "
+            "for pilot/self-signed setups."
+        )
+    if hints:
+        msg += " " + " ".join(hints)
+    return msg
 
 
 def _meter_device_token(meter):
@@ -48,10 +97,10 @@ def push_units_to_thingsboard(meter, units, reference_id=""):
         payload["tx_ref"] = reference_id
 
     url = f"{base_url}/api/v1/{token}/telemetry"
-    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    req_kwargs = _thingsboard_request_kwargs()
 
     try:
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = requests.post(url, json=payload, **req_kwargs)
         if 200 <= response.status_code < 300:
             return True, "ThingsBoard push successful."
         logger.warning(
@@ -63,7 +112,7 @@ def push_units_to_thingsboard(meter, units, reference_id=""):
         return False, f"ThingsBoard rejected telemetry (HTTP {response.status_code})."
     except requests.RequestException as exc:
         logger.exception("ThingsBoard request failed for meter=%s", meter.meter_no)
-        return False, f"ThingsBoard request failed: {exc.__class__.__name__}"
+        return False, _thingsboard_connection_error_message(exc, action="push telemetry to")
 
 
 def _parse_remaining_units_value(raw):
@@ -97,7 +146,8 @@ def _read_remaining_from_thingsboard_scope(token, base_url, timeout, scope_key):
     """Read remaining_units from shared or server device attributes."""
     url = f"{base_url}/api/v1/{token}/attributes"
     params = {scope_key: "remaining_units"}
-    response = requests.get(url, params=params, timeout=timeout)
+    req_kwargs = {**_thingsboard_request_kwargs(), "timeout": timeout}
+    response = requests.get(url, params=params, **req_kwargs)
     if not (200 <= response.status_code < 300):
         return None, response
 
@@ -113,7 +163,8 @@ def _read_remaining_from_thingsboard_telemetry(token, base_url, timeout):
     """Fallback: latest remaining_units telemetry point."""
     url = f"{base_url}/api/v1/{token}/telemetry"
     params = {"keys": "remaining_units", "limit": 1}
-    response = requests.get(url, params=params, timeout=timeout)
+    req_kwargs = {**_thingsboard_request_kwargs(), "timeout": timeout}
+    response = requests.get(url, params=params, **req_kwargs)
     if not (200 <= response.status_code < 300):
         return None, response
 
@@ -189,7 +240,7 @@ def query_latest_units_from_thingsboard(meter):
         }
     except requests.RequestException as exc:
         logger.exception("ThingsBoard attribute read failed for meter=%s", meter.meter_no)
-        return False, f"ThingsBoard request failed: {exc.__class__.__name__}", None
+        return False, _thingsboard_connection_error_message(exc, action="read attributes from"), None
 
 
 def record_balance_snapshot(meter, remaining_kwh, source="thingsboard"):
@@ -213,12 +264,12 @@ def _thingsboard_tenant_token():
         return None, "ThingsBoard tenant credentials not configured."
 
     url = f"{base_url}/api/auth/login"
-    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    req_kwargs = _thingsboard_request_kwargs()
     try:
         response = requests.post(
             url,
             json={"username": username, "password": password},
-            timeout=timeout,
+            **req_kwargs,
         )
         if not (200 <= response.status_code < 300):
             return None, f"Tenant login failed (HTTP {response.status_code})."
@@ -227,13 +278,13 @@ def _thingsboard_tenant_token():
             return None, "Tenant login returned no token."
         return token, "OK"
     except requests.RequestException as exc:
-        return None, f"Tenant login failed: {exc.__class__.__name__}"
+        return None, _thingsboard_connection_error_message(exc, action="log in to")
 
 
 def _find_thingsboard_device_id(meter, tenant_token):
     """Resolve ThingsBoard device UUID from the meter access token."""
     base_url = _thingsboard_base_url()
-    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    req_kwargs = _thingsboard_request_kwargs()
     device_token = _meter_device_token(meter)
     headers = {"X-Authorization": f"Bearer {tenant_token}"}
 
@@ -241,7 +292,7 @@ def _find_thingsboard_device_id(meter, tenant_token):
     url = f"{base_url}/api/tenant/devices"
     params = {"pageSize": 50, "page": 0, "textSearch": device_token}
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        response = requests.get(url, headers=headers, params=params, **req_kwargs)
         if 200 <= response.status_code < 300:
             for item in response.json().get("data", []):
                 dev_id = item.get("id", {}).get("id")
@@ -253,14 +304,14 @@ def _find_thingsboard_device_id(meter, tenant_token):
     # Fallback: search by meter number
     params = {"pageSize": 50, "page": 0, "textSearch": meter.meter_no}
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        response = requests.get(url, headers=headers, params=params, **req_kwargs)
         if 200 <= response.status_code < 300:
             for item in response.json().get("data", []):
                 dev_id = item.get("id", {}).get("id")
                 if dev_id:
                     return dev_id, "OK"
     except requests.RequestException as exc:
-        return None, f"Device lookup failed: {exc.__class__.__name__}"
+        return None, _thingsboard_connection_error_message(exc, action="look up device on")
 
     return None, "ThingsBoard device not found for meter."
 
@@ -288,19 +339,19 @@ def set_shared_remaining_units(meter, value):
         "X-Authorization": f"Bearer {tenant_token}",
         "Content-Type": "application/json",
     }
-    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    req_kwargs = _thingsboard_request_kwargs()
     try:
         response = requests.post(
             url,
             json={"remaining_units": float(Decimal(str(value)))},
             headers=headers,
-            timeout=timeout,
+            **req_kwargs,
         )
         if 200 <= response.status_code < 300:
             return True, "remaining_units attribute updated."
         return False, f"Attribute write failed (HTTP {response.status_code})."
     except requests.RequestException as exc:
-        return False, f"Attribute write failed: {exc.__class__.__name__}"
+        return False, _thingsboard_connection_error_message(exc, action="write attributes to")
 
 
 def increment_shared_remaining_units(meter, delta):
@@ -362,10 +413,10 @@ def query_usage_timeseries_from_thingsboard(meter, start_date, end_date):
         "orderBy": "ASC",
     }
     headers = {"X-Authorization": f"Bearer {tenant_token}"}
-    timeout = int(getattr(settings, "THINGSBOARD_TIMEOUT_SECONDS", 8))
+    req_kwargs = _thingsboard_request_kwargs()
 
     try:
-        response = requests.get(url, headers=headers, params=params, timeout=timeout)
+        response = requests.get(url, headers=headers, params=params, **req_kwargs)
         if not (200 <= response.status_code < 300):
             return (
                 False,
@@ -386,4 +437,4 @@ def query_usage_timeseries_from_thingsboard(meter, start_date, end_date):
             rows.append({"date": dt.date(), "kwh_used": float(Decimal(str(value)))})
         return True, "OK", rows
     except requests.RequestException as exc:
-        return False, f"Timeseries request failed: {exc.__class__.__name__}", None
+        return False, _thingsboard_connection_error_message(exc, action="read timeseries from"), None
