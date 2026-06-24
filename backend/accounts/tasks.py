@@ -272,16 +272,29 @@ def handle_send_wallet_update(user_id, transaction_details):
         if not user:
             logger.error(f"[WALLET UPDATE] User with ID {user_id} not found")
             return False
-            
-        subject = "Wallet Transaction Update"
-        transaction_details_html = str(transaction_details).replace("\n", "<br/>")
+
+        details_str = str(transaction_details)
+        if "You received a unit share" in details_str or "Units applied:" in details_str:
+            subject = "Units received on your meter — gPAWA"
+            heading = "Units Received"
+            intro = "Another gPAWA customer shared electricity units to your meter. Details:"
+        elif "Share completed successfully" in details_str:
+            subject = "Share confirmation — gPAWA"
+            heading = "Share Completed"
+            intro = "Your unit share was completed successfully. Details:"
+        else:
+            subject = "Wallet Transaction Update"
+            heading = "Wallet Update"
+            intro = "Your wallet was updated. Here are the details:"
+
+        transaction_details_html = details_str.replace("\n", "<br/>")
         
         message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
             <div style="border: 1px solid #e6e6e6; border-radius: 10px; padding: 24px;">
-                <h2 style="margin: 0 0 12px 0; color: #0f172a;">Wallet Update</h2>
+                <h2 style="margin: 0 0 12px 0; color: #0f172a;">{heading}</h2>
                 <p style="margin: 0 0 12px 0;">Hi {user.first_name or user.email},</p>
-                <p style="margin: 0 0 10px 0;">Your wallet was updated. Here are the details:</p>
+                <p style="margin: 0 0 10px 0;">{intro}</p>
 
                 <div style="background:#f8fafc; padding:12px 14px; border-radius:8px; font-size:14px; line-height:1.5; border:1px solid #e2e8f0;">
                     {transaction_details_html}
@@ -315,7 +328,7 @@ def handle_send_wallet_update(user_id, transaction_details):
 
 
 @app.task()
-def handle_send_share_token(user_id, token, units, meter_number, sender_meter=None, sender_email=None):
+def handle_send_share_token(user_id, token, units, meter_number, sender_meter=None, sender_email=None, sender_name=None):
     """
     Task that sends a share token to the receiver's email
     """
@@ -329,14 +342,20 @@ def handle_send_share_token(user_id, token, units, meter_number, sender_meter=No
             
         subject = "Your Shared Energy Units Token"
         
-        sender_line = ""
-        if sender_email or sender_meter:
-            sender_parts = []
-            if sender_email:
-                sender_parts.append(sender_email)
-            if sender_meter:
-                sender_parts.append(f"Meter {sender_meter}")
-            sender_line = f"Shared by: {', '.join(sender_parts)}"
+        sender_lines = []
+        if sender_name:
+            sender_lines.append(f"<strong>Name:</strong> {sender_name}")
+        if sender_email:
+            sender_lines.append(f"<strong>Email:</strong> {sender_email}")
+        if sender_meter:
+            sender_lines.append(f"<strong>Meter:</strong> {sender_meter}")
+        sender_block = ""
+        if sender_lines:
+            sender_block = (
+                "<p style=\"margin: 0 0 10px 0; color:#475569;\"><strong>Shared by</strong><br/>"
+                + "<br/>".join(sender_lines)
+                + "</p>"
+            )
 
         message = f"""
         <div style="font-family: Arial, sans-serif; max-width: 520px; margin: 0 auto; color: #1a1a1a;">
@@ -344,7 +363,7 @@ def handle_send_share_token(user_id, token, units, meter_number, sender_meter=No
                 <h2 style="margin: 0 0 12px 0; color: #0f172a;">Shared Units Token</h2>
                 <p style="margin: 0 0 12px 0;">Hi {user.first_name or user.email},</p>
                 <p style="margin: 0 0 10px 0;">You have received <strong>{units}</strong> energy units for meter <strong>{meter_number}</strong>.</p>
-                {f'<p style="margin: 0 0 10px 0; color:#475569;">{sender_line}</p>' if sender_line else ''}
+                {sender_block}
 
                 <div style="background:#0f172a; color:#ffffff; text-align:center; padding:14px 18px; border-radius: 8px; letter-spacing: 4px; font-size: 24px; font-weight: 700; margin: 12px 0;">
                     {token}

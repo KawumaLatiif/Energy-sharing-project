@@ -1,293 +1,314 @@
-# Server Configuration Guide — ThingsBoard & AMI (Check Units)
+# Server Configuration Guide — ThingsBoard, AMI & Hosted gPAWA
 
-**Audience:** Operators deploying gPAWA on `energy-share.sun.ac.ug`  
+**Audience:** Operators deploying gPAWA on `energy-share.sun.ac.ug` (or similar single-VM pilots)  
 **Last updated:** June 2026  
-**Related:** [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md), [`backend/.env.production.example`](../backend/.env.production.example)
+**Status:** Verified on host `energy-system-set` with Docker ThingsBoard CE + Django/gunicorn
+
+**Related:** [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md) · [`DEPLOYMENT.md`](../DEPLOYMENT.md) · [`backend/.env.production.example`](../backend/.env.production.example)
 
 ---
 
-## 1. What “Check Units” needs
+## Documentation map (ThingsBoard + server)
 
-For **AMI meters**, the web app’s **Check Units** button calls the Django backend, which then calls **ThingsBoard** to read the live `remaining_units` balance.
-
-```
-Browser  →  energy-share.sun.ac.ug (Django)  →  ThingsBoard (iot host)  →  physical meter
-```
-
-If the backend cannot reach ThingsBoard, the UI shows an error such as:
-
-- `ThingsBoard request failed: ConnectionError`
-- `Could not resolve host: iot.energy-share.sun.ac.ug`
-
-The meter can still show **Device token: Configured** in gPAWA — that only means the token is stored in the database. **Check Units** still requires a working network path from the **application server** to ThingsBoard.
+| Document | Use when you need… |
+|----------|-------------------|
+| **This file** | Server `.env`, DNS, Docker port 9090, Check Units failures, smoke tests |
+| [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md) | Product behaviour, ledger vs live balance, channel parity |
+| [`THINGSBOARD_INTEGRATION_GUIDE.md`](./THINGSBOARD_INTEGRATION_GUIDE.md) | API payloads, developer testing, curl examples |
+| [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md) | Low-units rule chain → gPAWA webhook |
+| [`DEPLOYMENT.md`](../DEPLOYMENT.md) | Full server install (Postgres, gunicorn, nginx, SSL) |
+| [`PLATFORM_ALIGNMENT.md`](./PLATFORM_ALIGNMENT.md) | Migrations, Celery beat tasks, env checklist after git pull |
+| [`LOCAL_DEVELOPMENT.md`](./LOCAL_DEVELOPMENT.md) | Dev laptop setup (mock gateway vs real TB) |
 
 ---
 
-## 2. Diagnose from the server (SSH)
+## 1. Hosted architecture (pilot VM)
 
-Log in to the host that runs Django (e.g. `energy-system-set`) and run:
+```
+                    ┌─────────────────────────────────────────┐
+  Browser / USSD    │  energy-system-set (single VM)          │
+        │           │                                         │
+        ▼           │  nginx → gunicorn (Django) :8000         │
+  energy-share      │       │                                 │
+  .sun.ac.ug        │       │ THINGSBOARD_INTERNAL_BASE_URL   │
+                    │       ▼                                 │
+                    │  http://127.0.0.1:9090  (Docker TB)      │
+                    │       │                                 │
+                    │       └──► AMI devices (MQTT 1883)      │
+                    └─────────────────────────────────────────┘
+```
+
+| Component | Pilot host | Notes |
+|-----------|------------|--------|
+| Web + API | `https://energy-share.sun.ac.ug` | nginx → gunicorn |
+| ThingsBoard UI/API (local) | `http://127.0.0.1:9090` | Docker `tb-node`; **not** public DNS today |
+| ThingsBoard (public, optional) | `https://iot.energy-share.sun.ac.ug` | Requires DNS A record — **was missing** on pilot |
+| Postgres (gPAWA) | `localhost:5432` | DB `metering` |
+| Postgres (ThingsBoard) | `127.0.0.1:5433` | Docker `thingsboard-postgres-1` |
+| Redis | `127.0.0.1:6379` | Celery broker (production) |
+
+**Critical lesson:** The web app can work while **Check Units fails** if Django cannot reach ThingsBoard. A configured device token in gPAWA is not enough — the backend must reach TB over HTTP.
+
+---
+
+## 2. Verified Docker layout (`energy-system-set`)
+
+```bash
+docker ps
+```
+
+Example output:
+
+```text
+thingsboard/tb-node:4.2.1.1
+  127.0.0.1:9090->8080/tcp    ← use host port 9090 for gPAWA .env
+  0.0.0.0:1883->1883/tcp      MQTT
+  0.0.0.0:7070->7070/tcp
+
+postgres:15 (thingsboard-postgres-1)
+  127.0.0.1:5433->5432/tcp
+```
+
+**Common mistake:** Using port `8080` on the host. Inside the container TB listens on 8080; on the host it is mapped to **9090 only on localhost**.
+
+---
+
+## 3. Production `.env` (working configuration)
+
+Copy from [`backend/.env.production.example`](../backend/.env.production.example). Minimum for real AMI meters:
+
+```env
+# ThingsBoard — server setup guide: docs/SERVER_THINGSBOARD_CONFIGURATION.md
+
+# Public URL (docs, future nginx for TB UI). DNS optional for backend if INTERNAL is set.
+THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
+
+# REQUIRED on same-VM pilot: Django → TB without DNS
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
+
+THINGSBOARD_TIMEOUT_SECONDS=15
+THINGSBOARD_VERIFY_SSL=true
+
+# Tenant login — writes remaining_units after load/share; Energy Usage timeseries
+THINGSBOARD_TENANT_USERNAME=<tenant@tenant>
+THINGSBOARD_TENANT_PASSWORD=<password>
+THINGSBOARD_WEBHOOK_SECRET=<long-random-string>
+THINGSBOARD_USAGE_TELEMETRY_KEY=daily_kwh
+
+# Real AMI delivery (NOT MockAMIGateway)
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+
+# Production background jobs (pending AMI retry, low-units poll)
+CELERY_TASK_ALWAYS_EAGER=False
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+```
+
+**Quick fix without latest code:** If `THINGSBOARD_INTERNAL_BASE_URL` is not deployed yet, set:
+
+```env
+THINGSBOARD_BASE_URL=http://127.0.0.1:9090
+```
+
+Then restart gunicorn.
+
+**Restart after any `.env` change:**
+
+```bash
+sudo systemctl restart gpawa    # or your gunicorn unit name
+sudo systemctl status gpawa
+```
+
+Confirm systemd loads env:
+
+```bash
+sudo systemctl cat gpawa | grep EnvironmentFile
+# Should point to .../backend/.env
+```
+
+---
+
+## 4. Diagnose connectivity (SSH)
+
+### 4.1 DNS failure (what we hit on pilot)
 
 ```bash
 curl -v --connect-timeout 10 https://iot.energy-share.sun.ac.ug/api/v1/telemetry
 ```
-
-### Result A — DNS failure (common on pilot VMs)
 
 ```text
 curl: (6) Could not resolve host: iot.energy-share.sun.ac.ug
 ```
 
-**Meaning:** The hostname `iot.energy-share.sun.ac.ug` is not in DNS (or not visible from this server). The public web app at `energy-share.sun.ac.ug` can work while the `iot.` subdomain does not exist.
+**Meaning:** `iot.` subdomain not in DNS. `energy-share.sun.ac.ug` can still work.
 
-**Fix:** Use one of the options in [Section 3](#3-fix-options) below.
+**Fix:** `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` (see §3).
 
-### Result B — Connection refused / timeout
-
-DNS works but nothing is listening (ThingsBoard stopped, wrong port, firewall).
-
-**Fix:** Start ThingsBoard or open the firewall; confirm the port with [Section 4](#4-find-thingsboard-on-the-server).
-
-### Result C — HTTP response (200, 401, 405, etc.)
-
-ThingsBoard is reachable. If Check Units still fails, check:
-
-- `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` in `backend/.env`
-- Meter `iot_device_token` matches the device in ThingsBoard
-- Device has `remaining_units` attribute or telemetry
-
----
-
-## 3. Fix options
-
-### Option A — ThingsBoard on the **same server** as Django (recommended for single-VM pilots)
-
-Django should call ThingsBoard via **localhost**, not the public `iot.` hostname.
-
-#### Reference: `energy-system-set` (Docker ThingsBoard CE)
-
-On the production VM, ThingsBoard runs in Docker:
-
-```text
-thingsboard/tb-node:4.2.1.1
-127.0.0.1:9090->8080/tcp   (HTTP API — use host port 9090, not 8080)
-0.0.0.0:1883->1883/tcp     (MQTT)
-0.0.0.0:7070->7070/tcp
-```
-
-The container listens on **8080 inside** the container; the host exposes it only on **`127.0.0.1:9090`**.  
-gPAWA must use:
-
-```env
-THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
-```
-
-Verify:
+### 4.2 Local ThingsBoard healthy
 
 ```bash
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
-curl -s "http://127.0.0.1:9090/api/v1/<DEVICE_ACCESS_TOKEN>/attributes?sharedKeys=remaining_units"
+# Expected: 200
+
+curl -s "http://127.0.0.1:9090/api/v1/<DEVICE_TOKEN>/attributes?sharedKeys=remaining_units"
+# Expected: {"shared":{"remaining_units":59.3}}
 ```
 
----
+### 4.3 Django sees the same URL
 
-**Step 1 — Find the local port** (any server)
+After deploying code with `thingsboard-health`:
+
+```http
+GET /api/v1/meter/thingsboard-health/
+Authorization: Bearer <JWT>
+```
+
+Expected:
+
+```json
+{
+  "success": true,
+  "thingsboard_url_in_use": "http://127.0.0.1:9090",
+  "http_status": 200
+}
+```
+
+Shell alternative:
 
 ```bash
-ss -tlnp | grep -E '8080|9090'
-
-# If ThingsBoard runs in Docker
-docker ps | grep -i things
-
-# Probe common ports
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
+cd /path/to/gpawa/backend
+source venv/bin/activate
+python manage.py shell -c "
+from django.conf import settings
+from meter.services import _thingsboard_base_url
+import requests
+url = _thingsboard_base_url()
+print('URL:', url)
+print('HTTP:', requests.get(url + '/', timeout=10).status_code)
+"
 ```
 
-A response code other than `000` (and not “connection refused”) means something is listening.
-
-**Step 2 — Edit `backend/.env` on the server**
-
-```env
-THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
-THINGSBOARD_TIMEOUT_SECONDS=15
-THINGSBOARD_VERIFY_SSL=true
-AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
-```
-
-Use **`9090`** when Docker maps `127.0.0.1:9090->8080/tcp` (see reference above).  
-Use **`8080`** only if ThingsBoard listens directly on that host port.
-
-`THINGSBOARD_INTERNAL_BASE_URL` is used for **all server→ThingsBoard HTTP calls** and bypasses DNS for the `iot.` subdomain.
-
-**Step 3 — Restart Django**
+### 4.4 Check Units API
 
 ```bash
-# Example — use your actual service name
-sudo systemctl restart gunicorn
-# or
-sudo systemctl restart gpawa-backend
+curl -s -H "Authorization: Bearer <JWT>" \
+  "https://energy-share.sun.ac.ug/api/v1/meter/check-units/?meter_no=EM_SRT002"
 ```
 
-**Step 4 — Verify**
+Expected: `"success": true`, `"units_kwh"` matching ThingsBoard `remaining_units`.
+
+---
+
+## 5. UI symptoms → causes
+
+| Symptom | Likely cause | Fix |
+|---------|----------------|-----|
+| `Could not resolve host: iot.energy-share...` | No DNS for `iot.` | `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` |
+| `ThingsBoard request failed: ConnectionError` (short message) | Old code or `.env` not applied | Set `THINGSBOARD_BASE_URL=http://127.0.0.1:9090`, restart gunicorn, pull latest code |
+| `Connection refused` on `:9090` | TB container stopped | `docker ps` → `docker start thingsboard-thingsboard-ce-1` |
+| Check Units works; Load/Share AMI fails | `AMI_GATEWAY=MockAMIGateway` | Set `ThingsBoardAMIGateway` in `.env` |
+| `Meter has no ThingsBoard device token` | Registration incomplete | Re-register AMI meter with TB access token |
+| `no remaining_units attribute` | TB device not provisioned | Set shared attribute via rule chain or tenant API |
+| Email shows 47 kWh; TB shows 59.3 kWh | Old email template used **ledger** not live TB | Pull latest code (`share/notifications.py`) |
+| Share: receiver email only, no sender | Old USSD path | Pull latest; sender gets confirmation email too |
+| Pending delivery never clears | Celery not running | `CELERY_TASK_ALWAYS_EAGER=False` + worker + beat |
+| Low-units alerts never fire | Poll task not running | Redis + `celery -A backend worker` + `celery -A backend beat` |
+
+---
+
+## 6. Two balances (ledger vs live)
+
+| | **Ledger** (`meter.units` in gPAWA) | **Live** (`remaining_units` in ThingsBoard) |
+|--|-------------------------------------|---------------------------------------------|
+| Meaning | kWh gPAWA successfully pushed to TB | Field reading on device / TB attribute |
+| Shown in UI | “ledger balance” on My Meters | “Live balance (ThingsBoard)” after Check Units |
+| Updates when | Load/share delivery succeeds | Device consumption, TB sync, manual TB edits |
+
+They **will differ** when the customer has used power since the last credit. Notifications and Check Units should prefer **live ThingsBoard** when reachable.
+
+---
+
+## 7. Share notifications (email)
+
+After a successful AMI share (web or USSD):
+
+| Recipient | Email subject (approx.) | Contents |
+|-----------|-------------------------|----------|
+| **Receiver** | Units received on your meter | Sender **name**, email, phone, sender meter, units applied, live TB balance |
+| **Sender** | Share confirmation | Recipient name/contact, units shared, wallet remaining |
+
+Ensure users have **first + last name** in gPAWA for readable “Shared by” lines.
+
+Implementation: `backend/share/notifications.py`, `backend/accounts/tasks.py` (`handle_send_wallet_update`).
+
+---
+
+## 8. Celery & Redis (production)
+
+With `CELERY_TASK_ALWAYS_EAGER=False`:
 
 ```bash
-curl -v --connect-timeout 10 http://127.0.0.1:9090/api/v1/telemetry
+sudo apt install redis-server
+sudo systemctl enable redis-server
+
+cd /path/to/gpawa/backend
+source venv/bin/activate
+celery -A backend worker -l info &
+celery -A backend beat -l info &
 ```
 
-Then use **Check Units** in the web app.
+Or systemd units for worker/beat. Beat tasks include:
+
+| Task | Interval | Purpose |
+|------|----------|---------|
+| `retry_pending_ami_deliveries` | 5 min | Deliver queued kWh when TB was offline |
+| `poll_ami_low_units` | 2 s (configurable) | Low-units notifications |
+| `snapshot_ami_meter_balances` | 6 h | Usage analytics |
+
+See [`PLATFORM_ALIGNMENT.md`](./PLATFORM_ALIGNMENT.md).
 
 ---
 
-### Option B — ThingsBoard on a **different machine**
+## 9. ThingsBoard on a different host
 
-**Long-term (DNS):** Ask your DNS administrator to add an **A record**:
+1. **DNS (long-term):** `iot.energy-share.sun.ac.ug` → ThingsBoard server IP  
+2. **Short-term:** `/etc/hosts` on app server  
+3. **Or:** `THINGSBOARD_BASE_URL=http://<TB_IP>:8080`
 
-```text
-iot.energy-share.sun.ac.ug  →  <ThingsBoard server IP>
-```
-
-Wait for propagation, then:
-
-```bash
-curl -v --connect-timeout 10 https://iot.energy-share.sun.ac.ug/api/v1/telemetry
-```
-
-**Short-term (`/etc/hosts` on the app server):**
-
-```bash
-echo "<TB_SERVER_IP>  iot.energy-share.sun.ac.ug" | sudo tee -a /etc/hosts
-```
-
-**Direct IP in `.env` (if you prefer not to use hosts):**
-
-```env
-THINGSBOARD_BASE_URL=http://<TB_SERVER_IP>:8080
-```
-
-Use `http` or `https` and the port ThingsBoard actually exposes.
+Webhook URL for TB rule chains must be **publicly reachable from TB**, e.g. `https://energy-share.sun.ac.ug/webhooks/thingsboard/low-units` — not `localhost`.
 
 ---
 
-### Option C — ThingsBoard **not installed**
-
-If nothing listens on `8080` / `9090` and there is no separate ThingsBoard host:
-
-1. Install and run [ThingsBoard](https://thingsboard.io/docs/) (Docker or bare metal).
-2. Create devices and copy each **device access token** into gPAWA when users register AMI meters.
-3. Apply Option A or B so Django can reach the new instance.
-
-Until ThingsBoard is running, **Check Units**, **Load Units** (AMI delivery), and low-units polling will not work against real devices.
-
----
-
-## 4. Find ThingsBoard on the server
-
-| Check | Command |
-|--------|---------|
-| Listening ports | `ss -tlnp \| grep -E '8080\|9090\|1883'` |
-| Docker containers | `docker ps` |
-| Local HTTP | `curl -I http://127.0.0.1:8080` |
-| Process | `ps aux \| grep -i thingsboard` |
-| Nginx vhost for `iot.` | `grep -r iot /etc/nginx/sites-enabled/` |
-
-Default ThingsBoard HTTP port is often **8080** (HTTPS **443** when behind nginx).
-
----
-
-## 5. Production `.env` checklist (AMI / ThingsBoard)
-
-Copy from [`backend/.env.production.example`](../backend/.env.production.example) and set at minimum:
-
-| Variable | Purpose |
-|----------|---------|
-| `THINGSBOARD_BASE_URL` | Public ThingsBoard URL (docs, webhooks, emails) |
-| `THINGSBOARD_INTERNAL_BASE_URL` | **Server-to-server URL** when TB is on same host (e.g. `http://127.0.0.1:9090` for Docker `9090->8080`) |
-| `THINGSBOARD_TIMEOUT_SECONDS` | HTTP timeout (default `15`) |
-| `THINGSBOARD_VERIFY_SSL` | `true` in production; `false` only for self-signed TLS on internal URL |
-| `THINGSBOARD_WEBHOOK_SECRET` | Shared secret for inbound ThingsBoard webhooks |
-| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant login — required to **write** `remaining_units` after load/share |
-| `AMI_GATEWAY` | Must be `utils.ami_gateway.ThingsBoardAMIGateway` for real AMI meters |
-| `CELERY_TASK_ALWAYS_EAGER` | `False` in production if using pending-delivery retry and low-units polling |
-
-**Do not commit** the real `.env` file to git.
-
----
-
-## 6. TLS / self-signed certificates
-
-If `THINGSBOARD_INTERNAL_BASE_URL` uses HTTPS with a self-signed cert:
+## 10. TLS / self-signed certificates
 
 ```env
 THINGSBOARD_VERIFY_SSL=false
 ```
 
-Use only on trusted internal networks. Prefer proper TLS or plain `http://127.0.0.1:PORT` on localhost.
+Only for self-signed certs on internal URLs. Prefer `http://127.0.0.1:9090` on localhost.
 
 ---
 
-## 7. Smoke tests after configuration
+## 11. Post-deploy checklist
 
-Run on the **application server**:
-
-```bash
-# 1. Local ThingsBoard (Docker on energy-system-set: port 9090)
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
-
-# 2. Read attributes for a real device token (replace TOKEN)
-curl -s "http://127.0.0.1:9090/api/v1/TOKEN/attributes?sharedKeys=remaining_units"
-
-# 3. Django check-units (replace JWT and meter_no)
-curl -s -H "Authorization: Bearer <access_token>" \
-  "https://energy-share.sun.ac.ug/api/v1/meter/check-units/?meter_no=EM_SRT002"
-```
-
-Expected check-units JSON when healthy:
-
-```json
-{
-  "success": true,
-  "meter_no": "EM_SRT002",
-  "units_kwh": 12.5,
-  "source": "thingsboard"
-}
-```
+- [ ] `docker ps` shows `thingsboard-ce` Up  
+- [ ] `curl http://127.0.0.1:9090` → HTTP 200  
+- [ ] `grep THINGSBOARD backend/.env` shows internal URL 9090  
+- [ ] `AMI_GATEWAY=...ThingsBoardAMIGateway`  
+- [ ] `sudo systemctl restart gpawa` after `.env` edits  
+- [ ] `GET /meter/thingsboard-health/` → success  
+- [ ] Web **Check Units** shows live kWh  
+- [ ] **Load Units** on AMI meter → telemetry in TB UI  
+- [ ] Share AMI → receiver + sender emails (if SMTP configured)  
+- [ ] Celery worker + beat running (if not `ALWAYS_EAGER`)  
+- [ ] Migrations applied (`python manage.py migrate`)
 
 ---
 
-## 8. Architecture reminder
+## 12. Alphanumeric meter numbers
 
-| Component | Host (pilot) |
-|-----------|----------------|
-| Web frontend | `https://energy-share.sun.ac.ug` |
-| Django API | Same server (or behind same nginx) |
-| ThingsBoard | `http://127.0.0.1:9090` (Docker `tb-node`, host port 9090) or public `iot.` URL once DNS exists |
-
-The `iot.` subdomain is **optional for backend traffic** when `THINGSBOARD_INTERNAL_BASE_URL` is set. It is still useful for operators and external webhooks once DNS is configured.
+Meters like `EM_SRT002` are valid (not only 10-digit legacy IDs). Share/load/register flows accept alphanumeric IDs per `backend/meter/validators.py`.
 
 ---
 
-## 9. Quick troubleshooting matrix
-
-| Symptom | Likely cause | Action |
-|---------|----------------|--------|
-| `Could not resolve host: iot.energy-share...` | No DNS for `iot.` subdomain | Set `THINGSBOARD_INTERNAL_BASE_URL` or fix DNS / `/etc/hosts` |
-| `Connection refused` on localhost:9090 | ThingsBoard container stopped | `docker ps` → `docker start thingsboard-thingsboard-ce-1` |
-| `ConnectionError` on public URL | Firewall or wrong host | Use internal URL or open firewall |
-| `SSLError` | Self-signed cert | `THINGSBOARD_VERIFY_SSL=false` or fix cert |
-| `Meter has no ThingsBoard device token` | Registration incomplete | Re-register AMI meter with device token |
-| `no remaining_units attribute` | Device not provisioned in TB | Set shared attribute in ThingsBoard rule chain |
-| Check Units works; Load fails | `AMI_GATEWAY` still mock | Set `ThingsBoardAMIGateway` in `.env` |
-
----
-
-## 10. Related documentation
-
-- [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md) — product behaviour and flows  
-- [`THINGSBOARD_INTEGRATION_GUIDE.md`](./THINGSBOARD_INTEGRATION_GUIDE.md) — developer integration and API payloads  
-- [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md) — inbound webhooks from ThingsBoard  
-- [`LOCAL_DEVELOPMENT.md`](./LOCAL_DEVELOPMENT.md) — local `.env` for developers  
-
----
-
-*Document created from production troubleshooting on `energy-system-set` where `iot.energy-share.sun.ac.ug` did not resolve in DNS while the main app at `energy-share.sun.ac.ug` was already live.*
+*This guide reflects production troubleshooting on `energy-system-set`: DNS missing for `iot.energy-share.sun.ac.ug`, ThingsBoard on Docker port 9090, and gPAWA Check Units fixed via `THINGSBOARD_INTERNAL_BASE_URL` + gunicorn restart.*

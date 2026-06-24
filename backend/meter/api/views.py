@@ -138,6 +138,53 @@ def meter_ledger_history(request):
     return Response({"success": True, **payload}, status=status.HTTP_200_OK)
 
 
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def thingsboard_health(request):
+    """
+    GET /api/v1/meter/thingsboard-health/
+
+    Diagnostic: which ThingsBoard URL Django uses and whether it can connect.
+    """
+    from meter.services import (
+        _thingsboard_base_url,
+        _thingsboard_public_base_url,
+        _thingsboard_request_kwargs,
+    )
+
+    base = _thingsboard_base_url()
+    public = _thingsboard_public_base_url()
+    internal = (getattr(settings, "THINGSBOARD_INTERNAL_BASE_URL", "") or "").strip()
+
+    try:
+        response = requests.get(f"{base}/", **_thingsboard_request_kwargs())
+        return Response(
+            {
+                "success": True,
+                "thingsboard_url_in_use": base,
+                "thingsboard_base_url": public,
+                "thingsboard_internal_base_url": internal or None,
+                "http_status": response.status_code,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except requests.RequestException as exc:
+        return Response(
+            {
+                "success": False,
+                "thingsboard_url_in_use": base,
+                "thingsboard_base_url": public,
+                "thingsboard_internal_base_url": internal or None,
+                "error": f"{exc.__class__.__name__}: {exc}",
+                "hint": (
+                    "Set THINGSBOARD_BASE_URL=http://127.0.0.1:9090 (or THINGSBOARD_INTERNAL_BASE_URL) "
+                    "in backend/.env and restart gunicorn."
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
 def check_meter_units(request):

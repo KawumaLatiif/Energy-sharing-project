@@ -30,6 +30,7 @@ urlpatterns = [
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
     path('my-meter/', views.check_user_meter, name='check-user-meter'),
     path('ami-status/', views.ami_meter_status, name='ami-meter-status'),
+    path('thingsboard-health/', views.thingsboard_health, name='thingsboard-health'),
     path('check-units/', views.check_meter_units, name='check-meter-units'),
     path('ledger-history/', views.meter_ledger_history, name='meter-ledger-history'),
     path('notifications/', views.meter_notifications, name='meter-notifications'),

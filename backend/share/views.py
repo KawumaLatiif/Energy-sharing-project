@@ -343,18 +343,15 @@ class ShareUnitsView(APIView):
                         reference_id=transaction_ref,
                         details={'receiver_meter': receiver_meter_no, 'sender_meter': sender_meter.meter_no}
                     )
-                    
-                    # Send update email to sender (wallet deducted)
-                    update_details = VerificationService.format_transaction_details(
-                        'wallet_update',
-                        amount=units_to_share,
-                        transaction_id=transaction_ref,
-                        new_balance=sender_wallet.balance,
-                        date=timezone.now().strftime('%Y-%m-%d %H:%M:%S')
+
+                    from share.notifications import (
+                        build_receiver_ami_share_update,
+                        build_sender_share_confirmation,
                     )
-                    dispatch_task(handle_send_wallet_update, user.id, update_details)
 
                     if token_issued and share_token:
+                        from share.notifications import format_user_display_name
+
                         dispatch_task(
                             handle_send_share_token,
                             receiver_meter.user.id,
@@ -363,16 +360,28 @@ class ShareUnitsView(APIView):
                             receiver_meter_no,
                             sender_meter=sender_meter.meter_no,
                             sender_email=user.email,
+                            sender_name=format_user_display_name(user),
                         )
                     elif receiver_meter.architecture == Meter.ARCH_AMI:
                         receiver_meter.refresh_from_db(fields=['units'])
-                        receiver_update = (
-                            f"{units_to_share} units applied to your AMI meter {receiver_meter_no}.\n"
-                            f"Transaction ID: {transaction_ref}\n"
-                            f"Current meter balance: {receiver_meter.units} kWh\n"
-                            f"Date: {timezone.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                        receiver_update = build_receiver_ami_share_update(
+                            meter=receiver_meter,
+                            units=units_to_share,
+                            transaction_id=transaction_ref,
+                            sender_user=user,
+                            sender_meter_no=sender_meter.meter_no,
                         )
                         dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
+
+                    sender_update = build_sender_share_confirmation(
+                        units=units_to_share,
+                        receiver_meter_no=receiver_meter_no,
+                        transaction_id=transaction_ref,
+                        wallet_balance_kwh=sender_wallet.balance,
+                        channel="WEB",
+                        receiver_user=receiver_meter.user,
+                    )
+                    dispatch_task(handle_send_wallet_update, user.id, sender_update)
                     
                     logger.info(f"Share completed: {units_to_share} units from wallet to {receiver_meter_no}")
                     

@@ -459,6 +459,7 @@ def _share_verify(user, tx_ref: str, otp_code: str):
             if receiver_meter.user.email:
                 from utils.general import dispatch_task
                 from accounts.tasks import handle_send_share_token
+                from share.notifications import format_user_display_name
 
                 dispatch_task(
                     handle_send_share_token,
@@ -468,27 +469,58 @@ def _share_verify(user, tx_ref: str, otp_code: str):
                     receiver_meter.meter_no,
                     sender_meter=pending.meter_send.meter_no,
                     sender_email=user.email,
+                    sender_name=format_user_display_name(user),
                 )
         elif receiver_meter.architecture == Meter.ARCH_AMI:
-            if not apply_units_to_meter(receiver_meter, pending.units):
+            if not apply_units_to_meter(
+                receiver_meter,
+                pending.units,
+                reference_id=pending.share_transaction_id,
+                ledger_type=MeterLedgerTransaction.TYPE_TRANSFER_IN,
+                ledger_source=pending.meter_send.meter_no,
+                payment_reference=pending.share_transaction_id,
+            ):
                 return False, "Failed to deliver units to AMI meter via ThingsBoard."
             receiver_meter.refresh_from_db(fields=["units"])
+            from share.notifications import (
+                build_receiver_ami_share_update,
+                get_meter_balance_display,
+            )
+
+            balance_info = get_meter_balance_display(receiver_meter)
             msg_suffix = (
                 f"AMI meter {receiver_meter.meter_no} topped up. "
-                f"Balance: {float(receiver_meter.units):.2f} kWh."
+                f"Balance: {balance_info['display']}."
             )
             if receiver_meter.user.email:
                 from utils.general import dispatch_task
                 from accounts.tasks import handle_send_wallet_update
 
-                receiver_update = (
-                    f"{pending.units} units applied to your AMI meter {receiver_meter.meter_no}.\n"
-                    f"Transaction ID: {pending.share_transaction_id}\n"
-                    f"Current meter balance: {receiver_meter.units} kWh"
+                receiver_update = build_receiver_ami_share_update(
+                    meter=receiver_meter,
+                    units=pending.units,
+                    transaction_id=pending.share_transaction_id,
+                    sender_user=user,
+                    sender_meter_no=pending.meter_send.meter_no,
                 )
                 dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
         else:
             return False, "Unknown receiver meter type."
+
+        if user.email:
+            from share.notifications import build_sender_share_confirmation
+            from utils.general import dispatch_task
+            from accounts.tasks import handle_send_wallet_update
+
+            sender_update = build_sender_share_confirmation(
+                units=pending.units,
+                receiver_meter_no=receiver_meter.meter_no,
+                transaction_id=pending.share_transaction_id,
+                wallet_balance_kwh=sender_wallet.balance,
+                channel="USSD",
+                receiver_user=receiver_meter.user,
+            )
+            dispatch_task(handle_send_wallet_update, user.id, sender_update)
 
         pending.status = "COMPLETED"
         pending.verified_at = timezone.now()
@@ -504,8 +536,12 @@ def _share_verify(user, tx_ref: str, otp_code: str):
             details={"channel": "USSD", "receiver_meter": pending.meter_receive.meter_no},
         )
 
-    return True, f"Share completed.\nRef: {pending.share_transaction_id}\nUnits: {pending.units}\n{msg_suffix}" + (
-        f"\nToken: {share_token}" if share_token else ""
+    return True, (
+        f"Share completed.\nRef: {pending.share_transaction_id}\n"
+        f"Units: {pending.units}\n"
+        f"Wallet: {float(sender_wallet.balance):.2f} kWh\n"
+        f"{msg_suffix}"
+        + (f"\nToken: {share_token}" if share_token else "")
     )
 
 
