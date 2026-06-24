@@ -4,6 +4,7 @@
 
 **Project:** gPAWA Energy Wallet  
 **ThingsBoard instance:** `https://iot.energy-share.sun.ac.ug`  
+**Server deployment / DNS / Check Units:** [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md)  
 **Last updated:** June 2026  
 **Audience:** Non-technical stakeholders and technical implementers
 
