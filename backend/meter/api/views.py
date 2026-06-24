@@ -1188,14 +1188,9 @@ class BuyUnitsView(GenericAPIView):
         return units, tariff
 
     def _get_active_loan_balances(self, user):
-        loans_with_balance = []
-        total_outstanding = Decimal("0")
-        for loan in LoanApplication.objects.filter(user=user, status='DISBURSED').order_by('created_at'):
-            balance = Decimal(str(loan.outstanding_balance))
-            if balance > 0:
-                loans_with_balance.append((loan, balance))
-                total_outstanding += balance
-        return loans_with_balance, total_outstanding
+        from loan.services import get_disbursed_loan_balances
+
+        return get_disbursed_loan_balances(user)
 
     def _apply_auto_loan_repayment(self, user, payment_amount):
         """
@@ -1242,15 +1237,14 @@ class BuyUnitsView(GenericAPIView):
         try:
             user = request.user
 
-            # Block purchases when there is any pending or incomplete loan
-            active_loans = LoanApplication.objects.filter(
-                user=user
-            ).exclude(status__in=["COMPLETED", "REJECTED"])
-            # Pending/approved/disbursed/defaulted are all considered blocking
-            if active_loans.exists():
+            # Block purchases when there is any pending or incomplete loan (same as loans/stats)
+            from loan.services import user_can_purchase_units
+
+            can_buy, purchase_message = user_can_purchase_units(user)
+            if not can_buy:
                 return Response({
                     "error": "Loan in progress",
-                    "message": "You cannot buy units while you have a pending or incomplete loan. Please clear your loan first."
+                    "message": purchase_message,
                 }, status=status.HTTP_400_BAD_REQUEST)
             try:
                 amount = Decimal(str(amount))

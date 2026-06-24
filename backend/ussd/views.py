@@ -12,9 +12,18 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from accounts.models import Wallet as AccountWallet
-from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
-from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
-from loan.models import get_tier_by_score
+from loan.models import LoanApplication
+from loan.services import (
+    LoanOperationError,
+    create_loan_application,
+    disburse_loan,
+    format_loan_stats_ussd,
+    format_wallet_loan_summary,
+    get_disbursed_loan_balances,
+    get_user_loan_stats,
+    repay_loan,
+    user_can_purchase_units,
+)
 from meter.api.views import BuyUnitsView
 from meter.models import Meter, MeterToken
 from meter.services import push_units_to_thingsboard, query_latest_units_from_thingsboard, record_balance_snapshot
@@ -82,14 +91,19 @@ def _find_user_by_phone(phone_number: str):
     if not incoming:
         return None
 
-    # Tolerate provider formatting differences (+256..., 256..., 07...)
-    for user in User.objects.all().only("id", "phone_number"):
+    candidates = []
+    for user in User.objects.exclude(phone_number__isnull=True).exclude(phone_number="").only(
+        "id", "phone_number"
+    ):
         stored = _normalize_phone(user.phone_number)
         if not stored:
             continue
-        if stored == incoming or stored.endswith(incoming[-9:]) or incoming.endswith(stored[-9:]):
+        if stored == incoming:
             return user
-    return None
+        if stored.endswith(incoming[-9:]) or incoming.endswith(stored[-9:]):
+            candidates.append(user)
+
+    return candidates[0] if len(candidates) == 1 else None
 
 
 def _menu(text: str) -> list[str]:
@@ -113,18 +127,15 @@ def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = 
     return _resp(prefix, message)
 
 
-def _latest_approved_loan(user):
-    return LoanApplication.objects.filter(user=user, status="APPROVED").order_by("-created_at").first()
-
 
 def _start_buy_units(user, phone_number: str, amount_raw: str):
     meter = Meter.objects.filter(user=user).first()
     if not meter:
         return False, "No meter found. Register your meter in app first."
 
-    active_loans = LoanApplication.objects.filter(user=user).exclude(status__in=["COMPLETED", "REJECTED"])
-    if active_loans.exists():
-        return False, "You cannot buy units while you have an active loan."
+    can_buy, purchase_message = user_can_purchase_units(user)
+    if not can_buy:
+        return False, purchase_message
 
     try:
         amount = Decimal(str(amount_raw))
@@ -139,7 +150,7 @@ def _start_buy_units(user, phone_number: str, amount_raw: str):
         account_wallet = AccountWallet.objects.create(user=user)
 
     buy_view = BuyUnitsView()
-    _, total_outstanding = buy_view._get_active_loan_balances(user)
+    _, total_outstanding = get_disbursed_loan_balances(user)
     estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
     estimated_units, tariff = buy_view._calculate_units_from_tariff(estimated_buy_amount, user)
 
@@ -197,206 +208,54 @@ def _check_buy_status(user, tx_id_raw: str):
 
 
 def _apply_loan(user, amount_raw: str):
-    meter = Meter.objects.filter(user=user).first()
-    if not meter:
-        return False, "No meter found. Register your meter in app first."
-
-    active_exists = LoanApplication.objects.filter(
-        user=user, status__in=["PENDING", "APPROVED", "DISBURSED"]
-    ).exists()
-    if active_exists:
-        return False, "You already have an active loan."
-
     try:
-        amount_requested = Decimal(amount_raw)
-    except (InvalidOperation, ValueError):
-        return False, "Invalid amount."
-
-    if amount_requested < Decimal("5000") or amount_requested > Decimal("200000"):
-        return False, "Amount out of range. Use 5000 to 200000."
-
-    credit_signal = get_or_create_dummy_credit_signal(user)
-    score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
-    tier_info = get_tier_by_score(score)
-    tariff = ElectricityTariff.objects.filter(is_active=True).first()
-
-    if tier_info:
-        max_amount = Decimal(str(tier_info["max_amount"]))
-        approved = min(max_amount, amount_requested)
-        status_value = "APPROVED" if approved > 0 else "REJECTED"
-        rejection_reason = "" if approved > 0 else "Credit score below threshold"
-        tier_name = str(tier_info["name"]).upper()
-        interest_rate = tier_info["interest_rate"]
-    else:
-        approved = Decimal("0")
-        status_value = "REJECTED"
-        rejection_reason = "Credit score below threshold"
-        tier_name = None
-        interest_rate = Decimal("10.0")
-
-    loan = LoanApplication.objects.create(
-        user=user,
-        purpose="USSD application",
-        amount_requested=amount_requested,
-        amount_approved=approved if approved > 0 else None,
-        tenure_months=1,
-        credit_score=int(score),
-        loan_tier=tier_name,
-        interest_rate=interest_rate,
-        tariff=tariff,
-        status=status_value,
-        rejection_reason=rejection_reason,
-    )
-
-    TransactionLog.objects.create(
-        user=user,
-        transaction_type=TransactionType.LOAN_APPLICATION,
-        amount=amount_requested,
-        status=loan.status,
-        reference_id=loan.loan_id,
-        details={"channel": "USSD"},
-    )
+        loan = create_loan_application(
+            user,
+            amount_requested=amount_raw,
+            purpose="USSD application",
+            tenure_months=6,
+            channel="USSD",
+        )
+    except LoanOperationError as exc:
+        return False, exc.message
 
     if loan.status == "APPROVED":
-        return True, f"Loan approved.\nID: {loan.id}\nLoanRef: {loan.loan_id}\nApproved UGX {loan.amount_approved}"
+        return True, (
+            f"Loan approved.\nID: {loan.id}\nLoanRef: {loan.loan_id}\n"
+            f"Approved UGX {loan.amount_approved}"
+        )
     return True, f"Loan rejected.\nReason: {loan.rejection_reason}"
 
 
 def _disburse_loan(user, loan_id_raw: str):
-    if loan_id_raw == "0":
-        loan = _latest_approved_loan(user)
-    else:
-        try:
-            loan = LoanApplication.objects.get(id=int(loan_id_raw), user=user)
-        except (ValueError, LoanApplication.DoesNotExist):
-            return False, "Loan not found."
-
-    if not loan:
-        return False, "No approved loan found."
-    if loan.status != "APPROVED":
-        return False, f"Loan is {loan.status}. Only APPROVED loans can be disbursed."
-    if not loan.amount_approved or loan.amount_approved <= 0:
-        return False, "Loan amount not approved."
-
-    meter = Meter.objects.filter(user=user).first()
-    if not meter:
-        return False, "No meter found."
-
-    with db_transaction.atomic():
-        if loan.tariff:
-            units_to_disburse = loan.calculate_units_from_amount()
-        else:
-            units_to_disburse = round(float(loan.amount_approved) / 500)
-
-        LoanDisbursement.objects.create(
-            loan_application=loan,
-            disbursed_amount=loan.amount_approved,
-            units_disbursed=units_to_disburse,
-            meter=meter,
-        )
-
-        loan.status = "DISBURSED"
-        loan.save()
-
-        unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
-        unit_wallet.balance += Decimal(str(units_to_disburse))
-        unit_wallet.save()
-
-        push_ok, push_msg = push_units_to_thingsboard(
-            meter=meter,
-            units=units_to_disburse,
-            reference_id=loan.loan_id,
-        )
-
-        TransactionLog.objects.create(
-            user=user,
-            transaction_type=TransactionType.LOAN_DISBURSEMENT,
-            amount=loan.amount_approved,
-            units=units_to_disburse,
-            status="COMPLETED",
-            reference_id=loan.loan_id,
-            details={"channel": "USSD", "meter_push": {"status": "OK" if push_ok else "FAILED", "message": push_msg}},
-        )
+    try:
+        result = disburse_loan(user, loan_id_raw, channel="USSD")
+    except LoanOperationError as exc:
+        return False, exc.message
 
     return True, (
-        f"Loan disbursed.\nLoanRef: {loan.loan_id}\nUnits added: {round(units_to_disburse, 2)}\n"
-        f"Meter push: {'OK' if push_ok else 'FAILED'}"
+        f"Loan disbursed.\nLoanRef: {result['loan_id']}\n"
+        f"Units added: {result['units_disbursed']}\n"
+        f"Meter push: {'OK' if result['meter_push_ok'] else 'FAILED'}"
     )
 
 
 def _repay_loan(user, loan_id_raw: str, amount_raw: str):
     try:
-        loan = LoanApplication.objects.get(id=int(loan_id_raw), user=user)
-    except (ValueError, LoanApplication.DoesNotExist):
-        return False, "Loan not found."
-
-    if loan.status != "DISBURSED":
-        return False, "Loan is not disbursed."
-
-    try:
-        amount = Decimal(str(amount_raw))
-    except (InvalidOperation, ValueError):
-        return False, "Invalid amount."
-    if amount <= 0:
-        return False, "Amount must be greater than zero."
-
-    current_balance = Decimal(str(loan.outstanding_balance))
-    if amount > current_balance:
-        return False, f"Amount exceeds outstanding balance UGX {current_balance}."
-
-    with db_transaction.atomic():
-        if loan.tariff:
-            units_equivalent = loan.calculate_units_from_amount(float(amount))
-        else:
-            units_equivalent = round(float(amount) / 500, 2)
-
-        repayment = LoanRepayment.objects.create(
-            loan=loan,
-            amount_paid=amount,
-            units_paid=units_equivalent,
-            payment_reference=f"USSD-{uuid.uuid4().hex[:10].upper()}",
-            is_on_time=True if not loan.due_date else timezone.now() <= loan.due_date,
+        result = repay_loan(
+            user,
+            loan_id_raw,
+            amount_raw,
+            channel="USSD",
             payment_method="MOBILE_MONEY",
-            payment_status="SUCCESS",
         )
-
-        unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
-        unit_wallet.balance += Decimal(str(units_equivalent))
-        unit_wallet.save()
-
-        meter = Meter.objects.filter(user=user).first()
-        push_ok = False
-        push_msg = "No meter found."
-        if meter:
-            push_ok, push_msg = push_units_to_thingsboard(
-                meter=meter,
-                units=units_equivalent,
-                reference_id=repayment.payment_reference,
-            )
-
-        TransactionLog.objects.create(
-            user=user,
-            transaction_type=TransactionType.LOAN_REPAYMENT,
-            amount=amount,
-            units=units_equivalent,
-            status="COMPLETED",
-            reference_id=loan.loan_id,
-            details={
-                "payment_reference": repayment.payment_reference,
-                "channel": "USSD",
-                "meter_push": {"status": "OK" if push_ok else "FAILED", "message": push_msg},
-            },
-        )
-
-        loan.refresh_from_db()
-        if loan.outstanding_balance <= 0:
-            loan.status = "COMPLETED"
-            loan.save()
+    except LoanOperationError as exc:
+        return False, exc.message
 
     return True, (
-        f"Repayment successful.\nLoanRef: {loan.loan_id}\nPaid: UGX {amount}\n"
-        f"Outstanding: UGX {loan.outstanding_balance}\nWallet +{round(units_equivalent, 2)} units\n"
-        f"Meter push: {'OK' if push_ok else 'FAILED'}"
+        f"{result['message']}\nLoanRef: {result['loan_id']}\n"
+        f"Outstanding: UGX {result['outstanding_balance']}\n"
+        f"Units added: {result['units_added']}"
     )
 
 
@@ -682,6 +541,65 @@ def _check_units_for_meter(user, meter_no: str):
     )
 
 
+def _reply_ussd_check_units(user, ussd_session, text, steps):
+    """AMI check-units flow for paths like 1*2 or 1*2*<meter pick>."""
+    ami_meters = _ami_meters_for_user(user)
+    if not ami_meters:
+        ussd_session.last_text = text
+        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+        return _session_reply(
+            ussd_session,
+            "END",
+            "No AMI meter on your account.",
+            menu="check_units",
+        )
+
+    if len(ami_meters) == 1:
+        ok, msg = _check_units_for_meter(user, ami_meters[0].meter_no)
+        ussd_session.last_text = text
+        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+        return _session_reply(
+            ussd_session,
+            "END",
+            msg if ok else f"Error: {msg}",
+            menu="check_units",
+        )
+
+    if len(steps) == 2:
+        ussd_session.last_text = text
+        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+        return _session_reply(
+            ussd_session,
+            "CON",
+            _ami_meter_picker_message(ami_meters),
+            menu="check_units_pick",
+            context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
+        )
+
+    try:
+        pick = int(steps[2])
+        meter_nos = (ussd_session.context or {}).get("ami_meter_nos") or [
+            m.meter_no for m in ami_meters
+        ]
+        if pick < 1 or pick > len(meter_nos):
+            raise ValueError("out of range")
+        meter_no = meter_nos[pick - 1]
+    except (ValueError, TypeError, IndexError):
+        ussd_session.last_text = text
+        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+        return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="check_units")
+
+    ok, msg = _check_units_for_meter(user, meter_no)
+    ussd_session.last_text = text
+    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+    return _session_reply(
+        ussd_session,
+        "END",
+        msg if ok else f"Error: {msg}",
+        menu="check_units",
+    )
+
+
 def _notifications_summary(user):
     from meter.models import MeterNotification
 
@@ -777,19 +695,44 @@ def ussd_entry(request):
                 menu="root",
             )
 
-        # 1) Wallet and meter overview
+        # 1) Wallet and meter
         if steps[0] == "1":
-            active_loans = LoanApplication.objects.filter(user=user, status="DISBURSED")
-            outstanding = sum(Decimal(str(loan.outstanding_balance)) for loan in active_loans)
-            meter_no = meter.meter_no if meter else "Not registered"
+            if len(steps) == 1:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "CON",
+                    (
+                        "Wallet & Meter\n"
+                        "1. Summary\n"
+                        "2. Check units (AMI)"
+                    ),
+                    menu="wallet_menu",
+                )
+
+            if steps[1] == "1":
+                loan_stats = get_user_loan_stats(user)
+                meter_no = meter.meter_no if meter else "Not registered"
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _session_reply(
+                    ussd_session,
+                    "END",
+                    (
+                        f"Wallet: {wallet.balance} units\n"
+                        f"Meter: {meter_no}\n"
+                        f"{format_wallet_loan_summary(loan_stats)}"
+                    ),
+                    menu="wallet_overview",
+                )
+
+            if steps[1] == "2":
+                return _reply_ussd_check_units(user, ussd_session, text, steps)
+
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(
-                ussd_session,
-                "END",
-                f"Wallet: {wallet.balance} units\nMeter: {meter_no}\nOutstanding loan: UGX {outstanding}",
-                menu="wallet_overview",
-            )
+            return _session_reply(ussd_session, "END", "Invalid wallet option.")
 
         # 2) Buy units full flow
         if steps[0] == "2":
@@ -910,16 +853,13 @@ def ussd_entry(request):
                 return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="loan_repay_result")
 
             if steps[1] == "5":
-                loans = LoanApplication.objects.filter(user=user)
-                pending = loans.filter(status="PENDING").count()
-                active = loans.filter(status__in=["APPROVED", "DISBURSED", "DEFAULTED"]).count()
-                outstanding = sum(float(l.outstanding_balance) for l in loans.exclude(status__in=["COMPLETED", "REJECTED"]))
+                loan_stats = get_user_loan_stats(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _session_reply(
                     ussd_session,
                     "END",
-                    f"Loan stats\nPending: {pending}\nActive: {active}\nOutstanding: UGX {round(outstanding, 2)}",
+                    format_loan_stats_ussd(loan_stats),
                     menu="loan_stats",
                 )
 
@@ -1032,9 +972,8 @@ def ussd_entry(request):
                     (
                         "Manage\n"
                         "1. My meters\n"
-                        "2. Check units (AMI)\n"
-                        "3. Alerts\n"
-                        "4. Apply wallet (AMI)"
+                        "2. Alerts\n"
+                        "3. Apply wallet (AMI)"
                     ),
                     menu="manage_menu",
                 )
@@ -1051,69 +990,12 @@ def ussd_entry(request):
                 )
 
             if steps[1] == "2":
-                ami_meters = _ami_meters_for_user(user)
-                if not ami_meters:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "END",
-                        "No AMI meter on your account.",
-                        menu="check_units",
-                    )
-
-                if len(ami_meters) == 1:
-                    ok, msg = _check_units_for_meter(user, ami_meters[0].meter_no)
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "END",
-                        msg if ok else f"Error: {msg}",
-                        menu="check_units",
-                    )
-
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        _ami_meter_picker_message(ami_meters),
-                        menu="check_units_pick",
-                        context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
-                    )
-
-                try:
-                    pick = int(steps[2])
-                    meter_nos = (ussd_session.context or {}).get("ami_meter_nos") or [
-                        m.meter_no for m in ami_meters
-                    ]
-                    if pick < 1 or pick > len(meter_nos):
-                        raise ValueError("out of range")
-                    meter_no = meter_nos[pick - 1]
-                except (ValueError, TypeError, IndexError):
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="check_units")
-
-                ok, msg = _check_units_for_meter(user, meter_no)
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
-                    ussd_session,
-                    "END",
-                    msg if ok else f"Error: {msg}",
-                    menu="check_units",
-                )
-
-            if steps[1] == "3":
                 ok, msg = _notifications_summary(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _session_reply(ussd_session, "END", msg, menu="manage_alerts")
 
-            if steps[1] == "4":
+            if steps[1] == "3":
                 ami_meters = _ami_meters_for_user(user)
                 if not ami_meters:
                     ussd_session.last_text = text

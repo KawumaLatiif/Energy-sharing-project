@@ -50,14 +50,12 @@ class LoanApplicationView(generics.ListCreateAPIView):
             data = request.data
             
             # Prevent multiple active loans
-            existing_active_loans = LoanApplication.objects.filter(
-                user=request.user,
-                status__in=['PENDING', 'APPROVED', 'DISBURSED']
-            ).exists()
-            
-            if existing_active_loans:
+            from loan.services import user_can_apply_for_loan
+
+            can_apply, apply_message = user_can_apply_for_loan(request.user)
+            if not can_apply:
                 return Response(
-                    {"error": "You already have an active loan. Please complete repayment before applying for a new one."},
+                    {"error": apply_message},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -378,145 +376,27 @@ class LoanRepaymentView(APIView):
     
     def post(self, request, loan_id):
         try:
-            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
-            
-            if loan.status != 'DISBURSED':
-                return Response(
-                    {"error": "Loan is not disbursed or already completed"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            amount = float(request.data.get('amount', 0))
-            
-            if amount <= 0:
-                return Response(
-                    {"error": "Invalid amount"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Get current outstanding balance
-            current_balance = loan.outstanding_balance
-            
-            if amount > current_balance:
-                return Response(
-                    {"error": f"Amount exceeds outstanding balance of {current_balance} UGX"}, 
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Calculate units equivalent based on tariff block rates
-            if loan.tariff:
-                units_equivalent = loan.calculate_units_from_amount(amount)
-                cost_breakdown = self.get_repayment_breakdown(loan, amount)
-                tariff_info = {
-                    'tariff_code': loan.tariff.tariff_code,
-                    'cost_breakdown': cost_breakdown
-                }
-            else:
-                # Default calculation (500 UGX per unit)
-                units_equivalent = round(amount / 500, 2)
-                tariff_info = {
-                    'tariff_code': 'DEFAULT',
-                    'rate_used': 500
-                }
-            
-            with transaction.atomic():
-                # Generate payment reference
-                payment_ref = generate_random_string(12)
-                
-                # Create repayment record
-                repayment = LoanRepayment.objects.create(
-                    loan=loan,
-                    amount_paid=amount,
-                    units_paid=units_equivalent,
-                    payment_reference=payment_ref,
-                    is_on_time=self.check_payment_timeliness(loan),
-                    payment_method='CASH',  # or whatever method was used
-                    payment_status='SUCCESS'
-                )
-                
-                # Add units to user's meter
-                try:
-                    meter = Meter.objects.get(user=request.user)
-                    meter.units += units_equivalent
-                    meter.save()
-                    
-                except Meter.DoesNotExist:
-                    return Response(
-                        {"error": "Meter not found"}, 
-                        status=status.HTTP_400_BAD_REQUEST
-                    )
-                
-                # Create Transaction Log - THIS WAS MISSING
-                TransactionLog.objects.create(
-                    user=request.user,
-                    transaction_type=TransactionType.LOAN_REPAYMENT,
-                    amount=amount,
-                    units=units_equivalent,
-                    status='COMPLETED',
-                    reference_id=loan.loan_id,
-                    details={
-                        'payment_reference': payment_ref,
-                        'units_added': float(units_equivalent),
-                        'loan_id': loan.loan_id,
-                        'payment_method': 'CASH'
-                    }
-                )
-                
-                # Create UnitTransaction
-                try:
-                    UnitTransaction.objects.create(
-                        sender=request.user,
-                        receiver=request.user,
-                        units=units_equivalent,
-                        meter=meter,
-                        direction='IN',
-                        status='COMPLETED',
-                        message=f'Loan repayment for {loan.loan_id}'
-                    )
-                except Exception as e:
-                    logger.warning(f"UnitTransaction creation failed: {e}")
-                
-                # IMPORTANT: Refresh loan from database to get updated state
-                loan.refresh_from_db()
-                
-                # Check if loan is fully paid - after recording the payment
-                new_balance = loan.outstanding_balance
-                
-                if new_balance <= 0:
-                    loan.status = 'COMPLETED'
-                    loan.save()
-                    
-                    # Log completion
-                    TransactionLog.objects.create(
-                        user=request.user,
-                        transaction_type=TransactionType.LOAN_COMPLETION,
-                        amount=0,
-                        status='COMPLETED',
-                        reference_id=loan.loan_id,
-                        details={'message': 'Loan fully repaid'}
-                    )
-                    
-                    message = "Loan fully repaid! Thank you."
-                else:
-                    message = "Payment successful"
-            
-            # Return updated loan info
-            return Response({
-                "message": message,
-                "units_added": round(units_equivalent, 2),
-                "payment_reference": payment_ref,
-                "tariff_info": tariff_info,
-                "outstanding_balance": loan.outstanding_balance,
-                "loan_status": loan.status,  # Return updated status
-                "total_paid": loan.amount_paid,
-                "total_due": loan.total_amount_due
-            })
-            
-        except LoanApplication.DoesNotExist:
-            return Response(
-                {"error": "Loan not found"}, 
-                status=status.HTTP_404_NOT_FOUND
+            from loan.services import LoanOperationError, repay_loan
+
+            result = repay_loan(
+                request.user,
+                loan_id,
+                request.data.get("amount", 0),
+                channel="WEB",
+                payment_method="CASH",
             )
+            return Response(
+                {
+                    "message": result["message"],
+                    "units_added": result["units_added"],
+                    "payment_reference": result["payment_reference"],
+                    "outstanding_balance": result["outstanding_balance"],
+                    "loan_status": result["loan_status"],
+                }
+            )
+
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
             logger.error(f"Repayment error: {str(e)}")
             return Response(
@@ -582,107 +462,23 @@ class LoanDisbursementView(APIView):
     
     def post(self, request, loan_id):
         try:
-            loan = LoanApplication.objects.get(id=loan_id, user=request.user)
-            
-            if loan.status != 'APPROVED':
-                return Response({"error": "Loan is not approved for disbursement"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            if not loan.amount_approved or loan.amount_approved <= 0:
-                return Response({"error": "Loan amount not approved"}, status=status.HTTP_400_BAD_REQUEST)
-            
-            with transaction.atomic():
-                # Get user's meter
-                try:
-                    meter = Meter.objects.get(user=request.user)
-                except Meter.DoesNotExist:
-                    return Response({"error": "Meter not found"}, status=status.HTTP_400_BAD_REQUEST)
-                
-                # Calculate units to disburse based on tariff block rates
-                if loan.tariff:
-                    units_to_disburse = loan.calculate_units_from_amount()
-                    # FIXED: Now this method exists
-                    cost_breakdown = self.get_cost_breakdown(loan, float(loan.amount_approved))
-                    tariff_info = {
-                        'tariff_code': loan.tariff.tariff_code,
-                        'tariff_name': loan.tariff.tariff_name,
-                        'cost_breakdown': cost_breakdown
-                    }
-                else:
-                    # Fallback to default calculation (500 UGX per unit)
-                    units_to_disburse = round(float(loan.amount_approved) / 500)
-                    tariff_info = {
-                        'tariff_code': 'DEFAULT',
-                        'rate_per_kwh': 500,
-                        'tariff_name': 'Default Rate'
-                    }
+            from loan.services import LoanOperationError, disburse_loan
 
-                # Create disbursement record
-                disbursement = LoanDisbursement.objects.create(
-                    loan_application=loan,
-                    disbursed_amount=loan.amount_approved,
-                    units_disbursed=units_to_disburse,
-                    meter=meter
-                )
-                
-                # Update loan status to DISBURSED
-                loan.status = 'DISBURSED'
-                loan.save()
-
-                TransactionLog.objects.create(
-                    user=request.user,
-                    transaction_type=TransactionType.LOAN_DISBURSEMENT,
-                    amount=loan.amount_approved,
-                    units=units_to_disburse,
-                    status='COMPLETED',
-                    reference_id=loan.loan_id,
-                    details={
-                        'units_disbursed': float(units_to_disburse)
-                    }
-                )
-
-                # Add units to unit wallet (not meter)
-                unit_wallet, _ = UnitWallet.objects.get_or_create(user=request.user)
-                unit_wallet.balance += Decimal(str(units_to_disburse))
-                unit_wallet.save()
-
-                push_ok, push_msg = push_units_to_thingsboard(
-                    meter=meter,
-                    units=units_to_disburse,
-                    reference_id=loan.loan_id,
-                )
-                
-                try:
-                    # Try minimal fields based on your model structure
-                    unit_transaction_data = {
-                        'sender': request.user,
-                        'receiver': request.user,
-                        'units': units_to_disburse,
-                        'meter': None,
-                        'direction': 'IN',
-                        'status': 'COMPLETED',
-                        'message': f'Loan disbursement to wallet - {loan.loan_id}'
-                    }
-                    
-                    # Remove any None values
-                    unit_transaction_data = {k: v for k, v in unit_transaction_data.items() if v is not None}
-                    
-                    UnitTransaction.objects.create(**unit_transaction_data)
-                    
-                except Exception as e:
-                    logger.warning(f"UnitTransaction creation failed, but continuing: {e}")
-                    # Don't fail the whole disbursement if transaction recording fails
-            
-            return Response({
-                "message": "Loan disbursed successfully to your unit wallet!",
-                "units_added_to_wallet": round(units_to_disburse, 2),
-                "units_disbursed": round(units_to_disburse, 2),
-                "tariff_info": tariff_info,
-                "meter_push": {
-                    "status": "OK" if push_ok else "FAILED",
-                    "message": push_msg,
+            result = disburse_loan(request.user, loan_id, channel="WEB")
+            return Response(
+                {
+                    "message": "Loan disbursed successfully to your unit wallet!",
+                    "units_added_to_wallet": result["units_disbursed"],
+                    "units_disbursed": result["units_disbursed"],
+                    "meter_push": {
+                        "status": "OK" if result["meter_push_ok"] else "FAILED",
+                        "message": result["meter_push_message"],
+                    },
                 }
-            })
-            
+            )
+
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
         except LoanApplication.DoesNotExist:
             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
         except Meter.DoesNotExist:
@@ -725,44 +521,9 @@ class LoanStatsView(APIView):
     
     def get(self, request):
         try:
-            loans = LoanApplication.objects.filter(user=request.user)
+            from loan.services import get_user_loan_stats
 
-            pending_applications = loans.filter(status="PENDING").count()
-            active_loans = loans.filter(status__in=["APPROVED", "DISBURSED", "DEFAULTED"]).count()
-            approved_loans = loans.filter(status="APPROVED").count()
-            total_loans = loans.count()
-
-            total_borrowed = float(
-                loans.filter(status__in=["APPROVED", "DISBURSED", "COMPLETED", "DEFAULTED"])
-                .aggregate(total=Sum("amount_approved"))["total"] or 0
-            )
-
-            total_repayments = float(
-                LoanRepayment.objects.filter(loan__user=request.user)
-                .aggregate(total=Sum("amount_paid"))["total"] or 0
-            )
-
-            outstanding_balance = sum(
-                float(l.outstanding_balance)
-                for l in loans.exclude(status__in=["COMPLETED", "REJECTED"])
-            )
-
-            credit_signal = get_or_create_dummy_credit_signal(request.user)
-            credit_score = calculate_weighted_credit_score(credit_signal)
-
-            stats = {
-                "active_loans": active_loans,
-                "pending_applications": pending_applications,
-                "approved_loans": approved_loans,
-                "total_loans": total_loans,
-                "total_borrowed": total_borrowed,
-                "total_repayments": total_repayments,
-                "outstanding_balance": outstanding_balance,
-                "credit_score": credit_score,
-                "has_blocking_loan": active_loans > 0 or pending_applications > 0 or outstanding_balance > 0,
-            }
-
-            return Response(stats, status=200)
+            return Response(get_user_loan_stats(request.user), status=200)
 
         except Exception as e:
             logger.exception("Loan stats failed")

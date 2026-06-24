@@ -124,7 +124,8 @@ The live `Meter` row is soft-deleted (`is_deleted=True`, user cleared, `meter_no
 | 4 | Share Units | OTP + email; AMI/STS delivery as API |
 | 9 | Energy Usage | Weekly text summary (AMI only) |
 
-Load Units (web/mobile) maps to USSD **Manage → Apply wallet (`6*4`)** for AMI and **Tokens → Generate (`5*2`)** for STS.
+Load Units (web/mobile) maps to USSD **Manage → Apply wallet (`6*3`)** for AMI and **Tokens → Generate (`5*2`)** for STS.  
+AMI **Check units** (live ThingsBoard read) is under **Wallet & Meter → `1*2`**.
 
 **My Meters** (web/mobile) maps to USSD **Manage → My meters (`6*1`)** — list only; registration is web/mobile (USSD cannot enter device tokens conveniently).
 

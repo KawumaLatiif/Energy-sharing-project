@@ -90,17 +90,18 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
   useEffect(() => {
     (async () => {
       try {
-        const res = await get<any>("loans/my-loans/");
-        if (res.data) {
-          const active = res.data.filter((l: any) =>
-            ["PENDING", "APPROVED", "DISBURSED"].includes(l.status)
-          );
-          setHasActiveLoan(active.length > 0);
-        }
-        // Fetch stats which include tier/rate info
         const statsRes = await get<any>("loans/stats/");
-        if (statsRes.data?.interest_rate) {
-          setAnnualRate(statsRes.data.interest_rate);
+        if (statsRes.data) {
+          const stats = statsRes.data;
+          const hasBlocking =
+            stats.has_blocking_loan ??
+            ((stats.active_loans ?? 0) > 0 ||
+              (stats.pending_applications ?? 0) > 0 ||
+              Number(stats.outstanding_balance ?? 0) > 0);
+          setHasActiveLoan(hasBlocking);
+          if (stats.interest_rate) {
+            setAnnualRate(stats.interest_rate);
+          }
         }
       } catch {
         /* ignore */
