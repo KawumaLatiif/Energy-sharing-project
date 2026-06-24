@@ -162,8 +162,9 @@ CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 
 # ThingsBoard (optional — for physical meter push/read tests)
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_TIMEOUT_SECONDS=15
 THINGSBOARD_WEBHOOK_SECRET=choose-a-long-random-string
+# THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090   # if TB on same machine
 # Real AMI push/read (default is mock simulation):
 # AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
@@ -318,13 +319,18 @@ Only needed if you are testing **AMI** meters with ThingsBoard.
 In `backend/.env`:
 
 ```env
+# Dev laptop hitting remote TB:
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_TIMEOUT_SECONDS=15
 THINGSBOARD_WEBHOOK_SECRET=local-dev-secret
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
 
+**Same machine as TB (or SSH tunnel):** add `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090`.
+
 Use `dev-` prefix on `iot_device_token` to stub push/read without HTTP.
+
+**Hosted server setup** (DNS, Docker 9090, Check Units failures): [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md).
 
 ### 9.2 Migrate
 
@@ -346,8 +352,9 @@ Requires `0016_meternotification` for low-units alerts.
 | USSD alerts | Simulator: `7` |
 
 Full guides:
-- [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](THINGSBOARD_INTEGRATION_GUIDE.md)
-- [`docs/THINGSBOARD_WEBHOOK.md`](THINGSBOARD_WEBHOOK.md)
+- [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md) — production server + troubleshooting
+- [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](./THINGSBOARD_INTEGRATION_GUIDE.md)
+- [`docs/THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md)
 - [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md)
 
 ---
@@ -451,6 +458,7 @@ Never commit secrets or local build artifacts.
 | `Readme.md` | quick start summary |
 | `PROJECT_STATE.md` | current project status and architecture |
 | `USSD_INTEGRATION.md` | USSD menu and API behavior |
+| `docs/SERVER_THINGSBOARD_CONFIGURATION.md` | Hosted server + ThingsBoard troubleshooting |
 | `docs/THINGSBOARD_INTEGRATION_GUIDE.md` | IoT meter integration |
 | `database/LOAD_SAMPLE_DB.md` | sample database loading |
 | `API_ROUTE_CATALOG.md` | API endpoint reference |

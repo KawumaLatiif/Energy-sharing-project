@@ -73,6 +73,13 @@ export const login = async (
     };
   } catch (err) {
     console.error("Login Error:", err);
-    return { error: "SERVER_ERROR", message: "Server error occurred" };
+    const cause = err instanceof Error && "cause" in err ? (err.cause as { code?: string }) : null;
+    const refused = cause?.code === "ECONNREFUSED";
+    return {
+      error: "SERVER_ERROR",
+      message: refused
+        ? "Cannot reach the API server. Start the Django backend on port 8000 (see backend/) or set NEXT_PUBLIC_API_URL in frontend/.env.local."
+        : "Server error occurred",
+    };
   }
 };

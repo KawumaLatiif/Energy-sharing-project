@@ -21,22 +21,15 @@ import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
 import { post, get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { meterNumberFieldSchema } from "@/lib/meter-validation";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 
 const TransferSchema = z
   .object({
-    meter_no_old: z
-      .string()
-      .min(10, "Meter number must be 10 digits")
-      .max(10, "Meter number must be 10 digits")
-      .regex(/^\d+$/, "Meter number must contain only digits"),
-    meter_no_new: z
-      .string()
-      .min(10, "Meter number must be 10 digits")
-      .max(10, "Meter number must be 10 digits")
-      .regex(/^\d+$/, "Meter number must contain only digits"),
+    meter_no_old: meterNumberFieldSchema(),
+    meter_no_new: meterNumberFieldSchema(),
   })
   .refine((data) => data.meter_no_old !== data.meter_no_new, {
     message: "Old and new meter numbers must be different",

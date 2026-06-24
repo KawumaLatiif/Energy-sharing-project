@@ -22,7 +22,7 @@ This is a full-stack web application with:
 - PostgreSQL database
 - Integration with external services (MTN Mobile Money)
 - IoT integration with ESP32-based smart meters (STS tokens)
-- **ThingsBoard** integration for AMI (networked) meters — push units, check live balance, low-units webhook alerts (see [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md))
+- **ThingsBoard** integration for AMI (networked) meters — push units, check live balance, low-units alerts (see [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md); hosted server: [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md))
 
 **Deployment & migrations:** see [`docs/PLATFORM_ALIGNMENT.md`](docs/PLATFORM_ALIGNMENT.md) for required migrations, env vars, and smoke tests after updates.
 

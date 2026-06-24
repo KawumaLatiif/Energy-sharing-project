@@ -74,9 +74,11 @@ It is designed around practical energy access use cases, where users may need to
 - **Outbound:** push unit credits via device telemetry API (`payment` + `amount`)
 - **Inbound read:** check live `remaining_units` on user request (web refresh, USSD `6*2`)
 - **Inbound webhook:** low-units alerts when TB rule chain fires (`POST /webhooks/thingsboard/low-units`)
-- Channels: web (notification bell + AMI card), USSD (Manage / Alerts), API for future mobile
+- **Polling:** Celery beat polls TB every 2s for low-units (production)
+- **Hosted server:** `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` when Django and TB share one VM
+- Channels: web (notification bell + AMI card), USSD (Manage / Alerts), mobile API
 
-See [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md).
+See [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md) (server operators) and [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md) (developers).
 
 ## Core Business Logic and How It Works
 

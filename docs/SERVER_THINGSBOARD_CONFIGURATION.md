@@ -305,9 +305,9 @@ Only for self-signed certs on internal URLs. Prefer `http://127.0.0.1:9090` on l
 
 ---
 
-## 12. Alphanumeric meter numbers
+## 12. Meter numbers
 
-Meters like `EM_SRT002` are valid (not only 10-digit legacy IDs). Share/load/register flows accept alphanumeric IDs per `backend/meter/validators.py`.
+Meter numbers are free-form text (letters, numbers, symbols) with no fixed length, up to **100 characters** (database limit). Examples: `EM_SRT002`, `04123456789`. Validation: `backend/meter/validators.py`.
 
 ---
 

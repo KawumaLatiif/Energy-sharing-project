@@ -104,10 +104,15 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
   const [isPending, setIsPending] = useState(false);
   const [totalUnits, setTotalUnits] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
-  const [verificationStep, setVerificationStep] = useState(0);
-  const [verificationCode, setVerificationCode] = useState("");
-  const [transactionRef, setTransactionRef] = useState<string | null>(null);
-  const [transactionDetails, setTransactionDetails] = useState<any>(null);
+  const [showSuccess, setShowSuccess] = useState(false);
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [transactionDetails, setTransactionDetails] = useState<{
+    meter_number: string;
+    units: number;
+    newBalance: number;
+    recipientName?: string;
+    receiverArch?: string | null;
+  } | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [pendingShare, setPendingShare] = useState<ShareFormValues | null>(null);
   const [recipientPreview, setRecipientPreview] = useState<ShareRecipientPreview | null>(null);
@@ -228,8 +233,12 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
     }
   };
 
-  const confirmAndInitiateShare = async () => {
+  const confirmShareWithPin = async () => {
     if (!pendingShare) return;
+    if (!confirmPassword.trim()) {
+      setError("Enter your account PIN (login password).");
+      return;
+    }
 
     setIsPending(true);
     setError("");
@@ -239,78 +248,36 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
       const response = await post<ShareUnitsResponse>("share/share-units/", {
         meter_number: pendingShare.meter_number,
         units: pendingShare.units,
+        password: confirmPassword,
       });
 
       if (response.data?.success === true) {
         setConfirmOpen(false);
-        setTransactionRef(response.data.transaction_ref || null);
+        setConfirmPassword("");
         setTransactionDetails({
           meter_number: pendingShare.meter_number,
           units: pendingShare.units,
           newBalance: totalUnits - pendingShare.units,
-          receiverArch: response.data.receiver_architecture || recipientPreview?.meter_type || null,
           recipientName: recipientPreview?.name,
-          recipientPhone: recipientPreview?.phone_number,
+          receiverArch: recipientPreview?.meter_type || null,
         });
-        setSuccess("Verification code sent to your email!");
-        setVerificationStep(1);
-        setPendingShare(null);
-      } else {
-        setError(
-          response.data?.error ||
-            getApiErrorMessage(response.error, "Failed to initiate share")
-        );
-      }
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "An error occurred";
-      setError(message);
-    } finally {
-      setIsPending(false);
-    }
-  };
-
-  const handleVerificationSubmit = async () => {
-    if (verificationCode.length !== 6) {
-      setError("Please enter a 6-digit verification code");
-      return;
-    }
-
-    if (!transactionDetails) {
-      setError("No transaction details found. Please start over.");
-      return;
-    }
-
-    setIsPending(true);
-    setError("");
-    setSuccess("");
-
-    try {
-      const response = await post<ShareUnitsResponse>("share/share-units/", {
-        meter_number: transactionDetails.meter_number,
-        units: transactionDetails.units,
-        verification_code: verificationCode,
-        transaction_ref: transactionRef,
-      });
-
-      if (response.status >= 200 && response.status < 300 && response.data?.success) {
         setSuccess("Units shared successfully!");
-        setVerificationStep(2);
-        setTotalUnits(transactionDetails.newBalance);
-
+        setShowSuccess(true);
+        setPendingShare(null);
+        setRecipientPreview(null);
+        void refreshWallet();
+        window.dispatchEvent(new Event(WALLET_BALANCE_UPDATED));
         setTimeout(() => {
           form.reset();
-          setVerificationStep(0);
-          setVerificationCode("");
-          setTransactionRef(null);
+          setShowSuccess(false);
           setTransactionDetails(null);
-          setRecipientPreview(null);
           if (onSuccess) onSuccess();
           fetchBalance();
         }, 3000);
       } else {
         setError(
           response.data?.error ||
-            getApiErrorMessage(response.error, "Failed to verify code")
+            getApiErrorMessage(response.error, "Failed to complete share")
         );
       }
     } catch (error: unknown) {
@@ -319,15 +286,6 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
     } finally {
       setIsPending(false);
     }
-  };
-
-  const handleCancelVerification = () => {
-    setVerificationStep(0);
-    setVerificationCode("");
-    setTransactionRef(null);
-    setTransactionDetails(null);
-    setRecipientPreview(null);
-    setError("");
   };
 
   return (
@@ -360,7 +318,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
           <Separator />
         </div>
 
-        {verificationStep === 0 && (
+        {!showSuccess && (
           <Form {...form}>
             <form onSubmit={form.handleSubmit(handleFormSubmit)} className="space-y-4">
               <FormField
@@ -459,97 +417,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
           </Form>
         )}
 
-        {verificationStep === 1 && (
-          <div className="space-y-4">
-            <Alert className="bg-blue-50 border-blue-200">
-              <Shield className="h-4 w-4" />
-              <AlertDescription>
-                <strong className="text-blue-800">Security Verification Required</strong>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  A verification code has been sent to your registered email address.
-                  Please enter the 6-digit code below to complete the transaction.
-                </p>
-              </AlertDescription>
-            </Alert>
-
-            <div className="space-y-2">
-              <label className="text-sm font-medium">Verification Code</label>
-              <Input
-                type="text"
-                placeholder="Enter 6-digit code"
-                value={verificationCode}
-                onChange={(e) =>
-                  setVerificationCode(e.target.value.replace(/\D/g, "").slice(0, 6))
-                }
-                maxLength={6}
-                className="text-center text-lg font-mono tracking-widest"
-              />
-              <p className="text-xs text-muted-foreground">
-                Check your email for the verification code
-              </p>
-            </div>
-
-            {transactionDetails && (
-              <BreakdownCard
-                rows={[
-                  ...(transactionDetails.recipientName
-                    ? [{ label: "Recipient", value: transactionDetails.recipientName }]
-                    : []),
-                  { label: "To Meter", value: transactionDetails.meter_number },
-                  { label: "Units", value: `${transactionDetails.units} kWh` },
-                  { label: "Your Remaining", value: `${transactionDetails.newBalance.toFixed(2)} kWh` },
-                ]}
-                totalLabel="Total Shared"
-                totalValue={`${transactionDetails.units} kWh`}
-                subline={
-                  transactionDetails.receiverArch === "STS"
-                    ? "An STS token will be generated and sent to the recipient."
-                    : transactionDetails.receiverArch === "AMI"
-                    ? "Units will be applied to the AMI meter device via ThingsBoard."
-                    : undefined
-                }
-              />
-            )}
-
-          {transactionDetails?.receiverArch === "STS" && (
-            <InfoBanner variant="info">
-              After verification, an STS keypad token is created and emailed to the recipient.
-            </InfoBanner>
-          )}
-
-            <FormError message={error} />
-            <FormSuccess message={success} />
-
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={handleCancelVerification}
-                className="flex-1"
-                disabled={isPending}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="button"
-                onClick={handleVerificationSubmit}
-                disabled={isPending || verificationCode.length !== 6}
-                className="flex-1"
-              >
-                {isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Verifying...
-                  </>
-                ) : (
-                  "Confirm & Share"
-                )}
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {verificationStep === 2 && (
+        {showSuccess && (
           <div className="text-center space-y-4 py-4">
             <CheckCircle className="h-16 w-16 text-green-500 mx-auto" />
             <h3 className="text-lg font-semibold">Success!</h3>
@@ -560,8 +428,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
               <Button
                 type="button"
                 onClick={() => {
-                  setVerificationStep(0);
-                  setVerificationCode("");
+                  setShowSuccess(false);
                   setTransactionDetails(null);
                 }}
                 variant="outline"
@@ -586,7 +453,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
           <DialogHeader>
             <DialogTitle>Confirm share</DialogTitle>
             <DialogDescription>
-              Review recipient details before we send a verification code to your email.
+              Review details and enter your account PIN to confirm.
             </DialogDescription>
           </DialogHeader>
 
@@ -605,6 +472,24 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
                   {deliveryMethod}
                 </InfoBanner>
               )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium" htmlFor="share-pin">
+                  Account PIN
+                </label>
+                <Input
+                  id="share-pin"
+                  type="password"
+                  placeholder="Your login password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  autoComplete="current-password"
+                  disabled={isPending}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Use the same password you use to sign in to gPAWA.
+                </p>
+              </div>
             </div>
           )}
 
@@ -621,17 +506,17 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
             </Button>
             <Button
               type="button"
-              onClick={confirmAndInitiateShare}
-              disabled={isPending}
+              onClick={confirmShareWithPin}
+              disabled={isPending || !confirmPassword.trim()}
               className="gpawa-gradient text-white"
             >
               {isPending ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending code…
+                  Sharing…
                 </>
               ) : (
-                "Confirm & continue"
+                "Confirm share"
               )}
             </Button>
           </DialogFooter>

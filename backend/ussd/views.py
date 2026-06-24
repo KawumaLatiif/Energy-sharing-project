@@ -29,12 +29,11 @@ from meter.models import Meter, MeterToken
 from meter.models import Transaction as MeterLedgerTransaction
 from meter.services import push_units_to_thingsboard, query_latest_units_from_thingsboard, record_balance_snapshot
 from utils.ami_gateway import apply_units_to_meter
-from share.models import ShareTransaction
-from share.services import VerificationCode
+from share.flow import ShareFlowError, build_share_summary, execute_share_units
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
 from transactions.services import record_transaction_log
 from transactions.api.generate_token import generate_numeric_token
-from ussd.models import UssdSession
+from ussd.models import UssdSession, ussd_session_timeout_seconds
 from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
@@ -118,6 +117,14 @@ def _resp(prefix: str, message: str):
     return Response(f"{prefix} {message}", content_type="text/plain")
 
 
+def _ussd_timeout_message() -> str:
+    seconds = ussd_session_timeout_seconds()
+    return (
+        f"Session expired ({seconds}s with no input). "
+        "Dial the service code again to start a new session."
+    )
+
+
 def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = "", context: dict | None = None):
     merged_context = dict(session.context or {})
     if context:
@@ -125,7 +132,13 @@ def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = 
     merged_context["last_response"] = f"{prefix} {message}"
     session.current_menu = menu or session.current_menu
     session.context = merged_context
-    session.touch()
+    if prefix.strip().upper() == "CON":
+        session.touch()
+    else:
+        session.is_active = False
+        session.save(
+            update_fields=["current_menu", "context", "is_active", "updated_at"]
+        )
     return _resp(prefix, message)
 
 
@@ -355,11 +368,42 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
     )
 
 
-def _share_initiate(user, receiver_meter_no: str, units_raw: str):
-    sender_meter = Meter.objects.filter(user=user).first()
-    if not sender_meter:
-        return False, "No sender meter found."
+def _share_with_password(user, receiver_meter_no: str, units_raw: str, password: str):
+    try:
+        units = Decimal(str(units_raw))
+    except (InvalidOperation, ValueError):
+        return False, "Invalid units."
 
+    if not user.check_password(password):
+        return False, "Incorrect PIN. Use your gPAWA login password."
+
+    try:
+        result = execute_share_units(
+            sender=user,
+            receiver_meter_no=receiver_meter_no,
+            units=units,
+            channel="USSD",
+        )
+    except ShareFlowError as exc:
+        return False, exc.message
+
+    msg_suffix = ""
+    if result.get("share_token"):
+        msg_suffix = f"\nToken: {result['share_token']}"
+    elif result.get("receiver_architecture") == Meter.ARCH_AMI:
+        msg_suffix = "\nAMI meter topped up."
+
+    return True, (
+        f"Share completed.\nRef: {result['transaction_id']}\n"
+        f"To: {result['receiver_meter']} ({result.get('receiver_name', '')})\n"
+        f"Units: {result['units_shared']}\n"
+        f"Wallet: {result['new_sender_wallet_balance']} kWh"
+        f"{msg_suffix}"
+    )
+
+
+def _share_preview_for_ussd(user, receiver_meter_no: str, units_raw: str):
+    """Validate meter/units and return summary text before PIN entry."""
     try:
         units = Decimal(str(units_raw))
     except (InvalidOperation, ValueError):
@@ -373,7 +417,7 @@ def _share_initiate(user, receiver_meter_no: str, units_raw: str):
         return False, f"Insufficient units. Wallet balance is {sender_wallet.balance}."
 
     try:
-        receiver_meter = Meter.objects.get(meter_no=receiver_meter_no)
+        receiver_meter = Meter.objects.select_related("user").get(meter_no=receiver_meter_no)
     except Meter.DoesNotExist:
         return False, "Receiver meter not found."
 
@@ -383,166 +427,8 @@ def _share_initiate(user, receiver_meter_no: str, units_raw: str):
             "Use Manage->4 Apply wallet (AMI) or Tokens->2 (STS) to load units."
         )
 
-    ShareTransaction.objects.filter(sender=user, status="PENDING").update(
-        status="CANCELLED", message="Cancelled due to newer USSD request"
-    )
-
-    tx_ref = f"SHARE-{uuid.uuid4().hex[:8].upper()}"
-    ShareTransaction.objects.create(
-        share_transaction_id=tx_ref,
-        sender=user,
-        receiver=receiver_meter.user,
-        units=units,
-        meter_send=sender_meter,
-        meter_receive=receiver_meter,
-        direction="OUT",
-        status="PENDING",
-        message=f"USSD pending OTP share to {receiver_meter_no}",
-    )
-
-    verification = VerificationCode.create_code(user=user, purpose="share_units", expiry_minutes=10)
-    if verification and user.email:
-        from utils.general import dispatch_task
-        from accounts.tasks import handle_send_share_verification
-        transaction_details = (
-            f"Sharing {units} units to meter {receiver_meter_no}. "
-            f"Ref: {tx_ref}. Code expires in 10 minutes."
-        )
-        dispatch_task(
-            handle_send_share_verification,
-            user.id,
-            verification.code,
-            transaction_details,
-        )
-    return True, (
-        f"Share initiated.\nRef: {tx_ref}\n"
-        + ("OTP sent to your email.\n" if user.email else "")
-        + "Enter OTP via Share->Verify."
-    )
-
-
-def _share_verify(user, tx_ref: str, otp_code: str):
-    pending = ShareTransaction.objects.filter(
-        sender=user, status="PENDING", share_transaction_id=tx_ref
-    ).order_by("-create_date").first()
-    if not pending:
-        return False, "Pending share not found."
-
-    if not VerificationCode.verify_code(user, otp_code, "share_units"):
-        return False, "Invalid or expired OTP."
-
-    with db_transaction.atomic():
-        sender_wallet, _ = UnitWallet.objects.select_for_update().get_or_create(user=user)
-        if sender_wallet.balance < pending.units:
-            return False, "Insufficient units."
-
-        sender_wallet.balance -= pending.units
-        sender_wallet.save()
-
-        receiver_meter = pending.meter_receive
-        msg_suffix = ""
-        share_token = None
-
-        if receiver_meter.architecture == Meter.ARCH_STS:
-            share_token = generate_numeric_token()
-            MeterToken.objects.create(
-                token=share_token,
-                units=pending.units,
-                meter=receiver_meter,
-                user=receiver_meter.user,
-                is_used=False,
-                source="SHARE",
-                share_transaction_id=pending.share_transaction_id,
-                share_sender=user,
-            )
-            msg_suffix = f"STS token sent to receiver ({receiver_meter.meter_no})."
-            if receiver_meter.user.email:
-                from utils.general import dispatch_task
-                from accounts.tasks import handle_send_share_token
-                from share.notifications import format_user_display_name
-
-                dispatch_task(
-                    handle_send_share_token,
-                    receiver_meter.user.id,
-                    share_token,
-                    str(pending.units),
-                    receiver_meter.meter_no,
-                    sender_meter=pending.meter_send.meter_no,
-                    sender_email=user.email,
-                    sender_name=format_user_display_name(user),
-                )
-        elif receiver_meter.architecture == Meter.ARCH_AMI:
-            if not apply_units_to_meter(
-                receiver_meter,
-                pending.units,
-                reference_id=pending.share_transaction_id,
-                ledger_type=MeterLedgerTransaction.TYPE_TRANSFER_IN,
-                ledger_source=pending.meter_send.meter_no,
-                payment_reference=pending.share_transaction_id,
-            ):
-                return False, "Failed to deliver units to AMI meter via ThingsBoard."
-            receiver_meter.refresh_from_db(fields=["units"])
-            from share.notifications import (
-                build_receiver_ami_share_update,
-                get_meter_balance_display,
-            )
-
-            balance_info = get_meter_balance_display(receiver_meter)
-            msg_suffix = (
-                f"AMI meter {receiver_meter.meter_no} topped up. "
-                f"Balance: {balance_info['display']}."
-            )
-            if receiver_meter.user.email:
-                from utils.general import dispatch_task
-                from accounts.tasks import handle_send_wallet_update
-
-                receiver_update = build_receiver_ami_share_update(
-                    meter=receiver_meter,
-                    units=pending.units,
-                    transaction_id=pending.share_transaction_id,
-                    sender_user=user,
-                    sender_meter_no=pending.meter_send.meter_no,
-                )
-                dispatch_task(handle_send_wallet_update, receiver_meter.user.id, receiver_update)
-        else:
-            return False, "Unknown receiver meter type."
-
-        if user.email:
-            from share.notifications import build_sender_share_confirmation
-            from utils.general import dispatch_task
-            from accounts.tasks import handle_send_wallet_update
-
-            sender_update = build_sender_share_confirmation(
-                units=pending.units,
-                receiver_meter_no=receiver_meter.meter_no,
-                transaction_id=pending.share_transaction_id,
-                wallet_balance_kwh=sender_wallet.balance,
-                channel="USSD",
-                receiver_user=receiver_meter.user,
-            )
-            dispatch_task(handle_send_wallet_update, user.id, sender_update)
-
-        pending.status = "COMPLETED"
-        pending.verified_at = timezone.now()
-        pending.message = "Completed via USSD"
-        pending.save(update_fields=["status", "verified_at", "message", "modify_date"])
-
-        TransactionLog.objects.create(
-            user=user,
-            transaction_type=TransactionType.UNIT_SHARE,
-            units=pending.units,
-            status="COMPLETED",
-            reference_id=pending.share_transaction_id,
-            details={"channel": "USSD", "receiver_meter": pending.meter_receive.meter_no},
-        )
-
-    return True, (
-        f"Share completed.\nRef: {pending.share_transaction_id}\n"
-        f"Units: {pending.units}\n"
-        f"Wallet: {float(sender_wallet.balance):.2f} kWh\n"
-        f"{msg_suffix}"
-        + (f"\nToken: {share_token}" if share_token else "")
-    )
+    summary = build_share_summary(receiver_meter, units)
+    return True, summary
 
 
 def _generate_sts_token(user, units_raw: str):
@@ -800,8 +686,9 @@ def ussd_entry(request):
     service_code = str(request.data.get("serviceCode", "")).strip()
     phone_number = request.data.get("phoneNumber", "")
     text = request.data.get("text", "")
+    text_str = str(text or "").strip()
 
-    ussd_session, _ = UssdSession.objects.get_or_create(
+    ussd_session, created = UssdSession.objects.get_or_create(
         session_id=session_id,
         defaults={
             "service_code": service_code,
@@ -809,15 +696,15 @@ def ussd_entry(request):
             "expires_at": UssdSession.default_expiry(),
         },
     )
-    if ussd_session.expired:
-        ussd_session.reset()
+    session_timed_out = ussd_session.expired and not created
+
     ussd_session.service_code = service_code or ussd_session.service_code
     ussd_session.phone_number = str(phone_number)
 
     user = _find_user_by_phone(phone_number)
     if not user:
         ussd_session.user = None
-        ussd_session.last_text = text or ""
+        ussd_session.last_text = text_str
         ussd_session.is_active = False
         ussd_session.save(update_fields=["user", "last_text", "is_active", "updated_at"])
         return _session_reply(
@@ -826,6 +713,29 @@ def ussd_entry(request):
             "Account not found. Please register first on the web app.",
         )
     ussd_session.user = user
+
+    if session_timed_out:
+        ussd_session.reset()
+        if text_str:
+            ussd_session.user = user
+            ussd_session.phone_number = str(phone_number)
+            ussd_session.service_code = service_code or ussd_session.service_code
+            ussd_session.last_text = text_str
+            ussd_session.is_active = False
+            ussd_session.save(
+                update_fields=[
+                    "user",
+                    "last_text",
+                    "is_active",
+                    "phone_number",
+                    "service_code",
+                    "current_menu",
+                    "context",
+                    "expires_at",
+                    "updated_at",
+                ]
+            )
+            return _resp("END", _ussd_timeout_message())
 
     # Basic dedupe for provider retries to prevent duplicate side effects.
     if text and text == ussd_session.last_text:
@@ -1028,64 +938,47 @@ def ussd_entry(request):
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
             return _reply_done(ussd_session, "Invalid loan option.")
 
-        # 4) Share units (OTP)
+        # 4) Share units — meter → units → summary → account PIN
         if steps[0] == "4":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_submenu(
+                return _session_reply(
                     ussd_session,
-                    "Share Units\n1. Initiate share\n2. Verify OTP",
-                    menu="share_menu",
+                    "CON",
+                    "Enter receiver meter number:",
+                    menu="share_meter",
                 )
 
-            if steps[1] == "1":
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter receiver meter number:", menu="share_meter")
-                if len(steps) == 3:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter units to share (min 2):", menu="share_units")
-                ok, msg = _share_initiate(user, steps[2], steps[3])
-                ctx = {}
-                if ok and "Ref:" in msg:
-                    try:
-                        ctx["last_share_ref"] = msg.split("Ref:")[1].split("\n")[0].strip()
-                    except Exception:
-                        pass
+            if len(steps) == 2:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
+                return _session_reply(
                     ussd_session,
-                    msg if ok else f"Error: {msg}",
-                    menu="share_initiate_result",
-                    context=ctx,
+                    "CON",
+                    "Enter units to share (min 2):",
+                    menu="share_units",
                 )
 
-            if steps[1] == "2":
-                if len(steps) == 2:
+            if len(steps) == 3:
+                ok, msg = _share_preview_for_ussd(user, steps[1], steps[2])
+                if not ok:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    tip = (ussd_session.context or {}).get("last_share_ref")
-                    hint = f"\nTip: {tip}" if tip else ""
-                    return _session_reply(ussd_session, "CON", f"Enter transaction ref:{hint}", menu="share_verify_ref")
-                if len(steps) == 3:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter 6-digit OTP:", menu="share_verify_otp")
-                share_ref = steps[2]
-                if share_ref == "0":
-                    share_ref = str((ussd_session.context or {}).get("last_share_ref", ""))
-                ok, msg = _share_verify(user, share_ref, steps[3])
+                    return _reply_done(ussd_session, f"Error: {msg}", menu="share_preview_error")
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_verify_result")
+                return _session_reply(
+                    ussd_session,
+                    "CON",
+                    f"{msg}\nEnter your account PIN to confirm:",
+                    menu="share_pin",
+                )
 
+            ok, msg = _share_with_password(user, steps[1], steps[2], steps[3])
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _reply_done(ussd_session, "Invalid share option.")
+            return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_result")
 
         # 5) Tokens — list or generate STS
         if steps[0] == "5":

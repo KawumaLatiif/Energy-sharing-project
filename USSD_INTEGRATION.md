@@ -58,12 +58,32 @@ CON gPawa
 ## Session persistence (`ussd.UssdSession`)
 
 - Keyed by **`sessionId`** (must stay the same for one USSD session).
-- **Expiry**: 15 minutes; expired sessions are reset on next request.
+- **Inactivity timeout**: **90 seconds** by default (`USSD_SESSION_TIMEOUT_SECONDS` in `backend/.env`). This matches the common USSD industry limit for time between user inputs (aligned with typical mobile network USSD session behaviour).
+- The timer **resets on every `CON` response** (each menu prompt). If the user does not enter anything within the timeout window, the stored session is considered expired.
+- **On expiry**:
+  - If the user sends a **new dial** with empty `text` (fresh open), the session is reset and the **main menu** is shown.
+  - If the user **continues** with a non-empty `text` path after expiry, the backend returns **`END`** with:  
+    `Session expired (90s with no input). Dial the service code again to start a new session.`
+- **`END` responses** (completed flows, Exit, errors) close the session immediately (`is_active=False`); they do not extend the inactivity timer.
 - **Dedupe**: If the same `text` is sent again (provider retry), the cached `last_response` is returned without re-running side effects.
 - **Context** stored in JSON, including:
   - `last_buy_transaction_id` — after a successful buy initiation
-  - `last_share_ref` — after share initiate
   - `last_response` — full last `CON`/`END` line
+
+### Configuring timeout
+
+In `backend/.env`:
+
+```env
+# Seconds of inactivity before USSD session expires (default 90)
+USSD_SESSION_TIMEOUT_SECONDS=90
+```
+
+Restart Django after changing this value.
+
+### Simulator note
+
+The browser simulator at `/ussd-simulator` keeps the same `sessionId` until you click **New Session**. If you pause longer than the timeout while a menu is open, the next keypress may return the session-expired `END` message — click **New Session** or dial again to start fresh.
 
 ---
 
@@ -316,45 +336,26 @@ Rules:
 
 ## 4) Share Units — `text`: `4`
 
-OTP is created in the database (`share.VerificationCode`, purpose `share_units`, 10 minutes). On initiate, the **same email/Celery flow as the web app** runs (`handle_send_share_verification`) so the OTP is sent to the sender's registered email.
+Linear flow (same as web/mobile): meter → units → summary → **account PIN** (login password). No email OTP.
 
-### Submenu (`text`: `4`)
-
-```text
-Share Units
-1. Initiate share
-2. Verify OTP
-```
-
-**`CON`**
-
-### 4.1 Initiate share — `4*1*<meter>*<units>`
-
-1. `4*1` → receiver meter number (`CON`)
-2. `4*1*1234567891` → units to share, min **2** (`CON`)
-3. `4*1*1234567891*10` → creates **PENDING** `ShareTransaction`, creates OTP record
+1. `4` → Enter receiver meter number (`CON`)
+2. `4*<meter>` → Enter units to share, min **2** (`CON`)
+3. `4*<meter>*<units>` → Summary (recipient name, meter, type) + enter account PIN (`CON`)
+4. `4*<meter>*<units>*<pin>` → completes share (`END`)
 
 Rules:
 
 - Sender must have a meter and enough **unit wallet** balance
-- Receiver meter must exist
+- Receiver meter must exist and be active
 - **Cannot share to your own meter** — use Manage → Apply wallet (AMI) or Tokens → Generate (STS)
 - Minimum **2** units
-- Cancels older pending shares from same sender
+- PIN = the password for the gPAWA account linked to the dialing phone number
 
-**`END`**: transaction ref; session stores `last_share_ref`.
-
-### 4.2 Verify OTP — `4*2*<ref>*<otp>`
-
-1. `4*2` → transaction ref (`CON`); tip shows last ref if available
-2. `4*2*SHARE-ABC12345` → 6-digit OTP (`CON`)
-3. `4*2*<ref>*123456` or `4*2*0*123456` (ref **`0`** = last share ref)
-
-On success (aligned with web `ShareUnitsView`):
+On success (aligned with web `POST /share/share-units/`):
 
 - Deducts sender wallet
 - **STS receiver**: generates keypad **token** and emails receiver (token also shown in USSD response)
-- **AMI receiver**: pushes units to device via **ThingsBoard** (`apply_units_to_meter`)
+- **AMI receiver**: pushes units to device via **ThingsBoard**
 
 **`END`** with completion details.
 
@@ -413,8 +414,8 @@ These exist on the web/API but **not** in the USSD menu:
 | **My Meters** (list/register/check/load/**delete**) | Yes | Partial (**1*2**, **6*1**, **6*3**; no register/delete) |
 | Load Units (own STS) | Yes | Yes (menu **5*2**) |
 | Load Units (own AMI) | Yes | Yes (menu **6*3**) |
-| Share units + OTP | Yes | Yes (menu **4**; STS token / AMI device on verify) |
-| Share receiver preview | Yes | No |
+| Share units + PIN | Yes | Yes (menu **4**; STS token / AMI device on confirm) |
+| Share receiver preview | Yes | Yes (summary before PIN) |
 | STS token generate | Yes | Yes (`5*2`) |
 | Loans apply/disburse/repay | Yes | Yes |
 | Loan MoMo repay | Yes | No |
@@ -466,7 +467,7 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 | Check last buy status | `2` → `2` → `0` |
 | Apply loan | `3` → `2` → `60000` |
 | Disburse latest approved | `3` → `3` → `0` |
-| Share 10 units | `4` → `1` → `<receiver_meter>` → `10`, then verify `4` → `2` → `0` → `<otp>` |
+| Share 10 units | `4` → `<receiver_meter>` → `10` → `<login_password>` |
 | List tokens | `5` |
 | List meters | `6` → `1` |
 | Apply wallet to AMI meter | `6` → `3` → `<kWh>` |
@@ -576,7 +577,8 @@ ngrok http 8000
 | Account not found | Phone not in `accounts_user` |
 | Cannot buy units | Active loan not completed/rejected |
 | Payment stays PENDING | Sandbox still processing; wait ~10s and check status again |
-| Share verify fails | Wrong/expired OTP; wrong ref; insufficient balance |
+| Share fails | Wrong PIN; insufficient balance; invalid meter |
+| Session expired message | No input for 90s (configurable); dial service code again or use simulator **New Session** |
 | Duplicate charges on retry | Should not happen if `sessionId` + `text` unchanged (dedupe) |
 
 ---

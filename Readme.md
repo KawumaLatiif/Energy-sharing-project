@@ -190,6 +190,7 @@ npm start
 - [`DEPLOYMENT.md`](DEPLOYMENT.md) — deployment guide
 - [`USSD_INTEGRATION.md`](USSD_INTEGRATION.md) — USSD menus and simulator
 - [`API_ROUTE_CATALOG.md`](API_ROUTE_CATALOG.md) — REST endpoint index
+- [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md) — **hosted server:** `.env`, DNS, Docker, Check Units troubleshooting
 - [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](docs/THINGSBOARD_INTEGRATION_GUIDE.md) — ThingsBoard setup and testing
 - [`docs/THINGSBOARD_INTEGRATION_REPORT.md`](docs/THINGSBOARD_INTEGRATION_REPORT.md) — full TB integration reference
 - [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md) — low-units webhook and rule chains
@@ -201,12 +202,13 @@ npm start
 
 ## ThingsBoard (AMI meters) — quick reference
 
-AMI (networked) meters integrate with **ThingsBoard** at `https://iot.energy-share.sun.ac.ug`.
+AMI (networked) meters integrate with **ThingsBoard**. On the hosted pilot, Django reaches TB at `http://127.0.0.1:9090` via `THINGSBOARD_INTERNAL_BASE_URL` (Docker on same VM). Public URL `https://iot.energy-share.sun.ac.ug` is optional for backend traffic.
 
 | Capability | Where |
 |------------|--------|
 | Push units to meter | `backend/meter/services.py` → `push_units_to_thingsboard()` |
 | Check live kWh | `GET /api/v1/meter/check-units/?meter_no=` |
+| TB connectivity diagnostic | `GET /api/v1/meter/thingsboard-health/` |
 | Low-units webhook (TB → gPawa) | `POST /webhooks/thingsboard/low-units` |
 | User alerts API | `GET/PATCH /api/v1/meter/notifications/` |
 | Web notification bell | Dashboard header (`frontend/.../notification-bell.tsx`) |
@@ -219,5 +221,14 @@ AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_WEBHOOK_SECRET=your-long-random-secret
 ```
+
+**Hosted server (same VM as TB):**
+
+```env
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+```
+
+See [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md) for DNS failures, Docker port 9090, and post-deploy checklist.
 
 Register AMI meters with `iot_device_token` = ThingsBoard **device access token**. Use tokens starting with `dev-` for local stub testing (no HTTP to ThingsBoard).

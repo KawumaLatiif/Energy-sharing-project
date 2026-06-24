@@ -22,6 +22,7 @@ import {
 } from "@/components/ui/select";
 import { FormError } from "@/components/common/form-error";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { isValidMeterNumber, METER_NO_MAX_LENGTH } from "@/lib/meter-validation";
 import { registerMeter } from "../actions";
 import type { MeterArchitecture } from "@/interface/meter.interface";
 
@@ -50,14 +51,12 @@ export default function AddMeterDialog({ open, onOpenChange, onSuccess }: AddMet
     }
   }, [open]);
 
-  const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
-
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
 
     if (!isValidMeterNumber(form.meter_no)) {
-      setError("Enter a valid 10–12 digit meter number.");
+      setError("Enter a meter number.");
       return;
     }
     if (form.architecture === "AMI" && !form.iot_device_token.trim()) {
@@ -142,11 +141,9 @@ export default function AddMeterDialog({ open, onOpenChange, onSuccess }: AddMet
             <Input
               id="meter-no"
               value={form.meter_no}
-              onChange={(e) =>
-                setForm((p) => ({ ...p, meter_no: e.target.value.replace(/\D/g, "") }))
-              }
-              placeholder="10–12 digit meter number"
-              maxLength={12}
+              onChange={(e) => setForm((p) => ({ ...p, meter_no: e.target.value }))}
+              placeholder="Meter number"
+              maxLength={METER_NO_MAX_LENGTH}
               required
               disabled={isPending}
               className="font-mono"

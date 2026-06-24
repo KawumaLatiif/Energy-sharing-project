@@ -6,7 +6,9 @@ This document covers **inbound** low-units webhooks (ThingsBoard → gPAWA), man
 
 For the full integration picture (push, check units, channels), see **[THINGSBOARD_INTEGRATION_REPORT.md](./THINGSBOARD_INTEGRATION_REPORT.md)**.
 
-**ThingsBoard instance (pilot):** `https://iot.energy-share.sun.ac.ug`
+**Server deployment:** [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md) — when Django and ThingsBoard run on the same VM, outbound gPAWA→TB traffic should use `THINGSBOARD_INTERNAL_BASE_URL` (e.g. `http://127.0.0.1:9090`). Inbound webhooks (TB→gPAWA) must use the **public** API URL (`https://energy-share.sun.ac.ug/webhooks/...`), not localhost.
+
+**ThingsBoard instance (pilot):** `https://iot.energy-share.sun.ac.ug` (public DNS may be unset; backend uses localhost on hosted server)
 
 ---
 
@@ -343,7 +345,10 @@ Implementation: `webhooks/api/views.py` → `ThingsBoardDailyUsageWebhookView`.
 | gPAWA `404` on webhook | Register AMI meter with matching access token |
 | gPAWA `401` | Match `X-ThingsBoard-Webhook-Secret` to `.env` |
 | Rule never fires | Wrong trigger (telemetry vs attributes); wrong key name |
-| REST fails from TB | Use public gPAWA URL; check firewall |
+| REST fails from TB | Use **public** gPAWA URL (`https://energy-share.sun.ac.ug/...`); check firewall — TB cannot call `localhost` |
+| Check units fails (app) but curl to `127.0.0.1:9090` works | Set `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090`; restart gunicorn — see [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md) |
+| `Could not resolve host: iot.energy-share...` | No DNS for `iot.` — use internal URL for Django→TB; webhooks still need public gPAWA URL |
 | Check units fails | Ensure `remaining_units` shared attribute exists on device |
 | Push fails HTTP 401 | Invalid `iot_device_token`; see `RUNBOOK.md` AMI section |
 | No email | Set SMTP env vars; user must save email in My Account |
+| Low-units poll never runs | Celery worker + beat with `CELERY_TASK_ALWAYS_EAGER=False` |

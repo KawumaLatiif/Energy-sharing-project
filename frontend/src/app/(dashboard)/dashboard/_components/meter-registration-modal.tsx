@@ -23,6 +23,7 @@ import { Label } from "@/components/ui/label";
 import MeterArchitecturePicker, {
   type MeterArchitecture,
 } from "./meter-architecture-picker";
+import { isValidMeterNumber, METER_NO_MAX_LENGTH } from "@/lib/meter-validation";
 
 interface MeterManagementModalProps {
   isOpen: boolean;
@@ -51,8 +52,6 @@ export default function MeterManagementModal({
   const [isFetching, setIsFetching] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [formData, setFormData] = useState(emptyForm());
-
-  const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
 
   const fetchMeterData = async () => {
     setIsRefreshing(true);
@@ -124,7 +123,7 @@ export default function MeterManagementModal({
     const isUpdate = editingMeterNo !== null;
 
     if (!isValidMeterNumber(formData.meter_no)) {
-      setMessage({ type: "error", text: "Please enter a valid 10-12 digit meter number" });
+      setMessage({ type: "error", text: "Please enter a meter number" });
       return;
     }
 
@@ -345,11 +344,11 @@ export default function MeterManagementModal({
                   onChange={(e) =>
                     setFormData((prev) => ({
                       ...prev,
-                      meter_no: e.target.value.replace(/\D/g, ""),
+                      meter_no: e.target.value,
                     }))
                   }
-                  placeholder="Enter 10-12 digit meter number"
-                  maxLength={12}
+                  placeholder="Enter meter number"
+                  maxLength={METER_NO_MAX_LENGTH}
                   required
                   disabled={isLoading}
                   className={cn(
@@ -359,7 +358,7 @@ export default function MeterManagementModal({
                   )}
                 />
                 {!isValidMeterNumber(formData.meter_no) && formData.meter_no.length > 0 && (
-                  <p className="text-xs text-destructive">Please enter a valid 10-12 digit meter number</p>
+                  <p className="text-xs text-destructive">Please enter a meter number</p>
                 )}
               </div>
 

@@ -18,6 +18,7 @@ import {
   getMyMeters,
   registerMeter,
 } from "@/lib/meter-api";
+import { isValidMeterNumber, METER_NO_MAX_LENGTH } from "@/lib/meter-validation";
 import { getWalletBalance } from "@/lib/dashboard-api";
 import {
   Button,
@@ -129,8 +130,8 @@ export default function MyMetersScreen() {
 
   async function handleAddMeter() {
     setFormError("");
-    if (!/^\d{10,12}$/.test(formMeterNo)) {
-      setFormError("Enter a valid 10–12 digit meter number.");
+    if (!isValidMeterNumber(formMeterNo)) {
+      setFormError("Enter a meter number.");
       return;
     }
     if (formArch === "AMI" && !formToken.trim()) {
@@ -316,9 +317,8 @@ export default function MyMetersScreen() {
               <FieldLabel>Meter number</FieldLabel>
               <Input
                 value={formMeterNo}
-                onChangeText={(t) => setFormMeterNo(t.replace(/\D/g, ""))}
-                keyboardType="number-pad"
-                maxLength={12}
+                onChangeText={setFormMeterNo}
+                maxLength={METER_NO_MAX_LENGTH}
               />
               {formArch === "AMI" && (
                 <>

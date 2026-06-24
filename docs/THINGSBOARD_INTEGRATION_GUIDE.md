@@ -200,20 +200,35 @@ Common failure reasons:
 ### 4.1 Backend environment/settings
 
 In `backend/backend/settings.py`, the integration depends on:
-- `THINGSBOARD_BASE_URL`
-- `THINGSBOARD_TIMEOUT_SECONDS`
+- `THINGSBOARD_BASE_URL` — public URL (docs, optional nginx for TB UI)
+- `THINGSBOARD_INTERNAL_BASE_URL` — **same-server production:** Django uses this for all TB HTTP when set (e.g. `http://127.0.0.1:9090`)
+- `THINGSBOARD_TIMEOUT_SECONDS` — default `15` in production
+- `THINGSBOARD_VERIFY_SSL` — set `false` only for self-signed certs on HTTPS internal URLs
 - `THINGSBOARD_WEBHOOK_SECRET` (optional, for inbound low-units webhook)
+- `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` — writes `remaining_units` after load/share
 - `AMI_GATEWAY` — set to `utils.ami_gateway.ThingsBoardAMIGateway` for real AMI push/read (default is mock)
 
-Example `.env` values:
+**Local dev** example:
 
 ```env
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_TIMEOUT_SECONDS=15
 THINGSBOARD_WEBHOOK_SECRET=choose-a-long-random-string
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 FRONTEND_URL=http://localhost:3000
 ```
+
+**Hosted server (Django + TB on same VM)** — see [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md):
+
+```env
+THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
+THINGSBOARD_TIMEOUT_SECONDS=15
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+CELERY_TASK_ALWAYS_EAGER=False
+```
+
+Restart gunicorn after any `.env` change: `sudo systemctl restart gpawa`.
 
 ### 4.2 Meter-level mapping
 
@@ -486,11 +501,33 @@ curl.exe -X POST "http://localhost:8000/webhooks/thingsboard/low-units" `
 
 ## 7) Troubleshooting guide
 
+### Hosted server (most common production issues)
+
+| Symptom | Likely cause | Fix |
+|---------|----------------|-----|
+| `Could not resolve host: iot.energy-share...` | `iot.` subdomain has no DNS | `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` |
+| `ThingsBoard request failed: ConnectionError` | `.env` not applied or wrong URL | Set internal URL above; `sudo systemctl restart gpawa` |
+| `curl` to `:8080` fails but `:9090` works | Docker maps TB to host **9090**, not 8080 | Use `127.0.0.1:9090` in `.env` |
+| Web login works; Check Units fails | Django cannot reach TB | `GET /api/v1/meter/thingsboard-health/` (JWT) — should return `"success": true` |
+| Load/Share does nothing on meter | `MockAMIGateway` still set | `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` |
+| Share email shows wrong kWh | Old code used ledger only | Pull latest; emails use live TB via `share/notifications.py` |
+
+SSH smoke tests (on app server):
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
+curl -s "http://127.0.0.1:9090/api/v1/<TOKEN>/attributes?sharedKeys=remaining_units"
+```
+
+Full matrix: [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md).
+
+### General integration
+
 If push fails with meter token message:
 - Set `Meter.iot_device_token` on the target meter.
 
 If push fails with base URL message:
-- Set `THINGSBOARD_BASE_URL` correctly in backend `.env`.
+- Set `THINGSBOARD_BASE_URL` or `THINGSBOARD_INTERNAL_BASE_URL` in backend `.env`.
 
 If push returns HTTP non-2xx:
 - Validate device access token belongs to the target device.
@@ -504,19 +541,26 @@ If flow succeeds functionally but no telemetry appears:
 If check-units fails:
 - Ensure `remaining_units` exists as a **shared attribute** on the device.
 - Set `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` for apply flows (not just check-units).
+- Alphanumeric meter numbers (e.g. `EM_SRT002`) are supported — use the exact `meter_no` from registration.
+
+If pending delivery never clears:
+- Run Celery worker + beat with `CELERY_TASK_ALWAYS_EAGER=False` and Redis.
 
 If webhook returns 404:
 - Register AMI meter with matching `iot_device_token` and `status=ACTIVE`.
 
 If notification bell is empty after webhook 201:
-- Refresh page or wait for poll (60s); call `GET /meter/notifications/` directly.
+- Refresh page or wait for poll; call `GET /meter/notifications/` directly.
+- Note: gPAWA also polls TB every 2s via Celery beat — worker must be running.
 
 ---
 
 ## 8) Related documentation
 
+- [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md) — **server operators:** DNS, Docker, `.env`, post-deploy checklist
 - [`THINGSBOARD_INTEGRATION_REPORT.md`](./THINGSBOARD_INTEGRATION_REPORT.md) — full product + technical report
 - [`THINGSBOARD_WEBHOOK.md`](./THINGSBOARD_WEBHOOK.md) — rule chain setup
+- [`DEPLOYMENT.md`](../DEPLOYMENT.md) — full server deployment
 - [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md) — USSD menus
 - [`BACKEND_DOCS.md`](../BACKEND_DOCS.md) — API reference
 

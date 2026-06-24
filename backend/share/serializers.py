@@ -3,16 +3,15 @@ import logging
 from rest_framework import serializers
 from .models import Share
 from django.core.validators import MinValueValidator
-from meter.validators import METER_NO_MAX_LEN, METER_NO_MIN_LEN, normalize_meter_no, validate_meter_no
+from meter.validators import METER_NO_MAX_LEN, normalize_meter_no, validate_meter_no
 
 logger = logging.getLogger(__name__)
 
 class ShareUnitSerializer(serializers.ModelSerializer):
     meter_number = serializers.CharField(
         required=True,
-        min_length=METER_NO_MIN_LEN,
         max_length=METER_NO_MAX_LEN,
-        help_text="Receiver's meter number (e.g. EM_SRT002 or legacy 10–12 digit ID)",
+        help_text="Receiver's meter number (any letters, numbers, or symbols)",
     )
     units = serializers.DecimalField(
         required=True,
@@ -44,13 +43,11 @@ class ShareUnitSerializer(serializers.ModelSerializer):
 class TransferUnitsSerializer(serializers.Serializer):
     meter_no_old = serializers.CharField(
         required=True,
-        min_length=METER_NO_MIN_LEN,
         max_length=METER_NO_MAX_LEN,
         help_text="Your current meter number",
     )
     meter_no_new = serializers.CharField(
         required=True,
-        min_length=METER_NO_MIN_LEN,
         max_length=METER_NO_MAX_LEN,
         help_text="New meter number",
     )
@@ -70,14 +67,31 @@ class TransferUnitsSerializer(serializers.Serializer):
         return data
     
 
+class ConfirmShareSerializer(serializers.Serializer):
+    meter_number = serializers.CharField(max_length=METER_NO_MAX_LEN)
+    units = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        min_value=Decimal("2.00"),
+    )
+    password = serializers.CharField(required=True, write_only=True, trim_whitespace=False)
+
+    def validate_meter_number(self, value):
+        ok, result = validate_meter_no(value)
+        if not ok:
+            raise serializers.ValidationError(result)
+        return result
+
+
 class VerifyOTPSerializer(serializers.Serializer):
+    """Used by meter transfer flow only."""
     verification_code = serializers.CharField(
         required=True,
         min_length=6,
         max_length=6,
-        help_text="6-digit OTP code"
+        help_text="6-digit OTP code",
     )
-    
+
     def validate_verification_code(self, value):
         if not value.isdigit():
             raise serializers.ValidationError("Verification code must contain only digits")

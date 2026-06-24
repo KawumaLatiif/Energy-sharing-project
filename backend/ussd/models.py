@@ -5,6 +5,11 @@ from django.db import models
 from django.utils import timezone
 
 
+def ussd_session_timeout_seconds() -> int:
+    """Inactivity limit between USSD inputs (default 90s — common USSD standard)."""
+    return int(getattr(settings, "USSD_SESSION_TIMEOUT_SECONDS", 90))
+
+
 class UssdSession(models.Model):
     session_id = models.CharField(max_length=120, unique=True)
     service_code = models.CharField(max_length=40, blank=True)
@@ -35,11 +40,16 @@ class UssdSession(models.Model):
         return f"USSD {self.session_id} ({self.phone_number})"
 
     @staticmethod
-    def default_expiry():
-        return timezone.now() + timedelta(minutes=15)
+    def timeout_delta() -> timedelta:
+        return timedelta(seconds=ussd_session_timeout_seconds())
 
-    def touch(self, minutes: int = 15):
-        self.expires_at = timezone.now() + timedelta(minutes=minutes)
+    @classmethod
+    def default_expiry(cls):
+        return timezone.now() + cls.timeout_delta()
+
+    def touch(self):
+        """Extend session expiry after each interactive response (inactivity clock resets)."""
+        self.expires_at = self.default_expiry()
         self.is_active = True
         self.save(update_fields=["expires_at", "is_active", "updated_at"])
 

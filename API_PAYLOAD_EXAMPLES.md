@@ -175,14 +175,17 @@ Web menu label: **TopUp Wallet** (MoMo purchase credits the unit wallet).
 
 ---
 
-## 5) Share Units - Step 1 Initiate (`POST /share/share-units/`)
+## 5) Share Units — confirm with PIN (`POST /share/share-units/`)
+
+Single step after UI summary: meter, units, and account login password.
 
 ### Request
 
 ```json
 {
-  "meter_number": "1234567890",
-  "units": "12.50"
+  "meter_number": "EM_SRT002",
+  "units": "12.50",
+  "password": "your-login-password"
 }
 ```
 
@@ -191,20 +194,23 @@ Web menu label: **TopUp Wallet** (MoMo purchase credits the unit wallet).
 ```json
 {
   "success": true,
-  "message": "Verification code sent to your email. Please check and verify.",
-  "transaction_ref": "SHARE-A1B2C3D4",
-  "requires_verification": true,
-  "receiver_architecture": "AMI"
+  "message": "Units shared successfully.",
+  "transaction_id": "SHARE-A1B2C3D4",
+  "units_shared": "12.50",
+  "new_sender_wallet_balance": "37.50",
+  "receiver_architecture": "AMI",
+  "receiver_name": "Jane Doe",
+  "receiver_meter": "EM_SRT002",
+  "token_sent": false,
+  "share_token": null
 }
 ```
 
-### Validation Error Example (400)
+### Wrong PIN (400)
 
 ```json
 {
-  "units": [
-    "Minimum 2 units required to share"
-  ]
+  "error": "Incorrect PIN. Use the password for your gPAWA account."
 }
 ```
 
@@ -271,36 +277,15 @@ Web menu label: **TopUp Wallet** (MoMo purchase credits the unit wallet).
 
 ---
 
-## 6) Share Units - Step 2 Verify OTP (`POST /share/share-units/`)
+## 6) Share Units — validation errors (`POST /share/share-units/`)
 
-### Request
-
-```json
-{
-  "verification_code": "123456",
-  "transaction_ref": "SHARE-A1B2C3D4"
-}
-```
-
-### Success Response (200)
+### Validation Error Example (400)
 
 ```json
 {
-  "success": true,
-  "message": "Units shared successfully",
-  "transaction_ref": "SHARE-A1B2C3D4",
-  "units_shared": "12.50",
-  "receiver_architecture": "STS",
-  "share_token": "4829103746",
-  "token_sent": true
-}
-```
-
-### OTP Error Example (400)
-
-```json
-{
-  "error": "Invalid or expired verification code"
+  "units": [
+    "Minimum 2 units required to share"
+  ]
 }
 ```
 

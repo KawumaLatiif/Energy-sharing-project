@@ -96,6 +96,9 @@ AMI_LOW_UNITS_THRESHOLD_KWH = get_env_variable("AMI_LOW_UNITS_THRESHOLD_KWH", 5,
 AMI_LOW_UNITS_POLL_SECONDS = get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 2, cast=int)
 AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS = get_env_variable("AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS", 6, cast=int)
 
+# USSD: inactivity timeout between user inputs (seconds). Industry default is 90s.
+USSD_SESSION_TIMEOUT_SECONDS = get_env_variable("USSD_SESSION_TIMEOUT_SECONDS", 90, cast=int)
+
 # Application definition
 
 INSTALLED_APPS = [

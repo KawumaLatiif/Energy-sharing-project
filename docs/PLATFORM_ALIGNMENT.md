@@ -36,7 +36,9 @@ Add to `backend/.env` (see `backend/.env.production.example`):
 ```env
 # ThingsBoard — AMI meters
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_TIMEOUT_SECONDS=8
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090   # same-VM production (Docker port 9090)
+THINGSBOARD_TIMEOUT_SECONDS=15
+THINGSBOARD_VERIFY_SSL=true
 THINGSBOARD_WEBHOOK_SECRET=your-webhook-secret
 THINGSBOARD_TENANT_USERNAME=          # Required for remaining_units attribute sync + Energy Usage
 THINGSBOARD_TENANT_PASSWORD=
@@ -49,6 +51,8 @@ CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 CELERY_TIMEZONE=Africa/Kampala
 CELERY_TASK_ALWAYS_EAGER=True
 ```
+
+Server operator guide: [`SERVER_THINGSBOARD_CONFIGURATION.md`](./SERVER_THINGSBOARD_CONFIGURATION.md).
 
 **Production Celery Beat** (configured in `backend/backend/settings.py`):
 
@@ -155,6 +159,9 @@ Rebuild APK after API URL changes: see [`MOBILE_APP.md`](MOBILE_APP.md).
 | [`MOBILE_APP.md`](MOBILE_APP.md) | Android app setup & features |
 | [`POWER_USAGE.md`](POWER_USAGE.md) | AMI usage data sources & Celery |
 | [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md) | Full USSD menus |
+| [`SERVER_THINGSBOARD_CONFIGURATION.md`](SERVER_THINGSBOARD_CONFIGURATION.md) | Hosted server: `.env`, DNS, Docker 9090, troubleshooting |
+| [`THINGSBOARD_INTEGRATION_REPORT.md`](THINGSBOARD_INTEGRATION_REPORT.md) | Full TB integration (product + technical) |
+| [`THINGSBOARD_INTEGRATION_GUIDE.md`](THINGSBOARD_INTEGRATION_GUIDE.md) | Developer testing & channel flows |
 | [`THINGSBOARD_WEBHOOK.md`](THINGSBOARD_WEBHOOK.md) | Low-units + daily-usage webhooks |
 | [`API_ROUTE_CATALOG.md`](../API_ROUTE_CATALOG.md) | All REST routes |
 | [`API_PAYLOAD_EXAMPLES.md`](../API_PAYLOAD_EXAMPLES.md) | Request/response samples |

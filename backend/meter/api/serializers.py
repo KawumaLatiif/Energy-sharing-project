@@ -1,10 +1,8 @@
 import logging
 from rest_framework import serializers
 from meter.models import Meter, MeterToken
+from meter.validators import validate_meter_no
 
-
-from rest_framework import serializers
-from meter.models import Meter
 
 class MeterSerializer(serializers.ModelSerializer):
     class Meta:
@@ -16,6 +14,12 @@ class MeterSerializer(serializers.ModelSerializer):
             "label": {"required": False, "allow_blank": True},
             "iot_device_token": {"required": False, "allow_null": True, "allow_blank": True, "write_only": True},
         }
+
+    def validate_meter_no(self, value):
+        ok, result = validate_meter_no(value)
+        if not ok:
+            raise serializers.ValidationError(result)
+        return result
 
     def validate(self, data):
         # Determine effective architecture (fall back to instance value on partial update)

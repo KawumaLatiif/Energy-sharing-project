@@ -40,7 +40,7 @@ The customer does **not** type a token on an AMI meter — the units should appe
 
 Each AMI meter in gPAWA is stored with:
 
-- **Meter number** (11 digits) — for the customer’s reference  
+- **Meter number** — any identifier from the bill or meter (letters, numbers, symbols; up to 100 characters)  
 - **Device token** — a secret key from ThingsBoard that identifies that one physical device  
 
 When the customer registers an AMI meter (web, mobile app, USSD, or admin), they (or an admin) must provide the **device token** from ThingsBoard. That token is what gPAWA uses for all communication with that meter.
@@ -134,7 +134,7 @@ All channels read and update the **same balances and meters** in the database.
 ```
 ┌─────────────┐     REST / USSD      ┌──────────────┐     HTTP Device API     ┌──────────────┐
 │ Web / Mobile│ ───────────────────► │ gPAWA Backend│ ◄──────────────────────► │ ThingsBoard  │
-│ USSD        │                      │  (FastAPI)   │                        │ IoT platform │
+│ USSD        │                      │   (Django)   │                        │ IoT platform │
 └─────────────┘                      └──────┬───────┘                        └──────┬───────┘
                                             │                                       │
                                             │ PostgreSQL                            │ AMI devices
@@ -143,20 +143,24 @@ All channels read and update the **same balances and meters** in the database.
                                      meter_notifications
 ```
 
+**Hosted pilot (`energy-system-set`):** Django and ThingsBoard run on the **same VM**. Django reaches TB via `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` (Docker maps host 9090 → container 8080). Public DNS for `iot.energy-share.sun.ac.ug` is optional for backend traffic — see **[SERVER_THINGSBOARD_CONFIGURATION.md](./SERVER_THINGSBOARD_CONFIGURATION.md)**.
+
 **STS meters** never call ThingsBoard. **AMI meters** go through `backend/meter/services.py` and `backend/meter/ami_delivery.py`.
 
 ### Configuration (Django `backend/backend/settings.py` + `.env`)
 
 | Variable | Default / purpose |
 |----------|-------------------|
-| `THINGSBOARD_BASE_URL` | `https://iot.energy-share.sun.ac.ug` |
-| `THINGSBOARD_TIMEOUT_SECONDS` | `8` |
+| `THINGSBOARD_BASE_URL` | Public TB URL (`https://iot.energy-share.sun.ac.ug`) — docs, future nginx |
+| `THINGSBOARD_INTERNAL_BASE_URL` | **Same-VM pilot:** `http://127.0.0.1:9090` — Django uses this for all HTTP to TB when set |
+| `THINGSBOARD_TIMEOUT_SECONDS` | `15` (production); increase if TB is slow |
+| `THINGSBOARD_VERIFY_SSL` | `true`; set `false` only for self-signed certs on HTTPS internal URLs |
 | `THINGSBOARD_WEBHOOK_SECRET` | Optional shared secret for inbound webhook |
 | `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant JWT — **writes `remaining_units`** on delivery + Energy Usage timeseries |
-| `AMI_GATEWAY` | `utils.ami_gateway.ThingsBoardAMIGateway` (production) or `MockAMIGateway` (pilot) |
+| `AMI_GATEWAY` | `utils.ami_gateway.ThingsBoardAMIGateway` (production) or `MockAMIGateway` (local stub) |
 | `WEB_PORTAL_URL` / `FRONTEND_URL` | Deep links in alert emails |
-| SMTP settings | Optional email for low-units alerts |
-| `CELERY_BROKER_URL` | Redis — required for pending-delivery retry beat task |
+| SMTP settings | Optional email for low-units + share confirmation |
+| `CELERY_BROKER_URL` | Redis — required when `CELERY_TASK_ALWAYS_EAGER=False` |
 
 ### Data model
 
@@ -274,6 +278,7 @@ Dedup: alert on threshold **crossing** or after **cooldown** while still low (de
 |----------|--------|--------------|
 | `/api/v1/meter/register/` | POST | Stores `iot_device_token` |
 | `/api/v1/meter/check-units/` | GET | **Yes** — retry pending + read `remaining_units` |
+| `/api/v1/meter/thingsboard-health/` | GET | **Yes** — operator diagnostic (URL in use, HTTP probe) |
 | `/api/v1/meter/apply-wallet-units/` | POST | **Yes** — push telemetry + attribute sync |
 | `/api/v1/share/share-units/` | POST | **Yes** (AMI receiver) — same delivery engine |
 | `/api/v1/meter/buy-units/` | POST | No (credits unit wallet only) |
@@ -327,26 +332,66 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 | Offline retry | Disconnect meter → Load Units → reconnect | Pending clears within 5 min or on Check Units |
 | Pending queue | Load while TB unreachable | `pending_delivery_kwh` > 0; auto-delivered when online |
 
+### Server deployment (hosted app)
+
+When gPAWA and ThingsBoard share one server (verified on `energy-system-set`):
+
+| Step | Action |
+|------|--------|
+| 1 | Confirm Docker TB: `docker ps` → `127.0.0.1:9090->8080/tcp` |
+| 2 | Set `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` in `backend/.env` |
+| 3 | Set `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` |
+| 4 | `sudo systemctl restart gpawa` (or your gunicorn unit) |
+| 5 | Smoke test: `curl http://127.0.0.1:9090` → 200 |
+| 6 | API: `GET /api/v1/meter/thingsboard-health/` (JWT) → `"success": true` |
+| 7 | UI: **Check Units** on an AMI meter → live kWh |
+
+**Production issues we resolved:**
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `Could not resolve host: iot.energy-share...` | No DNS for `iot.` subdomain | Use `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090` |
+| `ThingsBoard request failed: ConnectionError` | Django still pointed at unreachable public URL | Same as above; restart gunicorn after `.env` edit |
+| Web works; Check Units fails | TB reachable only on localhost:9090, not 8080 | Use port **9090** (Docker host mapping), not container 8080 |
+| Share email balance ≠ Check Units | Email used ledger (`meter.units`) not live TB | Deploy `backend/share/notifications.py` (prefers live TB) |
+
+Full operator guide: **[SERVER_THINGSBOARD_CONFIGURATION.md](./SERVER_THINGSBOARD_CONFIGURATION.md)**.
+
+### Share notification emails
+
+After AMI share (web or USSD), both parties can receive email when SMTP is configured:
+
+| Recipient | Content |
+|-----------|---------|
+| Receiver | Sender **name**, contact, units applied, **live ThingsBoard balance** when reachable |
+| Sender | Confirmation with recipient details and wallet remaining |
+
+Implementation: `backend/share/notifications.py`, `backend/accounts/tasks.py`.
+
 ### Known limitations and assumptions
 
-1. **Two “balances”:** `meter.units` is the **ledger** (delivered to ThingsBoard); `remaining_units` is the **live field reading**. They differ when the customer has consumed power, or when delivery is still pending.  
+1. **Two “balances”:** `meter.units` is the **ledger** (delivered to ThingsBoard); `remaining_units` is the **live field reading**. They differ when the customer has consumed power, or when delivery is still pending. Notifications and Check Units prefer live TB when reachable.  
 2. **Top Up ≠ Load:** wallet top-up does not change meter balances until Load Units or share.  
-3. **Check units** reads `remaining_units` (shared/server/client attribute, telemetry fallback). gPAWA writes this attribute on each successful delivery when tenant credentials are configured.  
+3. **Check units** reads `remaining_units` (shared attribute; telemetry fallback). gPAWA writes this attribute on each successful delivery when tenant credentials are configured.  
 4. **Pending delivery** (`meter.pending_units` on AMI) is retried by Celery every 5 minutes and on Check Units.  
-5. **Low-units alerts** require ThingsBoard rule-chain configuration and a **public** gPAWA webhook URL.  
+5. **Low-units alerts** use gPAWA polling (Celery beat); optional TB rule-chain webhook needs a **public** gPAWA URL (not `localhost`).  
 6. **Push path** uses telemetry key `amount`; **read path** uses attribute key `remaining_units`.  
 7. **Device access token** is used for device HTTP API; **tenant JWT** is used for shared-attribute writes and timeseries.  
-8. **Email alerts** require SMTP env vars and user-saved email.
+8. **Email alerts** require SMTP env vars and user-saved email.  
+9. **Meter numbers** accept any non-empty value up to 100 characters (e.g. `EM_SRT002`, legacy numeric IDs).
 
 ### Related documentation
 
 | Document | Contents |
 |----------|----------|
-| **[THINGSBOARD_WEBHOOK.md](./THINGSBOARD_WEBHOOK.md)** | Rule chain setup, webhook payload, manual tests, env vars, troubleshooting |
-| **[THINGSBOARD_INTEGRATION_REPORT.md](./THINGSBOARD_INTEGRATION_REPORT.md)** | Full integration report (non-technical + technical) |
+| **[SERVER_THINGSBOARD_CONFIGURATION.md](./SERVER_THINGSBOARD_CONFIGURATION.md)** | **Server operators:** `.env`, DNS, Docker 9090, troubleshooting, post-deploy checklist |
+| **[THINGSBOARD_INTEGRATION_GUIDE.md](./THINGSBOARD_INTEGRATION_GUIDE.md)** | Developer testing, curl examples, channel flows |
+| **[THINGSBOARD_WEBHOOK.md](./THINGSBOARD_WEBHOOK.md)** | Rule chain setup, webhook payload, manual tests |
+| **[DEPLOYMENT.md](../DEPLOYMENT.md)** | Full server install (Postgres, gunicorn, nginx, SSL) |
+| **[PLATFORM_ALIGNMENT.md](./PLATFORM_ALIGNMENT.md)** | Migrations, Celery beat, env checklist after git pull |
 | **[SYSTEM_REPORT.md](./SYSTEM_REPORT.md)** | Platform-wide flows and channel parity |
 | **[RUNBOOK.md](../RUNBOOK.md)** | Operations, AMI push errors, migrations |
 
 ---
 
-*This report describes the integration as implemented in the gPAWA codebase. ThingsBoard rule chains and device firmware behaviour on the Soroti/ERA test deployment should be validated against the live instance at `iot.energy-share.sun.ac.ug`.*
+*This report describes the integration as implemented in the gPAWA codebase. On the hosted pilot, backend traffic to ThingsBoard uses `http://127.0.0.1:9090` via `THINGSBOARD_INTERNAL_BASE_URL`; validate device behaviour against your TB instance and field meters.*

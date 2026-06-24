@@ -13,6 +13,7 @@ import { registerMeter } from "./register-meter/action";
 import MeterArchitecturePicker, {
   type MeterArchitecture,
 } from "../_components/meter-architecture-picker";
+import { isValidMeterNumber, METER_NO_MAX_LENGTH } from "@/lib/meter-validation";
 
 interface RegisterMeterProps {
   onSuccess?: () => void;
@@ -28,7 +29,6 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
   const isValidIP = (v: string) =>
     /^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$/.test(
       v
@@ -43,7 +43,7 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
     e.preventDefault();
 
     if (!isValidMeterNumber(meterNo)) {
-      setMessage({ type: "error", text: "Please enter a valid 10-12 digit meter number" });
+      setMessage({ type: "error", text: "Please enter a meter number" });
       return;
     }
 
@@ -170,9 +170,9 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
               id="meterNo"
               type="text"
               value={meterNo}
-              onChange={(e) => setMeterNo(e.target.value.replace(/\D/g, ""))}
-              placeholder="Enter your 10-12 digit meter number"
-              maxLength={12}
+              onChange={(e) => setMeterNo(e.target.value)}
+              placeholder="Enter your meter number"
+              maxLength={METER_NO_MAX_LENGTH}
               required
               disabled={isLoading}
               className={cn(
@@ -181,7 +181,7 @@ export default function RegisterMeter({ onSuccess, onError }: RegisterMeterProps
               )}
             />
             {!isValidMeterNumber(meterNo) && meterNo.length > 0 && (
-              <p className="text-xs text-destructive">Please enter a valid 10-12 digit meter number</p>
+              <p className="text-xs text-destructive">Please enter a meter number</p>
             )}
           </div>
 

@@ -13,6 +13,7 @@ import { getApiErrorMessage } from "@/lib/api-response";
 import MeterArchitecturePicker, {
   type MeterArchitecture,
 } from "./meter-architecture-picker";
+import { isValidMeterNumber, METER_NO_MAX_LENGTH } from "@/lib/meter-validation";
 
 interface MeterRegistrationPopupProps {
   isOpen: boolean;
@@ -33,8 +34,6 @@ export default function MeterRegistrationPopup({
   const [label, setLabel] = useState("");
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-
-  const isValidMeterNumber = (v: string) => /^\d{10,12}$/.test(v);
 
   const handleArchChange = (arch: MeterArchitecture) => {
     setArchitecture(arch);
@@ -70,7 +69,7 @@ export default function MeterRegistrationPopup({
     e.preventDefault();
 
     if (!isValidMeterNumber(meterNo)) {
-      setMessage({ type: "error", text: "Please enter a valid 10-12 digit meter number" });
+      setMessage({ type: "error", text: "Please enter a meter number" });
       return;
     }
 
@@ -190,9 +189,9 @@ export default function MeterRegistrationPopup({
                 id="meterNo"
                 type="text"
                 value={meterNo}
-                onChange={(e) => setMeterNo(e.target.value.replace(/\D/g, ""))}
-                placeholder="Enter 10-12 digit meter number"
-                maxLength={12}
+                onChange={(e) => setMeterNo(e.target.value)}
+                placeholder="Enter meter number"
+                maxLength={METER_NO_MAX_LENGTH}
                 required
                 disabled={isLoading}
                 className={cn(
@@ -200,7 +199,7 @@ export default function MeterRegistrationPopup({
                 )}
               />
               {!isValidMeterNumber(meterNo) && meterNo.length > 0 && (
-                <p className="text-xs text-destructive">Please enter a valid 10-12 digit meter number</p>
+                <p className="text-xs text-destructive">Please enter a meter number</p>
               )}
             </div>
 

@@ -310,27 +310,86 @@ sudo journalctl -u gpawa -f
 
 ---
 
+## Step 15 — ThingsBoard & AMI meters (production)
+
+Required when using **real networked (AMI) meters** on the hosted server. Full guide: [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md).
+
+### 15.1 Confirm ThingsBoard is running
+
+On `energy-system-set`, ThingsBoard runs in Docker:
+
+```bash
+docker ps | grep thingsboard
+# Expect: 127.0.0.1:9090->8080/tcp
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
+# Expect: 200
+```
+
+### 15.2 Configure `backend/.env`
+
+```env
+# Public URL (optional for backend if INTERNAL is set)
+THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
+
+# REQUIRED when Django and TB are on the same VM (no DNS for iot.*)
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
+
+THINGSBOARD_TIMEOUT_SECONDS=15
+THINGSBOARD_VERIFY_SSL=true
+THINGSBOARD_WEBHOOK_SECRET=<long-random-secret>
+THINGSBOARD_TENANT_USERNAME=<tenant@tenant>
+THINGSBOARD_TENANT_PASSWORD=<password>
+
+AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
+
+CELERY_TASK_ALWAYS_EAGER=False
+CELERY_BROKER_URL=redis://127.0.0.1:6379/0
+CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
+```
+
+Restart after editing:
+
+```bash
+sudo systemctl restart gpawa
+```
+
+### 15.3 Celery worker + beat (AMI retry & low-units)
+
+```bash
+sudo apt install -y redis-server
+sudo systemctl enable redis-server
+
+cd /home/ubuntu/gpawa/backend
+source venv/bin/activate
+celery -A backend worker -l info &
+celery -A backend beat -l info &
+```
+
+Use systemd units or PM2 for production persistence.
+
+### 15.4 Verify Check Units
+
+1. Register an AMI meter with `iot_device_token` from ThingsBoard.
+2. Log in at `https://energy-share.sun.ac.ug` → **My Meters** → **Check Units**.
+3. Or API: `GET /api/v1/meter/thingsboard-health/` (JWT) → `"success": true`.
+4. Or SSH: `curl -s "http://127.0.0.1:9090/api/v1/<TOKEN>/attributes?sharedKeys=remaining_units"`.
+
+### 15.5 Optional: low-units webhook from ThingsBoard
+
+Expose to TB: `POST https://energy-share.sun.ac.ug/webhooks/thingsboard/low-units` — see [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md). gPAWA also **polls** ThingsBoard every 2 seconds via Celery beat when worker is running.
+
+---
+
 ## Optional hardening (do after the pilot works)
 
 These are good to do but not required for the pilot to function:
 
-- **Switch to a Celery worker** for background email (set `CELERY_TASK_ALWAYS_EAGER=False` and run `celery -A backend worker -l info`). Moves email sending off the request thread. Install and start Redis first: `sudo apt install redis-server`.
+- **Switch to a Celery worker** for background email and AMI tasks (set `CELERY_TASK_ALWAYS_EAGER=False` and run `celery -A backend worker -l info` + `celery -A backend beat -l info`). Install and start Redis first: `sudo apt install redis-server`.
 - **Switch MTN MoMo** from `sandbox` to production credentials once real payments are needed.
-- **Switch AMI gateway** from `MockAMIGateway` to `ThingsBoardAMIGateway` when real networked meters are available.
-- **Configure ThingsBoard** in `backend/.env`:
-
-```env
-AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
-THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_TIMEOUT_SECONDS=8
-THINGSBOARD_WEBHOOK_SECRET=<long-random-secret>
-FRONTEND_URL=https://energy-share.sun.ac.ug
-```
-
-- **Expose webhook** to ThingsBoard: `POST https://<api-host>/webhooks/thingsboard/low-units` (configure TB rule chain — see [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md)).
-- **Run migration** `meter.0016_meternotification` if not already applied.
 - **Database backups**: `pg_dump metering | gzip > backup.sql.gz` — set up a cron job.
 - **Firewall**: `sudo ufw allow 22 && sudo ufw allow 80 && sudo ufw allow 443 && sudo ufw enable`
+
+ThingsBoard and AMI gateway configuration is covered in **Step 15** above (not optional when using real AMI meters).
 
 ---
 
@@ -352,3 +411,8 @@ When ERA publishes new rates, update the database without touching code:
 | Database connection error | Check `DB_*` vars in `.env` match the PostgreSQL user/db you created |
 | `Invalid HTTP_HOST header` | Add the domain to `EXTRA_ALLOWED_HOSTS` in `.env` |
 | Verification link goes to localhost | Check `FRONTEND_URL` in `.env` is set to the production domain |
+| Check Units: `ConnectionError` / `Could not resolve host` | Set `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090`; restart `gpawa` — see [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md) |
+| Check Units works in SSH curl but not in app | `.env` not loaded by systemd — check `EnvironmentFile=` in gunicorn unit |
+| Load/Share AMI: no meter update | `AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway` in `.env` |
+| `thingsboard-health` fails | `docker ps` — is TB container up? `curl http://127.0.0.1:9090` → 200 |
+| Pending AMI delivery never clears | Celery worker + beat running; `CELERY_TASK_ALWAYS_EAGER=False` |

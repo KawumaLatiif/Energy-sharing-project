@@ -97,7 +97,7 @@ export default function LoadShareClient() {
             { icon: KeyRound, text: "STS receiver → keypad token by email" },
             { icon: Cpu, text: "AMI receiver → direct device top-up" },
           ]}
-          footerNote="Email verification required before units are sent"
+          footerNote="Confirm with your account PIN (login password)"
           buttonLabel="Share to another meter"
           buttonVariant="outline"
           onSelect={() => setMode("share")}

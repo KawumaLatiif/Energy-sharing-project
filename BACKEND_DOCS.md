@@ -474,7 +474,7 @@ Full audit trail for all system events.
 | `current_menu` | CharField | Current menu state |
 | `context` | JSONField | Session state data |
 | `is_active` | BooleanField | |
-| `expires_at` | DateTimeField | 15 minutes from creation |
+| `expires_at` | DateTimeField | Inactivity deadline (`USSD_SESSION_TIMEOUT_SECONDS`, default **90s**) |
 
 Indexes: `(phone_number, is_active)`, `(expires_at)`
 
@@ -743,10 +743,16 @@ DEFAULT_AUTHENTICATION_CLASSES = [
 | `MTN_API_USER_ID` | MTN MoMo API user ID | |
 | `MTN_CALLBACK_HOST` | Callback URL for MoMo webhooks | `http://localhost:3030` |
 | `AMI_GATEWAY` | AMI gateway class path | `utils.ami_gateway.MockAMIGateway` |
-| `THINGSBOARD_BASE_URL` | ThingsBoard server base URL | `https://iot.energy-share.sun.ac.ug` |
-| `THINGSBOARD_TIMEOUT_SECONDS` | HTTP timeout for TB calls | `8` |
+| `THINGSBOARD_BASE_URL` | ThingsBoard public base URL | `https://iot.energy-share.sun.ac.ug` |
+| `THINGSBOARD_INTERNAL_BASE_URL` | Same-VM production: Django→TB URL (overrides base for HTTP) | `http://127.0.0.1:9090` |
+| `THINGSBOARD_TIMEOUT_SECONDS` | HTTP timeout for TB calls | `15` |
+| `THINGSBOARD_VERIFY_SSL` | Verify TLS for HTTPS TB URLs | `true` |
 | `THINGSBOARD_WEBHOOK_SECRET` | Optional shared secret for inbound low-units webhook | |
+| `THINGSBOARD_TENANT_USERNAME` / `PASSWORD` | Tenant JWT for `remaining_units` writes + usage | |
 | `FRONTEND_URL` | Web app URL (emails, alert deep links) | `http://localhost:3000` (dev) |
+| `USSD_SESSION_TIMEOUT_SECONDS` | USSD inactivity timeout between inputs | `90` |
+
+Server deployment: [`docs/SERVER_THINGSBOARD_CONFIGURATION.md`](docs/SERVER_THINGSBOARD_CONFIGURATION.md).
 
 ### Database Settings (`backend/settings.py`)
 
@@ -922,7 +928,9 @@ Entry point: `POST /api/v1/ussd/entry/`
 
 ### Session Model
 
-Sessions are stored in `UssdSession` with a 15-minute expiry. Each request carries:
+Sessions are stored in `UssdSession`. **Inactivity timeout** defaults to **90 seconds** (`USSD_SESSION_TIMEOUT_SECONDS`); the clock resets on each `CON` menu prompt. Expired mid-flow requests return `END` with a session-expired message. See [`USSD_INTEGRATION.md`](../USSD_INTEGRATION.md).
+
+Each request carries:
 - `sessionId` — gateway session identifier
 - `serviceCode` — USSD short code
 - `phoneNumber` — caller's MSISDN
