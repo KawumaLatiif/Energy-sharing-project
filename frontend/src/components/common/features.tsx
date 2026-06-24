@@ -10,7 +10,7 @@ export default function Features() {
     {
       icon: CheckCircleIcon,
       title: "Secure Energy Sharing",
-      desc: "Every transaction is cryptographically verified and audit-logged. Share kWh between meters with email-verified two-step confirmation.",
+      desc: "Every transaction is recorded in your history. Share kWh between meters with a clear summary and your account password to confirm.",
     },
     {
       icon: BoltIcon,
@@ -31,11 +31,12 @@ export default function Features() {
 
   return (
     <motion.section
+      id="features"
       initial={{ opacity: 0 }}
       whileInView={{ opacity: 1 }}
       transition={{ duration: 0.6 }}
       viewport={{ once: true }}
-      className="relative py-20 md:py-28 bg-gradient-to-bl from-white via-slate-50 to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950"
+      className="scroll-mt-24 relative py-20 md:py-28 bg-gradient-to-bl from-white via-slate-50 to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950"
     >
       <div className="container mx-auto px-4 md:px-8 max-w-7xl relative z-10">
         <motion.div

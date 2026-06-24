@@ -1903,52 +1903,13 @@ class SystemHealthView(APIView, RBACMixin):
         if not ok:
             return err
 
-        import django.db
-        from django.db import connection
+        from admin.health_checks import run_all_health_checks
 
-        def _check_db():
-            try:
-                with connection.cursor() as cursor:
-                    cursor.execute("SELECT 1")
-                return {"status": "GREEN", "latency_ms": 0}
-            except Exception as exc:
-                return {"status": "RED", "error": str(exc)}
-
-        def _check_redis():
-            try:
-                from django.core.cache import cache
-                cache.set('_health_check', '1', 5)
-                val = cache.get('_health_check')
-                return {"status": "GREEN" if val == '1' else "AMBER"}
-            except Exception as exc:
-                return {"status": "AMBER", "error": str(exc)}
-
-        db_health = _check_db()
-        redis_health = _check_redis()
-
-        components = {
-            "api_gateway": {"status": "GREEN", "description": "API Gateway"},
-            "postgresql": {**db_health, "description": "PostgreSQL Database"},
-            "redis": {**redis_health, "description": "Redis Cache"},
-            "cvs_sts_api": {"status": "GREEN", "description": "CVS/STS Token API"},
-            "africas_talking": {"status": "GREEN", "description": "Africa's Talking (USSD/SMS)"},
-            "mtn_momo": {"status": "GREEN", "description": "MTN MoMo API"},
-            "airtel_money": {"status": "GREEN", "description": "Airtel Money API"},
-            "firebase": {"status": "GREEN", "description": "Firebase (Push Notifications)"},
-        }
-
-        statuses = [c["status"] for c in components.values()]
-        if "RED" in statuses:
-            overall = "RED"
-        elif "AMBER" in statuses:
-            overall = "AMBER"
-        else:
-            overall = "GREEN"
-
+        payload = run_all_health_checks()
         return Response({
             "success": True,
-            "overall_status": overall,
-            "components": components,
+            "overall_status": payload["overall_status"],
+            "components": payload["components"],
             "timestamp": timezone.now().isoformat(),
         })
 
@@ -1961,22 +1922,10 @@ class SystemErrorLogView(APIView, RBACMixin):
         if not ok:
             return err
 
-        # Return recent failed transactions and audit errors as a proxy error log
-        recent_failures = Transaction.objects.filter(
-            status=Transaction.STATUS_FAILED
-        ).select_related('user').order_by('-create_date')[:50]
+        from admin.system_errors import collect_recent_errors
 
-        errors = [
-            {
-                "timestamp": t.create_date.isoformat(),
-                "component": "CVS/STS API" if "CVS" in t.failure_reason else "Payment API",
-                "message": t.failure_reason or "Unknown error",
-                "user": t.user.email,
-                "transaction_id": str(t.transaction_id),
-            }
-            for t in recent_failures
-        ]
-
+        limit = min(int(request.GET.get("limit", 50)), 100)
+        errors = collect_recent_errors(limit=limit)
         return Response({"success": True, "errors": errors})
 
 

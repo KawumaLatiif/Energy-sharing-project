@@ -1,5 +1,6 @@
 "use client";
 import Features from "@/components/common/features";
+import HowItWorks from "@/components/common/how-it-works";
 import PublicFooter from "@/components/common/public-footer";
 import PublicHeader from "@/components/common/public-header";
 import Image from "next/image";
@@ -75,7 +76,7 @@ export default function Home() {
                     <div className="absolute inset-0 bg-gradient-to-r from-blue-700 to-emerald-700 opacity-0 group-hover:opacity-100 transition-opacity" />
                   </motion.button>
                 </Link>
-                <Link href="#features">
+                <Link href="#how-it-works">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
@@ -121,6 +122,7 @@ export default function Home() {
         </div>
       </section>
 
+      <HowItWorks />
       <Features />
       
 

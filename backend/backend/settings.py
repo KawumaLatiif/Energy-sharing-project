@@ -133,6 +133,7 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
     'accounts.middleware.StaffInactivityMiddleware',
+    'admin.middleware.SystemErrorLoggingMiddleware',
 ]
 
 # Staff admin session: 30 minutes of inactivity expires access (spec Section 1.3)

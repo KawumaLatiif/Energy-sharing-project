@@ -341,3 +341,31 @@ class ScheduledReport(models.Model):
 
     def __str__(self):
         return f"{self.report_type} ({self.frequency})"
+
+
+# --------------------------------------------------------------------------- #
+#  System error events — admin health error log                               #
+# --------------------------------------------------------------------------- #
+class SystemErrorEvent(models.Model):
+    component = models.CharField(max_length=80, db_index=True)
+    message = models.TextField()
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="system_error_events",
+    )
+    reference_id = models.CharField(max_length=100, blank=True, default="")
+    details = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        app_label = "portal_admin"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["component", "created_at"]),
+        ]
+
+    def __str__(self):
+        return f"[{self.component}] {self.message[:60]}"

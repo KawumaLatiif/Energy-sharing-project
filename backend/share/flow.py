@@ -128,6 +128,14 @@ def execute_share_units(
                 ledger_source=sender_meter.meter_no,
                 payment_reference=transaction_ref,
             ):
+                from admin.system_errors import record_system_error
+
+                record_system_error(
+                    "ThingsBoard / AMI",
+                    f"Failed to deliver {units} kWh to meter {receiver_meter_no} via ThingsBoard",
+                    user=sender,
+                    reference_id=transaction_ref,
+                )
                 raise ShareFlowError("Failed to deliver units to AMI meter via ThingsBoard.")
 
         sender_account_wallet = AccountWallet.objects.filter(user=sender).order_by("-create_date").first()

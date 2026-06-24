@@ -8,7 +8,7 @@ from django.db import transaction as db_transaction
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 
 from accounts.models import Wallet as AccountWallet
@@ -39,39 +39,40 @@ from wallet.models import Wallet as UnitWallet
 logger = logging.getLogger(__name__)
 
 
+
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def ussd_phone_numbers(request):
     """
-    Lightweight helper endpoint for local simulator.
-    Returns users that have phone numbers so the UI can provide quick selection.
+    Web USSD simulator helper — returns only the logged-in portal user's phone.
     """
-    from accounts.models import User
-
-    users = (
-        User.objects.exclude(phone_number__isnull=True)
-        .exclude(phone_number="")
-        .only("id", "email", "phone_number")
-        .order_by("email")[:100]
+    user = request.user
+    if not user.phone_number:
+        return Response({"results": []})
+    return Response(
+        {
+            "results": [
+                {
+                    "phone_number": str(user.phone_number),
+                    "email": user.email,
+                }
+            ]
+        }
     )
-    items = [{"phone_number": str(user.phone_number), "email": user.email} for user in users]
-    return Response({"results": items})
 
 
 @api_view(["GET"])
-@permission_classes([AllowAny])
+@permission_classes([IsAuthenticated])
 def ussd_receiver_meters(request):
     """
-    Helper endpoint for the local simulator.
-    Returns available receiver meter numbers excluding sender's own meter.
+    Web USSD simulator helper — receiver meters for share flows.
+    Locked to the authenticated portal account (ignores phoneNumber query param).
     """
-    phone_number = str(request.query_params.get("phoneNumber", "")).strip()
-    sender_user = _find_user_by_phone(phone_number) if phone_number else None
+    sender_user = request.user
     sender_meter_no = None
 
-    if sender_user:
-        sender_meter = Meter.objects.filter(user=sender_user).only("meter_no").first()
-        sender_meter_no = sender_meter.meter_no if sender_meter else None
+    sender_meter = Meter.objects.filter(user=sender_user).only("meter_no").first()
+    sender_meter_no = sender_meter.meter_no if sender_meter else None
 
     meters_qs = Meter.objects.select_related("user").only("meter_no", "user__email").order_by("meter_no")
     if sender_meter_no:
@@ -685,6 +686,13 @@ def ussd_entry(request):
     session_id = str(request.data.get("sessionId", "")).strip() or f"fallback-{uuid.uuid4().hex[:10]}"
     service_code = str(request.data.get("serviceCode", "")).strip()
     phone_number = request.data.get("phoneNumber", "")
+    if getattr(request.user, "is_authenticated", False):
+        if not request.user.phone_number:
+            return _resp(
+                "END",
+                "Add a phone number in your web account profile before using USSD.",
+            )
+        phone_number = str(request.user.phone_number)
     text = request.data.get("text", "")
     text_str = str(text or "").strip()
 

@@ -1,13 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/common/constants/api";
+import { requireUssdAuthHeaders } from "@/lib/ussd-api-auth";
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
+  const authHeaders = await requireUssdAuthHeaders();
+  if (!authHeaders) {
+    return NextResponse.json(
+      { ok: false, results: [], error: "Sign in to use the USSD simulator." },
+      { status: 401 },
+    );
+  }
+
   try {
-    const phoneNumber = request.nextUrl.searchParams.get("phoneNumber") ?? "";
-    const endpoint = `${API_URL}/ussd/meters/?phoneNumber=${encodeURIComponent(phoneNumber)}`;
-
-    const backendResponse = await fetch(endpoint, {
+    const backendResponse = await fetch(`${API_URL}/ussd/meters/`, {
       method: "GET",
+      headers: authHeaders,
       cache: "no-store",
     });
 

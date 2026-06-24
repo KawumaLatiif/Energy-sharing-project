@@ -1,9 +1,6 @@
 "use client";
-import { Disclosure, Menu } from "@headlessui/react";
+import { Disclosure } from "@headlessui/react";
 import { Bars3Icon, XMarkIcon } from "@heroicons/react/24/outline";
-import { useState } from "react";
-import Spinner from "@/components/common/spinner";
-import { Button } from "@/components/ui/button";
 import Link from "next/link";
 import { useAuth } from "@/hooks/use-auth";
 import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
@@ -11,8 +8,7 @@ import { ModeToggle } from "../theme-toggle";
 import { motion } from "framer-motion";
 
 export default function PublicHeader() {
-  const [isPending, setIsPending] = useState<boolean>(false);
-  const { loading, auth } = useAuth();
+  const { auth } = useAuth();
 
   return (
     <>
@@ -97,19 +93,19 @@ export default function PublicHeader() {
           <Disclosure.Panel className="md:hidden bg-white/95 dark:bg-slate-950/90 border-t border-gray-200/70 dark:border-slate-800/70 backdrop-blur-lg">
             <div className="px-2 pt-2 pb-3 space-y-1">
               <Link
-                href="#"
+                href="/about"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 About
               </Link>
               <Link
-                href="#"
+                href="/contact"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 Contact
               </Link>
               <Link
-                href="#"
+                href="/privacy"
                 className="block px-3 py-2 text-base font-medium text-gray-900 dark:text-white hover:bg-blue-50 dark:hover:bg-slate-900 rounded-lg"
               >
                 Privacy
@@ -129,6 +125,14 @@ export default function PublicHeader() {
                     Sign In
                   </Link>
                 </>
+              )}
+              {auth && (
+                <Link
+                  href="/dashboard"
+                  className="block w-full text-left px-3 py-2 text-base font-medium text-white bg-gradient-to-r from-blue-600 to-emerald-600 rounded-lg"
+                >
+                  Dashboard
+                </Link>
               )}
             </div>
           </Disclosure.Panel>

@@ -42,6 +42,18 @@ interface ErrorEntry {
   transaction_id: string;
 }
 
+interface HealthApiResponse {
+  success?: boolean;
+  overall_status: "GREEN" | "AMBER" | "RED";
+  components: Record<string, ComponentHealth>;
+  timestamp: string;
+}
+
+interface ErrorsApiResponse {
+  success?: boolean;
+  errors: ErrorEntry[];
+}
+
 const COMPONENT_LABELS: Record<string, string> = {
   api_gateway: "API Gateway",
   postgresql: "PostgreSQL Database",
@@ -64,7 +76,7 @@ function StatusBadge({ status }: { status: "GREEN" | "AMBER" | "RED" }) {
     status === "GREEN" ? "bg-green-100 text-green-800" :
     status === "AMBER" ? "bg-yellow-100 text-yellow-800" :
     "bg-red-100 text-red-800";
-  const label = status === "GREEN" ? "Operational" : status === "AMBER" ? "Degraded" : "Down";
+  const label = status === "GREEN" ? "Operational" : status === "AMBER" ? "Degraded / Simulated" : "Down";
   return <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${cls}`}>{label}</span>;
 }
 
@@ -78,8 +90,8 @@ export default function SystemHealthPage() {
     setLoading(true);
     try {
       const [healthRes, errorsRes] = await Promise.all([
-        get<any>('admin/system-health/'),
-        get<any>('admin/system-health/errors/'),
+        get<HealthApiResponse>('admin/system-health/'),
+        get<ErrorsApiResponse>('admin/system-health/errors/'),
       ]);
       if (healthRes.data) setHealth(healthRes.data);
       if (errorsRes.data) setErrors(errorsRes.data.errors || []);
@@ -119,7 +131,7 @@ export default function SystemHealthPage() {
               <div>
                 <p className="font-semibold text-lg">
                   {health.overall_status === "GREEN" ? "All Systems Operational" :
-                   health.overall_status === "AMBER" ? "Partial Degradation" : "System Outage"}
+                   health.overall_status === "AMBER" ? "Partial Degradation — some services in pilot/simulation mode" : "System Outage"}
                 </p>
                 <p className="text-sm text-muted-foreground">
                   Last checked {new Date(health.timestamp).toLocaleTimeString()}
@@ -172,7 +184,7 @@ export default function SystemHealthPage() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-base">Recent Errors</CardTitle>
-                <CardDescription>Failed transactions and system errors (last 50)</CardDescription>
+                <CardDescription>Failed transactions, payment errors, and server-side failures (last 50)</CardDescription>
               </CardHeader>
               <CardContent>
                 {errors.length === 0 ? (
