@@ -2109,6 +2109,11 @@ class AdminStatsView(APIView, RBACMixin):
             meter_daily.append({"date": date.isoformat(), "count": count})
         meter_daily.reverse()
 
+        total_meters = Meter.objects.count()
+        with_units = Meter.objects.filter(units__gt=0).count()
+        without_units = max(0, total_meters - with_units)
+        active_ratio = round((with_units / total_meters) * 100, 1) if total_meters else 0
+
         return Response({
             "success": True,
             "stats": {
@@ -2119,13 +2124,18 @@ class AdminStatsView(APIView, RBACMixin):
                 },
                 "meter_registrations": {
                     "daily": meter_daily,
-                    "total": Meter.objects.count(),
+                    "total": total_meters,
                 },
                 "user_status": {
                     "active": User.objects.filter(account_is_active=True, user_role=User.CLIENT).count(),
                     "inactive": User.objects.filter(account_is_active=False, user_role=User.CLIENT).count(),
-                    "suspended": User.objects.filter(is_suspended=True, user_role=User.CLIENT).count(),
                     "verified": Profile.objects.filter(email_verified=True).count(),
+                    "unverified": Profile.objects.filter(email_verified=False).count(),
+                },
+                "meter_status": {
+                    "with_units": with_units,
+                    "without_units": without_units,
+                    "active_ratio": active_ratio,
                 },
             },
         })
