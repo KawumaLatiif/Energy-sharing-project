@@ -121,6 +121,8 @@ export default function MeterManagementModal({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
+    const isUpdate = editingMeterNo !== null;
+
     if (!isValidMeterNumber(formData.meter_no)) {
       setMessage({ type: "error", text: "Please enter a valid 10-12 digit meter number" });
       return;
@@ -134,7 +136,6 @@ export default function MeterManagementModal({
     setIsLoading(true);
     setMessage(null);
 
-    const isUpdate = editingMeterNo !== null;
     const payload: Record<string, string> = {
       meter_no: formData.meter_no.trim(),
       architecture: formData.architecture,

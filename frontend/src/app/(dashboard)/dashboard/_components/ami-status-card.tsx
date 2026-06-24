@@ -124,32 +124,41 @@ export default function AmiStatusCard({
         amount: amt,
         meter_no: meter.meter_number,
       });
-      if (res.data?.success) {
-        const live =
-          res.data.live_units_kwh != null ? Number(res.data.live_units_kwh) : null;
-        const walletRem = Number(res.data.remaining_wallet_balance) || 0;
-        const ledger = Number(res.data.meter_balance) || 0;
 
-        setApplyMessage(res.data.message || "Units applied to your AMI meter.");
-        setLocalWalletBalance(walletRem);
-        setLocalMeterBalance(ledger);
-
-        if (live != null && Number.isFinite(live)) {
-          setStatus((prev) => ({
-            is_online: true,
-            last_seen: res.data.live_queried_at ?? new Date().toISOString(),
-            current_balance_kwh: live,
-          }));
-          setLocalMeterBalance(live);
-        } else {
-          void fetchStatus();
-        }
-
-        setAmount("");
-        onApplied?.();
-      } else {
-        setError(getApiErrorMessage(res.error, res.data?.error || "Failed to apply units."));
+      const data = res.data;
+      if (!data?.success) {
+        const fallback =
+          typeof data?.error === "string" ? data.error : "Failed to apply units.";
+        setError(
+          getApiErrorMessage(
+            typeof res.error === "string" ? res.error : undefined,
+            fallback
+          )
+        );
+        return;
       }
+
+      const live = data.live_units_kwh != null ? Number(data.live_units_kwh) : null;
+      const walletRem = Number(data.remaining_wallet_balance) || 0;
+      const ledger = Number(data.meter_balance) || 0;
+
+      setApplyMessage(data.message || "Units applied to your AMI meter.");
+      setLocalWalletBalance(walletRem);
+      setLocalMeterBalance(ledger);
+
+      if (live != null && Number.isFinite(live)) {
+        setStatus({
+          is_online: true,
+          last_seen: data.live_queried_at ?? new Date().toISOString(),
+          current_balance_kwh: live,
+        });
+        setLocalMeterBalance(live);
+      } else {
+        void fetchStatus();
+      }
+
+      setAmount("");
+      onApplied?.();
     } catch {
       setError("Network error. Please try again.");
     } finally {
