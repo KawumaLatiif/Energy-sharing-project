@@ -63,7 +63,34 @@ ThingsBoard is reachable. If Check Units still fails, check:
 
 Django should call ThingsBoard via **localhost**, not the public `iot.` hostname.
 
-**Step 1 — Find the local port**
+#### Reference: `energy-system-set` (Docker ThingsBoard CE)
+
+On the production VM, ThingsBoard runs in Docker:
+
+```text
+thingsboard/tb-node:4.2.1.1
+127.0.0.1:9090->8080/tcp   (HTTP API — use host port 9090, not 8080)
+0.0.0.0:1883->1883/tcp     (MQTT)
+0.0.0.0:7070->7070/tcp
+```
+
+The container listens on **8080 inside** the container; the host exposes it only on **`127.0.0.1:9090`**.  
+gPAWA must use:
+
+```env
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
+```
+
+Verify:
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
+curl -s "http://127.0.0.1:9090/api/v1/<DEVICE_ACCESS_TOKEN>/attributes?sharedKeys=remaining_units"
+```
+
+---
+
+**Step 1 — Find the local port** (any server)
 
 ```bash
 ss -tlnp | grep -E '8080|9090'
@@ -82,13 +109,14 @@ A response code other than `000` (and not “connection refused”) means someth
 
 ```env
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
-THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:8080
+THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090
 THINGSBOARD_TIMEOUT_SECONDS=15
 THINGSBOARD_VERIFY_SSL=true
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
 
-Replace `8080` with the port that responded in Step 1.
+Use **`9090`** when Docker maps `127.0.0.1:9090->8080/tcp` (see reference above).  
+Use **`8080`** only if ThingsBoard listens directly on that host port.
 
 `THINGSBOARD_INTERNAL_BASE_URL` is used for **all server→ThingsBoard HTTP calls** and bypasses DNS for the `iot.` subdomain.
 
@@ -104,7 +132,7 @@ sudo systemctl restart gpawa-backend
 **Step 4 — Verify**
 
 ```bash
-curl -v --connect-timeout 10 http://127.0.0.1:8080/api/v1/telemetry
+curl -v --connect-timeout 10 http://127.0.0.1:9090/api/v1/telemetry
 ```
 
 Then use **Check Units** in the web app.
@@ -174,7 +202,7 @@ Copy from [`backend/.env.production.example`](../backend/.env.production.example
 | Variable | Purpose |
 |----------|---------|
 | `THINGSBOARD_BASE_URL` | Public ThingsBoard URL (docs, webhooks, emails) |
-| `THINGSBOARD_INTERNAL_BASE_URL` | **Server-to-server URL** when TB is on same host (e.g. `http://127.0.0.1:8080`) |
+| `THINGSBOARD_INTERNAL_BASE_URL` | **Server-to-server URL** when TB is on same host (e.g. `http://127.0.0.1:9090` for Docker `9090->8080`) |
 | `THINGSBOARD_TIMEOUT_SECONDS` | HTTP timeout (default `15`) |
 | `THINGSBOARD_VERIFY_SSL` | `true` in production; `false` only for self-signed TLS on internal URL |
 | `THINGSBOARD_WEBHOOK_SECRET` | Shared secret for inbound ThingsBoard webhooks |
@@ -203,11 +231,11 @@ Use only on trusted internal networks. Prefer proper TLS or plain `http://127.0.
 Run on the **application server**:
 
 ```bash
-# 1. Local ThingsBoard (if using internal URL)
-curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080
+# 1. Local ThingsBoard (Docker on energy-system-set: port 9090)
+curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:9090
 
 # 2. Read attributes for a real device token (replace TOKEN)
-curl -s "http://127.0.0.1:8080/api/v1/TOKEN/attributes?sharedKeys=remaining_units"
+curl -s "http://127.0.0.1:9090/api/v1/TOKEN/attributes?sharedKeys=remaining_units"
 
 # 3. Django check-units (replace JWT and meter_no)
 curl -s -H "Authorization: Bearer <access_token>" \
@@ -233,7 +261,7 @@ Expected check-units JSON when healthy:
 |-----------|----------------|
 | Web frontend | `https://energy-share.sun.ac.ug` |
 | Django API | Same server (or behind same nginx) |
-| ThingsBoard | `https://iot.energy-share.sun.ac.ug` **or** `http://127.0.0.1:8080` via internal URL |
+| ThingsBoard | `http://127.0.0.1:9090` (Docker `tb-node`, host port 9090) or public `iot.` URL once DNS exists |
 
 The `iot.` subdomain is **optional for backend traffic** when `THINGSBOARD_INTERNAL_BASE_URL` is set. It is still useful for operators and external webhooks once DNS is configured.
 
@@ -244,7 +272,7 @@ The `iot.` subdomain is **optional for backend traffic** when `THINGSBOARD_INTER
 | Symptom | Likely cause | Action |
 |---------|----------------|--------|
 | `Could not resolve host: iot.energy-share...` | No DNS for `iot.` subdomain | Set `THINGSBOARD_INTERNAL_BASE_URL` or fix DNS / `/etc/hosts` |
-| `Connection refused` on localhost:8080 | ThingsBoard not running | Start TB service or Docker container |
+| `Connection refused` on localhost:9090 | ThingsBoard container stopped | `docker ps` → `docker start thingsboard-thingsboard-ce-1` |
 | `ConnectionError` on public URL | Firewall or wrong host | Use internal URL or open firewall |
 | `SSLError` | Self-signed cert | `THINGSBOARD_VERIFY_SSL=false` or fix cert |
 | `Meter has no ThingsBoard device token` | Registration incomplete | Re-register AMI meter with device token |
