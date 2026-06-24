@@ -8,6 +8,7 @@ import traceback
 from django.conf import settings
 from django.http import JsonResponse
 from meter.models import Meter, MeterToken
+from meter.models import Transaction as MeterLedgerTransaction
 from meter.services import (
     push_units_to_thingsboard,
     query_latest_units_from_thingsboard,
@@ -36,7 +37,8 @@ from rest_framework.response import Response
 from rest_framework import status
 import time
 import threading
-from transactions.models import Transaction, UnitTransaction
+from transactions.models import Transaction, UnitTransaction, TransactionType
+from transactions.services import record_transaction_log
 from accounts.models import Wallet as AccountWallet
 from wallet.models import Wallet as UnitWallet
 from loan.models import LoanApplication, LoanRepayment
@@ -982,6 +984,30 @@ class GenerateTokenFromWalletView(APIView):
                     meter=meter,
                     source="PURCHASE",
                 )
+                MeterLedgerTransaction.objects.create(
+                    user=user,
+                    meter=meter,
+                    transaction_type=MeterLedgerTransaction.TYPE_GENERATE_TOKEN,
+                    amount_kwh=amount,
+                    status=MeterLedgerTransaction.STATUS_COMPLETED,
+                    channel=MeterLedgerTransaction.CHANNEL_WEB,
+                    sts_token=token_value,
+                    source="wallet",
+                    destination=meter.meter_no,
+                    payment_reference=f"TOKEN-{token_value}",
+                )
+                record_transaction_log(
+                    user,
+                    TransactionType.TOKEN_GENERATE,
+                    units=amount,
+                    status="COMPLETED",
+                    reference_id=f"TOKEN-{token_value}",
+                    details={
+                        "channel": MeterLedgerTransaction.CHANNEL_WEB,
+                        "meter_no": meter.meter_no,
+                        "token": token_value,
+                    },
+                )
 
             return Response(
                 {
@@ -1092,6 +1118,19 @@ class ApplyWalletToMeterView(APIView):
                     raise ValueError("AMI gateway could not apply units to the meter.")
 
                 meter.refresh_from_db(fields=["units", "pending_units"])
+
+                ref = generate_random_string(12)
+                record_transaction_log(
+                    user,
+                    TransactionType.WALLET_LOAD_AMI,
+                    units=amount,
+                    status="COMPLETED",
+                    reference_id=ref,
+                    details={
+                        "channel": MeterLedgerTransaction.CHANNEL_WEB,
+                        "meter_no": meter.meter_no,
+                    },
+                )
 
             delivered = meter.pending_units <= 0
             live_units_kwh = None
@@ -1274,48 +1313,74 @@ class BuyUnitsView(GenericAPIView):
             _, total_outstanding = self._get_active_loan_balances(user)
             estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
             estimated_units, tariff = self._calculate_units_from_tariff(estimated_buy_amount, user)
-            
-            if settings.MTN_MOMO_CONFIG.get('ENVIRONMENT', 'sandbox') == 'sandbox':
-                # Generate external ID for tracking
-                external_id = str(uuid.uuid4())
-                
-                # Create pending transaction
-                try:
-                    transaction = Transaction.objects.create(
-                        wallet=account_wallet,
-                        amount=amount,
-                        phone_number=phone_number,
-                        status='PENDING',
-                        transaction_reference=external_id,
-                        message=f"Buy units - {amount} UGX"
-                    )
-                except Exception:
-                    return Response({
-                        "error": "Invalid phone number. Use full format e.g. +2567XXXXXXXX."
-                    }, status=status.HTTP_400_BAD_REQUEST)
-                
-                # Return pending response immediately
-                response_data = {
-                    "status": "PENDING",
+
+            momo_reference = str(uuid.uuid4())
+            from mtn_momo.config import should_simulate_payments
+
+            use_simulated = should_simulate_payments()
+
+            try:
+                transaction = Transaction.objects.create(
+                    wallet=account_wallet,
+                    amount=amount,
+                    phone_number=phone_number,
+                    status='PENDING',
+                    transaction_reference=momo_reference,
+                    message=f"Buy units - {amount} UGX"
+                )
+            except Exception:
+                return Response({
+                    "error": "Invalid phone number. Use full format e.g. +2567XXXXXXXX."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            response_data = {
+                "status": "PENDING",
+                "transaction_id": transaction.id,
+                "estimated_units": float(estimated_units),
+                "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500",
+                "loan_outstanding_deduction": float(total_outstanding) if total_outstanding > 0 else 0,
+                "payment_mode": "simulated" if use_simulated else "momo",
+            }
+
+            if use_simulated:
+                response_data.update({
                     "message": "Simulating sandbox payment - Please wait...",
-                    "external_id": external_id,
-                    "transaction_id": transaction.id,
-                    "user_prompt": "Sandbox mode: Payment will auto-complete in 2 seconds",
-                    "estimated_units": float(estimated_units),
-                    "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500",
-                    "loan_outstanding_deduction": float(total_outstanding) if total_outstanding > 0 else 0
-                }
-                
+                    "external_id": momo_reference,
+                    "user_prompt": "Dev mode: payment will auto-complete in 2 seconds (no PIN required).",
+                })
                 threading.Thread(
                     target=self._simulate_sandbox_payment,
                     args=(user.id, str(amount), transaction.id, meter.id),
                     daemon=True
                 ).start()
-                
                 return Response(response_data, status=status.HTTP_200_OK)
-            else:
-                # Production code with real MoMo integration
-                pass
+
+            momo_service = MTNMoMoService()
+            payment_result = momo_service.request_payment(
+                amount=amount,
+                phone_number=phone_number,
+                reference_id=momo_reference,
+                external_id=str(transaction.id),
+                payer_message=f"gPAWA wallet top-up {amount} UGX",
+            )
+
+            if payment_result.get("status") != "PENDING":
+                transaction.status = "FAILED"
+                transaction.message = payment_result.get("message", "MoMo request failed")
+                transaction.save(update_fields=["status", "message"])
+                return Response({
+                    "error": payment_result.get("message", "Failed to initiate mobile money payment"),
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            response_data.update({
+                "message": payment_result.get("message", "Payment request sent to your phone."),
+                "external_id": payment_result.get("reference_id", momo_reference),
+                "user_prompt": payment_result.get(
+                    "user_prompt",
+                    "Check your phone and enter your Mobile Money PIN to approve the payment.",
+                ),
+            })
+            return Response(response_data, status=status.HTTP_200_OK)
                 
         except Exception as e:
             logger.exception(f"Buy units error: {str(e)}")
@@ -1324,77 +1389,30 @@ class BuyUnitsView(GenericAPIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _simulate_sandbox_payment(self, user_id, amount, transaction_id, meter_id):
-        """Simulate successful payment in sandbox mode after 2 seconds"""
+        """Simulate successful payment in dev mode after 2 seconds."""
         logger.info(f"Sandbox: Starting payment simulation for user {user_id}")
-        time.sleep(10)
+        time.sleep(2)
 
         try:
+            from meter.buy_units_payment import complete_buy_units_payment
+
             user = User.objects.get(id=user_id)
-        
-            meter = Meter.objects.get(id=meter_id)
-
-            with db_transaction.atomic():
-                amount_decimal = Decimal(str(amount))
-                amount_for_units, repaid_to_loans = self._apply_auto_loan_repayment(user, amount_decimal)
-                units_purchased, tariff = self._calculate_units_from_tariff(amount_for_units, user)
-
-                # Add purchased/credited units to unit wallet (not meter)
-                unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
-                unit_wallet.balance += units_purchased
-                unit_wallet.save()
-
-                # Update transaction status
-                transaction = Transaction.objects.get(id=transaction_id)
-                transaction.status = 'COMPLETED'
-                transaction.message = (
-                    f"Buy units - {amount_decimal} UGX | Loan repaid: {repaid_to_loans} UGX | "
-                    f"Units to wallet: {units_purchased} | Tariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
-                )
-                transaction.save()
-
-                # Create UnitTransaction record (also drives monthly service-fee tracking)
-                if units_purchased > 0:
-                    UnitTransaction.objects.create(
-                        sender=user,
-                        receiver=user,
-                        units=float(units_purchased),
-                        meter=meter,
-                        direction="IN",
-                        status="COMPLETED",
-                        message=f"Purchased {units_purchased} units to wallet via sandbox payment"
-                    )
-
-                    from meter.models import Transaction as MeterLedgerTransaction
-
-                    MeterLedgerTransaction.objects.create(
-                        user=user,
-                        meter=meter,
-                        transaction_type=MeterLedgerTransaction.TYPE_PURCHASE,
-                        amount_kwh=units_purchased,
-                        amount_ugx=amount_decimal,
-                        status=MeterLedgerTransaction.STATUS_COMPLETED,
-                        channel=MeterLedgerTransaction.CHANNEL_APP,
-                        payment_reference=transaction.transaction_reference or "",
-                        source="wallet_purchase",
-                        destination=meter.meter_no,
-                    )
-
-                    logger.info(
-                        f"Units credited to wallet for user {user_id}: {units_purchased}"
-                    )
-
-            logger.info(
-                f"Sandbox: Payment complete for user {user_id}. "
-                f"Loan repaid={repaid_to_loans}, units_to_wallet={units_purchased}"
+            ok, units_purchased, err = complete_buy_units_payment(
+                user, Decimal(str(amount)), transaction_id, meter_id
             )
-
-        except Meter.DoesNotExist:
-            logger.error(f"No meter found with ID {meter_id} for user {user_id}")
+            if ok:
+                logger.info(
+                    f"Sandbox: Payment complete for user {user_id}. units_to_wallet={units_purchased}"
+                )
+            else:
+                logger.error(f"Sandbox payment simulation error: {err}")
+        except User.DoesNotExist:
+            logger.error(f"User {user_id} not found during sandbox simulation")
             try:
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'FAILED'
                 transaction.save()
-            except:
+            except Exception:
                 pass
         except Exception as e:
             logger.error(f"Sandbox payment simulation error: {str(e)}")
@@ -1402,7 +1420,7 @@ class BuyUnitsView(GenericAPIView):
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'FAILED'
                 transaction.save()
-            except:
+            except Exception:
                 pass
     
     
@@ -1439,6 +1457,12 @@ class CheckPaymentStatusView(GenericAPIView):
                     "status": "SUCCESS",
                     "message": "Payment completed successfully",
                     "units_purchased": units_purchased,
+                    "wallet_balance": float(
+                        UnitWallet.objects.filter(user=request.user)
+                        .values_list("balance", flat=True)
+                        .first()
+                        or 0
+                    ),
                     "token": None,
                     "transaction": {
                         "id": transaction.id,
@@ -1453,11 +1477,67 @@ class CheckPaymentStatusView(GenericAPIView):
                     "status": "FAILED",
                     "message": "Payment failed"
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+
             else:
+                from mtn_momo.config import should_simulate_payments
+                from meter.buy_units_payment import complete_buy_units_payment
+
+                if not should_simulate_payments() and transaction.transaction_reference:
+                    momo_service = MTNMoMoService()
+                    momo_status = momo_service.get_payment_status(transaction.transaction_reference)
+
+                    if momo_status.get("status") == "SUCCESS":
+                        meter = Meter.objects.filter(user=request.user).order_by("create_date").first()
+                        if meter:
+                            complete_buy_units_payment(
+                                request.user,
+                                transaction.amount,
+                                transaction.id,
+                                meter.id,
+                            )
+                        transaction.refresh_from_db()
+                    elif momo_status.get("status") == "FAILED":
+                        transaction.status = "FAILED"
+                        transaction.message = momo_status.get("message", "Payment failed")
+                        transaction.save(update_fields=["status", "message"])
+                        return Response({
+                            "status": "FAILED",
+                            "message": momo_status.get("message", "Payment failed"),
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                if transaction.status == 'COMPLETED':
+                    unit_tx = UnitTransaction.objects.filter(
+                        sender=request.user,
+                        receiver=request.user,
+                        direction="IN",
+                        status="COMPLETED",
+                        create_date__gte=transaction.create_date
+                    ).order_by('-create_date').first()
+
+                    units_purchased = float(unit_tx.units) if unit_tx else 0
+
+                    return Response({
+                        "status": "SUCCESS",
+                        "message": "Payment completed successfully",
+                        "units_purchased": units_purchased,
+                        "wallet_balance": float(
+                            UnitWallet.objects.filter(user=request.user)
+                            .values_list("balance", flat=True)
+                            .first()
+                            or 0
+                        ),
+                        "token": None,
+                        "transaction": {
+                            "id": transaction.id,
+                            "amount": float(transaction.amount),
+                            "units": units_purchased,
+                            "timestamp": transaction.create_date.isoformat()
+                        }
+                    }, status=status.HTTP_200_OK)
+
                 return Response({
                     "status": "PENDING",
-                    "message": "Payment still processing"
+                    "message": "Payment still processing. Approve the MoMo prompt on your phone if you have not yet.",
                 }, status=status.HTTP_200_OK)
                 
         except Transaction.DoesNotExist:

@@ -9,7 +9,7 @@ import { Clock, ArrowUpRight, ArrowDownRight, Zap } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface Transaction {
-  id: number;
+  id: string | number;
   transaction_type_display: string;
   transaction_type: string;
   amount?: number | string | null;
@@ -17,6 +17,7 @@ interface Transaction {
   status: string;
   created_at: string;
   reference_id?: string;
+  channel_display?: string;
 }
 
 export default function LatestTransactions() {
@@ -165,6 +166,11 @@ export default function LatestTransactions() {
                     <div>
                       <p className="font-medium text-sm">
                         {txn.transaction_type_display || txn.transaction_type.replace(/_/g, ' ')}
+                        {txn.channel_display && (
+                          <span className="ml-1 text-xs font-normal text-muted-foreground">
+                            · {txn.channel_display}
+                          </span>
+                        )}
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {formatDate(txn.created_at)}

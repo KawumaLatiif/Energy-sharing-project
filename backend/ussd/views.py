@@ -26,11 +26,13 @@ from loan.services import (
 )
 from meter.api.views import BuyUnitsView
 from meter.models import Meter, MeterToken
+from meter.models import Transaction as MeterLedgerTransaction
 from meter.services import push_units_to_thingsboard, query_latest_units_from_thingsboard, record_balance_snapshot
 from utils.ami_gateway import apply_units_to_meter
 from share.models import ShareTransaction
 from share.services import VerificationCode
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
+from transactions.services import record_transaction_log
 from transactions.api.generate_token import generate_numeric_token
 from ussd.models import UssdSession
 from wallet.models import Wallet as UnitWallet
@@ -127,6 +129,61 @@ def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = 
     return _resp(prefix, message)
 
 
+MAIN_MENU_OPTION = "0: Main Menu"
+
+
+def _main_menu_text() -> str:
+    return (
+        "gPawa\n"
+        "1. Wallet & Meter\n"
+        "2. Buy Units\n"
+        "3. Loans\n"
+        "4. Share Units\n"
+        "5. My Tokens\n"
+        "6. Manage\n"
+        "7. Alerts\n"
+        "8. Exit\n"
+        "9. Energy Usage"
+    )
+
+
+def _reply_main_menu(session: UssdSession):
+    return _session_reply(
+        session,
+        "CON",
+        _main_menu_text(),
+        menu="root",
+        context={"awaiting_main_menu": False},
+    )
+
+
+def _reply_submenu(session: UssdSession, message: str, menu: str = "", context: dict | None = None):
+    merged = context or {}
+    return _session_reply(session, "CON", f"{message}\n{MAIN_MENU_OPTION}", menu=menu, context=merged)
+
+
+def _reply_done(session: UssdSession, message: str, menu: str = "", context: dict | None = None):
+    merged = {"awaiting_main_menu": True}
+    if context:
+        merged.update(context)
+    return _session_reply(
+        session,
+        "CON",
+        f"{message}\n\n{MAIN_MENU_OPTION}",
+        menu=menu,
+        context=merged,
+    )
+
+
+def _wants_main_menu(steps: list[str], session: UssdSession) -> bool:
+    if not steps or steps[-1] != "0":
+        return False
+    ctx = session.context or {}
+    if ctx.get("awaiting_main_menu"):
+        return True
+    return len(steps) == 2
+
+
 
 def _start_buy_units(user, phone_number: str, amount_raw: str):
     meter = Meter.objects.filter(user=user).first()
@@ -154,19 +211,22 @@ def _start_buy_units(user, phone_number: str, amount_raw: str):
     estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
     estimated_units, tariff = buy_view._calculate_units_from_tariff(estimated_buy_amount, user)
 
+    momo_reference = str(uuid.uuid4())
     try:
         tx = Transaction.objects.create(
             wallet=account_wallet,
             amount=amount,
             phone_number=phone_number,
             status="PENDING",
-            transaction_reference=str(uuid.uuid4()),
+            transaction_reference=momo_reference,
             message=f"USSD Buy units - {amount} UGX",
         )
     except Exception:
         return False, "Invalid phone number format."
 
-    if settings.MTN_MOMO_CONFIG.get("ENVIRONMENT", "sandbox") == "sandbox":
+    from mtn_momo.config import should_simulate_payments
+
+    if should_simulate_payments():
         threading.Thread(
             target=buy_view._simulate_sandbox_payment,
             args=(user.id, str(amount), tx.id, meter.id),
@@ -177,8 +237,26 @@ def _start_buy_units(user, phone_number: str, amount_raw: str):
             f"Estimated units: {estimated_units}\nTariff: {tariff.tariff_code if tariff else 'DEFAULT_500'}"
         )
 
-    # Production fallback if real MoMo path is not yet wired in BuyUnitsView
-    return True, f"Payment request created.\nTxID: {tx.id}\nUse option 2 to check status."
+    from mtn_momo.services import MTNMoMoService
+
+    momo_service = MTNMoMoService()
+    payment_result = momo_service.request_payment(
+        amount=amount,
+        phone_number=phone_number,
+        reference_id=momo_reference,
+        external_id=str(tx.id),
+        payer_message=f"gPAWA USSD top-up {amount} UGX",
+    )
+    if payment_result.get("status") != "PENDING":
+        tx.status = "FAILED"
+        tx.message = payment_result.get("message", "MoMo request failed")
+        tx.save(update_fields=["status", "message"])
+        return False, payment_result.get("message", "Failed to start mobile money payment.")
+
+    return True, (
+        f"MoMo prompt sent.\nEnter PIN on phone.\nTxID: {tx.id}\n"
+        f"Estimated units: {estimated_units}\nUse option 2 to check status."
+    )
 
 
 def _check_buy_status(user, tx_id_raw: str):
@@ -191,6 +269,24 @@ def _check_buy_status(user, tx_id_raw: str):
         transaction = Transaction.objects.get(id=tx_id, wallet__user=user)
     except Transaction.DoesNotExist:
         return False, "Transaction not found."
+
+    from mtn_momo.config import should_simulate_payments
+    from meter.buy_units_payment import complete_buy_units_payment
+    from mtn_momo.services import MTNMoMoService
+
+    if transaction.status == "PENDING" and not should_simulate_payments() and transaction.transaction_reference:
+        momo_status = MTNMoMoService().get_payment_status(transaction.transaction_reference)
+        if momo_status.get("status") == "SUCCESS":
+            meter = Meter.objects.filter(user=user).order_by("create_date").first()
+            if meter:
+                complete_buy_units_payment(
+                    user, transaction.amount, transaction.id, meter.id, channel="USSD"
+                )
+            transaction.refresh_from_db()
+        elif momo_status.get("status") == "FAILED":
+            transaction.status = "FAILED"
+            transaction.message = momo_status.get("message", "Payment failed")
+            transaction.save(update_fields=["status", "message"])
 
     if transaction.status == "COMPLETED":
         unit_tx = UnitTransaction.objects.filter(
@@ -445,6 +541,30 @@ def _generate_sts_token(user, units_raw: str):
                 meter=meter,
                 source="PURCHASE",
             )
+            MeterLedgerTransaction.objects.create(
+                user=user,
+                meter=meter,
+                transaction_type=MeterLedgerTransaction.TYPE_GENERATE_TOKEN,
+                amount_kwh=amount,
+                status=MeterLedgerTransaction.STATUS_COMPLETED,
+                channel=MeterLedgerTransaction.CHANNEL_USSD,
+                sts_token=token_value,
+                source="wallet",
+                destination=meter.meter_no,
+                payment_reference=f"TOKEN-{token_value}",
+            )
+            record_transaction_log(
+                user,
+                TransactionType.TOKEN_GENERATE,
+                units=amount,
+                status="COMPLETED",
+                reference_id=f"TOKEN-{token_value}",
+                details={
+                    "channel": "USSD",
+                    "meter_no": meter.meter_no,
+                    "token": token_value,
+                },
+            )
         return True, f"Token: {token_value}\nUnits: {float(amount):.2f} kWh\nWallet: {float(locked.balance):.2f} kWh"
     except Exception:
         return False, "Failed to generate token."
@@ -480,6 +600,18 @@ def _apply_wallet_to_ami(user, units_raw: str, meter_no: str | None = None):
             if not apply_units_to_meter(meter, amount):
                 raise ValueError("AMI apply failed")
             meter.refresh_from_db(fields=["units"])
+            ref = uuid.uuid4().hex[:12]
+            record_transaction_log(
+                user,
+                TransactionType.WALLET_LOAD_AMI,
+                units=amount,
+                status="COMPLETED",
+                reference_id=f"USSD-AMI-{ref}",
+                details={
+                    "channel": "USSD",
+                    "meter_no": meter.meter_no,
+                },
+            )
         return True, (
             f"Applied {float(amount):.2f} kWh to {meter.meter_no}.\n"
             f"Meter: {float(meter.units):.2f} kWh\n"
@@ -547,9 +679,8 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
     if not ami_meters:
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(
+        return _reply_done(
             ussd_session,
-            "END",
             "No AMI meter on your account.",
             menu="check_units",
         )
@@ -558,9 +689,8 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
         ok, msg = _check_units_for_meter(user, ami_meters[0].meter_no)
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(
+        return _reply_done(
             ussd_session,
-            "END",
             msg if ok else f"Error: {msg}",
             menu="check_units",
         )
@@ -568,9 +698,8 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
     if len(steps) == 2:
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(
+        return _reply_submenu(
             ussd_session,
-            "CON",
             _ami_meter_picker_message(ami_meters),
             menu="check_units_pick",
             context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
@@ -587,14 +716,13 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
     except (ValueError, TypeError, IndexError):
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="check_units")
+        return _reply_done(ussd_session, "Invalid meter selection.", menu="check_units")
 
     ok, msg = _check_units_for_meter(user, meter_no)
     ussd_session.last_text = text
     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-    return _session_reply(
+    return _reply_done(
         ussd_session,
-        "END",
         msg if ok else f"Error: {msg}",
         menu="check_units",
     )
@@ -674,35 +802,23 @@ def ussd_entry(request):
     steps = _menu(text)
 
     try:
+        if _wants_main_menu(steps, ussd_session):
+            ussd_session.last_text = text
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _reply_main_menu(ussd_session)
+
         if len(steps) == 0:
             ussd_session.last_text = text or ""
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(
-                ussd_session,
-                "CON",
-                (
-                    "gPawa\n"
-                    "1. Wallet & Meter\n"
-                    "2. Buy Units\n"
-                    "3. Loans\n"
-                    "4. Share Units\n"
-                    "5. My Tokens\n"
-                    "6. Manage\n"
-                    "7. Alerts\n"
-                    "8. Exit\n"
-                    "9. Energy Usage"
-                ),
-                menu="root",
-            )
+            return _reply_main_menu(ussd_session)
 
         # 1) Wallet and meter
         if steps[0] == "1":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_submenu(
                     ussd_session,
-                    "CON",
                     (
                         "Wallet & Meter\n"
                         "1. Summary\n"
@@ -716,9 +832,8 @@ def ussd_entry(request):
                 meter_no = meter.meter_no if meter else "Not registered"
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     (
                         f"Wallet: {wallet.balance} units\n"
                         f"Meter: {meter_no}\n"
@@ -732,14 +847,18 @@ def ussd_entry(request):
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid wallet option.")
+            return _reply_done(ussd_session, "Invalid wallet option.")
 
         # 2) Buy units full flow
         if steps[0] == "2":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "CON", "Buy Units\n1. Start purchase\n2. Check payment status", menu="buy_menu")
+                return _reply_submenu(
+                    ussd_session,
+                    "Buy Units\n1. Start purchase\n2. Check payment status",
+                    menu="buy_menu",
+                )
 
             if steps[1] == "1":
                 if len(steps) == 2:
@@ -757,7 +876,12 @@ def ussd_entry(request):
                             pass
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="buy_result", context=ctx)
+                return _reply_done(
+                    ussd_session,
+                    msg if ok else f"Error: {msg}",
+                    menu="buy_result",
+                    context=ctx,
+                )
 
             if steps[1] == "2":
                 if len(steps) == 2:
@@ -774,20 +898,23 @@ def ussd_entry(request):
                 ok, msg = _check_buy_status(user, tx_input)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="buy_status_result")
+                return _reply_done(
+                    ussd_session,
+                    msg if ok else f"Error: {msg}",
+                    menu="buy_status_result",
+                )
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid buy-units option.")
+            return _reply_done(ussd_session, "Invalid buy-units option.")
 
         # 3) Loans
         if steps[0] == "3":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_submenu(
                     ussd_session,
-                    "CON",
                     (
                         "Loans\n"
                         "1. Latest loan\n"
@@ -804,12 +931,11 @@ def ussd_entry(request):
                 if not loan:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "END", "No loan record found.", menu="loan_latest")
+                    return _reply_done(ussd_session, "No loan record found.", menu="loan_latest")
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     (
                         f"LoanID: {loan.id}\nRef: {loan.loan_id}\nStatus: {loan.status}\n"
                         f"Requested: UGX {loan.amount_requested}\nApproved: UGX {loan.amount_approved or 0}\n"
@@ -826,7 +952,7 @@ def ussd_entry(request):
                 ok, msg = _apply_loan(user, steps[2])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="loan_apply_result")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_apply_result")
 
             if steps[1] == "3":
                 if len(steps) == 2:
@@ -836,7 +962,7 @@ def ussd_entry(request):
                 ok, msg = _disburse_loan(user, steps[2])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="loan_disburse_result")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_disburse_result")
 
             if steps[1] == "4":
                 if len(steps) == 2:
@@ -850,29 +976,32 @@ def ussd_entry(request):
                 ok, msg = _repay_loan(user, steps[2], steps[3])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="loan_repay_result")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_repay_result")
 
             if steps[1] == "5":
                 loan_stats = get_user_loan_stats(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     format_loan_stats_ussd(loan_stats),
                     menu="loan_stats",
                 )
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid loan option.")
+            return _reply_done(ussd_session, "Invalid loan option.")
 
         # 4) Share units (OTP)
         if steps[0] == "4":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "CON", "Share Units\n1. Initiate share\n2. Verify OTP", menu="share_menu")
+                return _reply_submenu(
+                    ussd_session,
+                    "Share Units\n1. Initiate share\n2. Verify OTP",
+                    menu="share_menu",
+                )
 
             if steps[1] == "1":
                 if len(steps) == 2:
@@ -892,7 +1021,12 @@ def ussd_entry(request):
                         pass
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="share_initiate_result", context=ctx)
+                return _reply_done(
+                    ussd_session,
+                    msg if ok else f"Error: {msg}",
+                    menu="share_initiate_result",
+                    context=ctx,
+                )
 
             if steps[1] == "2":
                 if len(steps) == 2:
@@ -911,20 +1045,19 @@ def ussd_entry(request):
                 ok, msg = _share_verify(user, share_ref, steps[3])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="share_verify_result")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_verify_result")
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid share option.")
+            return _reply_done(ussd_session, "Invalid share option.")
 
         # 5) Tokens — list or generate STS
         if steps[0] == "5":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_submenu(
                     ussd_session,
-                    "CON",
                     "My Tokens\n1. List unused\n2. Generate STS token",
                     menu="tokens_menu",
                 )
@@ -934,13 +1067,13 @@ def ussd_entry(request):
                 if not tokens:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "END", "No active tokens found.", menu="tokens")
+                    return _reply_done(ussd_session, "No active tokens found.", menu="tokens")
                 lines = ["Active tokens:"]
                 for t in tokens:
                     lines.append(f"{t.token} | {t.units}u | {t.source}")
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", "\n".join(lines), menu="tokens")
+                return _reply_done(ussd_session, "\n".join(lines), menu="tokens")
 
             if steps[1] == "2":
                 if len(steps) == 2:
@@ -955,20 +1088,19 @@ def ussd_entry(request):
                 ok, msg = _generate_sts_token(user, steps[2])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="token_generate")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="token_generate")
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid token option.")
+            return _reply_done(ussd_session, "Invalid token option.")
 
         # 6) Manage — meters, check units (AMI), alerts, apply wallet
         if steps[0] == "6":
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_submenu(
                     ussd_session,
-                    "CON",
                     (
                         "Manage\n"
                         "1. My meters\n"
@@ -982,9 +1114,8 @@ def ussd_entry(request):
                 ok, msg = _user_meters_summary(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     msg if ok else f"Error: {msg}",
                     menu="manage_meters",
                 )
@@ -993,14 +1124,14 @@ def ussd_entry(request):
                 ok, msg = _notifications_summary(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg, menu="manage_alerts")
+                return _reply_done(ussd_session, msg, menu="manage_alerts")
 
             if steps[1] == "3":
                 ami_meters = _ami_meters_for_user(user)
                 if not ami_meters:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "END", "No AMI meter on your account.", menu="apply_ami")
+                    return _reply_done(ussd_session, "No AMI meter on your account.", menu="apply_ami")
 
                 if len(ami_meters) == 1 and len(steps) == 2:
                     ussd_session.last_text = text
@@ -1016,9 +1147,8 @@ def ussd_entry(request):
                 if len(ami_meters) > 1 and len(steps) == 2:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
+                    return _reply_submenu(
                         ussd_session,
-                        "CON",
                         _ami_meter_picker_message(ami_meters).replace("Check units", "Apply to"),
                         menu="apply_ami_pick",
                         context={"ami_meter_nos": [m.meter_no for m in ami_meters]},
@@ -1035,7 +1165,7 @@ def ussd_entry(request):
                     except (ValueError, TypeError, IndexError):
                         ussd_session.last_text = text
                         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                        return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="apply_ami")
+                        return _reply_done(ussd_session, "Invalid meter selection.", menu="apply_ami")
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                     return _session_reply(
@@ -1051,18 +1181,18 @@ def ussd_entry(request):
                 ok, msg = _apply_wallet_to_ami(user, amount_raw, meter_no)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", msg if ok else f"Error: {msg}", menu="apply_ami")
+                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="apply_ami")
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", "Invalid manage option.")
+            return _reply_done(ussd_session, "Invalid manage option.")
 
         # 7) Alerts shortcut
         if steps[0] == "7":
             ok, msg = _notifications_summary(user)
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(ussd_session, "END", msg, menu="alerts")
+            return _reply_done(ussd_session, msg, menu="alerts")
 
         # 8) Exit
         if steps[0] == "8":
@@ -1079,9 +1209,8 @@ def ussd_entry(request):
             if not ami_meters:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     "This is only for AMI meter users.",
                     menu="power_usage",
                 )
@@ -1091,9 +1220,8 @@ def ussd_entry(request):
                 ok, msg = format_weekly_usage_ussd(report)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_done(
                     ussd_session,
-                    "END",
                     msg if ok else f"Error: {msg}",
                     menu="power_usage",
                 )
@@ -1101,9 +1229,8 @@ def ussd_entry(request):
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_submenu(
                     ussd_session,
-                    "CON",
                     _ami_meter_picker_message(ami_meters).replace("Check units", "Energy Usage"),
                     menu="power_usage_pick",
                     context={"power_usage_meter_nos": [m.meter_no for m in ami_meters]},
@@ -1120,29 +1247,27 @@ def ussd_entry(request):
             except (ValueError, TypeError, IndexError):
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(ussd_session, "END", "Invalid meter selection.", menu="power_usage")
+                return _reply_done(ussd_session, "Invalid meter selection.", menu="power_usage")
 
             report = get_power_usage_report(user, meter_no=meter_no, period="week")
             ok, msg = format_weekly_usage_ussd(report)
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _session_reply(
+            return _reply_done(
                 ussd_session,
-                "END",
                 msg if ok else f"Error: {msg}",
                 menu="power_usage",
             )
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(ussd_session, "END", "Thank you for using gPawa.")
+        return _reply_done(ussd_session, "Invalid menu option.")
     except Exception as exc:
         logger.exception("USSD processing error")
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-        return _session_reply(
+        return _reply_done(
             ussd_session,
-            "END",
             f"System error. Please try again later. ({exc.__class__.__name__})",
             menu="error",
         )

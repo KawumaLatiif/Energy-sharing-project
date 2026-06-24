@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import { get } from "@/lib/fetch-client";
 import { useEffect, useState } from "react";
+import { useSelectedMeter } from "./selected-meter-context";
 
 interface LoanStats {
   active_loans: number;
@@ -31,7 +32,7 @@ interface LoanStats {
 }
 
 export default function LoanOverview() {
-  const [walletUnitsBalance, setWalletUnitsBalance] = useState<number>(0);
+  const { walletBalance: walletUnitsBalance } = useSelectedMeter();
   const [stats, setStats] = useState<LoanStats>({
     active_loans: 0,
     pending_applications: 0,
@@ -47,18 +48,11 @@ export default function LoanOverview() {
     async function fetchLoanStats() {
       try {
         const response = await get<any>("loans/stats/");
-        const walletResponse = await get<any>("wallet/balance/");
 
-        if (response.error) {
+        if (!response.error && response.data) {
+          setStats(response.data);
+        } else if (response.error) {
           console.warn("Failed to fetch loan stats:", response.error);
-          return;
-        }
-
-        setStats(response.data);
-
-        if (!walletResponse.error && walletResponse.data?.success) {
-          const units = Number(walletResponse.data.wallet?.balance || 0);
-          setWalletUnitsBalance(units);
         }
       } catch (error) {
         console.error("Error fetching loan stats:", error);

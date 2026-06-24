@@ -21,6 +21,8 @@ import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
 import { get, post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { WALLET_BALANCE_UPDATED } from "@/lib/wallet-events";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";
 import { BreakdownCard } from "@/components/ui/breakdown-card";
@@ -106,19 +108,20 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
   const [meterPreviewError, setMeterPreviewError] = useState("");
 
   const router = useRouter();
+  const { walletBalance, refreshWallet } = useSelectedMeter();
+
+  useEffect(() => {
+    setTotalUnits(walletBalance);
+    setIsLoadingBalance(false);
+  }, [walletBalance]);
 
   const fetchBalance = async () => {
+    setIsLoadingBalance(true);
+    setError("");
     try {
+      await refreshWallet();
       const response = await get<WalletBalanceResponse>("wallet/balance");
-
-      if (!response.error && response.data?.success) {
-        const apiData = response.data;
-        const unitBalance =
-          parseFloat(apiData.wallet?.balance || apiData.wallet_balance || "0") ||
-          parseFloat(apiData.primary_meter?.balance || "0") ||
-          parseFloat(apiData.total_meter_units || "0");
-        setTotalUnits(unitBalance);
-      } else {
+      if (response.error || !response.data?.success) {
         setError(getApiErrorMessage(response.error, "Failed to load balance. Please refresh."));
       }
     } catch {
@@ -130,7 +133,12 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
 
   useEffect(() => {
     fetchBalance();
-  }, []);
+    const onWalletUpdate = () => {
+      void refreshWallet();
+    };
+    window.addEventListener(WALLET_BALANCE_UPDATED, onWalletUpdate);
+    return () => window.removeEventListener(WALLET_BALANCE_UPDATED, onWalletUpdate);
+  }, [refreshWallet]);
 
   const form = useForm<ShareFormValues>({
     resolver: zodResolver(ShareSchema),

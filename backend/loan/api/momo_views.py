@@ -64,16 +64,12 @@ class MoMoPaymentView(APIView):
             external_id = str(uuid.uuid4())
             payment_ref = f"LOAN{loan.loan_id}{uuid.uuid4().hex[:6].upper()}"
             
-            # FIXED: Check if we're in sandbox mode - use getattr with default
-            momo_config = getattr(settings, 'MTN_MOMO_CONFIG', {})
-            environment = momo_config.get('ENVIRONMENT', 'sandbox')
-            
-            if environment == 'sandbox':
-                # SIMULATE SANDBOX PAYMENT
+            # Use real MoMo when credentials are configured; otherwise simulate locally.
+            from mtn_momo.config import should_simulate_payments
+
+            if should_simulate_payments():
                 return self.simulate_sandbox_payment(loan, amount, phone_number, external_id, payment_ref)
-            else:
-                # PRODUCTION: Use real MoMo service
-                return self.process_real_momo_payment(loan, amount, phone_number, external_id, payment_ref)
+            return self.process_real_momo_payment(loan, amount, phone_number, external_id, payment_ref)
                 
         except LoanApplication.DoesNotExist:
             return Response(
@@ -172,22 +168,21 @@ class MoMoPaymentView(APIView):
             logger.error(f"Sandbox payment completion error: {str(e)}")
     
     def process_real_momo_payment(self, loan, amount, phone_number, external_id, payment_ref):
-        """Process real MoMo payment (for production)"""
-        # Initialize MoMo service
+        """Process real MoMo payment via MTN request-to-pay."""
+        momo_reference = str(uuid.uuid4())
         momo_service = MTNMoMoService()
-        
-        # Request payment from MoMo
         payment_result = momo_service.request_payment(
             amount=amount,
             phone_number=phone_number,
+            reference_id=momo_reference,
             external_id=external_id,
-            payment_reference=payment_ref
+            payer_message=f"Loan repayment - {payment_ref}",
         )
         
         if payment_result['status'] == 'PENDING':
-            # Create pending repayment record
+            momo_reference = payment_result.get("reference_id", momo_reference)
             return self.create_pending_payment(
-                loan, amount, phone_number, external_id, payment_ref, payment_result
+                loan, amount, phone_number, momo_reference, payment_ref, payment_result
             )
         else:
             # Payment failed
@@ -335,23 +330,18 @@ class PaymentStatusView(APIView):
             if repayment.payment_status == 'SUCCESS':
                 return self._build_success_response(repayment)
 
-            # Check if we're in sandbox mode - use getattr with default
-            momo_config = getattr(settings, 'MTN_MOMO_CONFIG', {})
-            environment = momo_config.get('ENVIRONMENT', 'sandbox')
-            
-            if environment == 'sandbox':
-                # For sandbox, just return current status
-                # The background thread will update it after 5 seconds
+            # Poll MoMo when not in simulated dev mode
+            from mtn_momo.config import should_simulate_payments
+
+            if should_simulate_payments():
                 return Response({
                     "payment_status": repayment.payment_status,
                     "amount": float(repayment.amount_paid),
                     "units_added": repayment.units_paid,
                     "transaction_id": repayment.momo_transaction_id,
-                    "note": "Sandbox mode: Status updates automatically after 5 seconds"
+                    "note": "Simulated mode: status updates automatically after a few seconds",
                 })
-            else:
-                # PRODUCTION: Check status from MoMo
-                return self._check_real_payment_status(repayment, external_id)
+            return self._check_real_payment_status(repayment, external_id)
 
         except LoanRepayment.DoesNotExist:
             logger.error(f"No repayment found for external_id {external_id} and user {request.user.id}")

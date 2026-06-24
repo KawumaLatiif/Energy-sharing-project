@@ -1,17 +1,22 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import dynamic from 'next/dynamic';
 import { useRouter } from 'next/navigation';
 import DesktopSidebar from './_components/desktop-sidebar';
 import RightHeader from './_components/right-header';
 import LoanOverview from './_components/loan-overview';
 import MeterRegistrationPopup from './_components/meter-registration-popup';
-import MeterManagementModal from './_components/meter-registration-modal';
 import LatestTransactions from './_components/latest-transactions';
 import MeterUnitsPanel from './_components/meter-units-panel';
 import { useSelectedMeter } from './_components/selected-meter-context';
 import { User } from '@/interface/user.interface';
 import { Zap } from 'lucide-react';
+
+const MeterManagementModal = dynamic(
+  () => import('./_components/meter-registration-modal'),
+  { ssr: false }
+);
 
 type SetupStep = 'loading' | 'meter' | 'complete';
 

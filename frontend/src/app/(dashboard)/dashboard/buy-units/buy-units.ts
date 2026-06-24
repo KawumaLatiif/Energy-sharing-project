@@ -42,6 +42,7 @@ type BuyUnitsPendingResponse = {
   estimated_units?: number;
   tariff_applied?: string;
   loan_outstanding_deduction?: number;
+  payment_mode?: "simulated" | "momo";
 };
 
 type BuyUnitsCompletedResponse = {

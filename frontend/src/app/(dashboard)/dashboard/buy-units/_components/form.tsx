@@ -39,6 +39,7 @@ import {
 import Link from "next/link";
 import { get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { notifyWalletBalanceUpdated } from "@/lib/wallet-events";
 
 function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
@@ -116,6 +117,7 @@ export default function BuyUnitsForm() {
   const [transactionDetails, setTransactionDetails] = useState<any>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [pollingCount, setPollingCount] = useState(0);
+  const [paymentMode, setPaymentMode] = useState<"simulated" | "momo" | null>(null);
 
   // Estimate state
   const [estimate, setEstimate] = useState<UnitEstimate | null>(null);
@@ -212,6 +214,7 @@ export default function BuyUnitsForm() {
         setToken(result.data.token || "");
         setTransactionDetails(result.data.transaction || null);
         setSuccess("Payment completed successfully!");
+        notifyWalletBalanceUpdated();
         return true;
       } else if (result.data?.status === "FAILED") {
         setPaymentStatus("failed");
@@ -237,7 +240,7 @@ export default function BuyUnitsForm() {
 
         if (!complete && mounted) {
           setPollingCount((prev) => prev + 1);
-          timeoutId = setTimeout(poll, 20000);
+          timeoutId = setTimeout(poll, 3000);
         }
       };
 
@@ -260,6 +263,7 @@ export default function BuyUnitsForm() {
     setPaymentStatus("pending");
     setTransactionId(null);
     setPollingCount(0);
+    setPaymentMode(null);
     setShowConfirm(false);
 
     startTransition(async () => {
@@ -288,13 +292,14 @@ export default function BuyUnitsForm() {
         const responseData = data.data;
 
         if (isPendingBuyUnitsResponse(responseData)) {
+          setPaymentMode(responseData.payment_mode ?? "momo");
           setTransactionId(
             responseData.transaction_id !== undefined
               ? String(responseData.transaction_id)
               : null
           );
           setSuccess(
-            responseData.user_prompt || "Simulating payment... Please wait"
+            responseData.user_prompt || responseData.message || "Processing payment..."
           );
         } else if (responseData?.token) {
           setPaymentStatus("success");
@@ -433,7 +438,12 @@ export default function BuyUnitsForm() {
             </AlertTitle>
             <AlertDescription className="text-blue-700 dark:text-blue-400">
               <div className="space-y-2">
-                <p>Sandbox Mode: Simulating payment processing...</p>
+                <p>
+                  {success ||
+                    (paymentMode === "simulated"
+                      ? "Dev mode: simulating payment..."
+                      : "Check your phone and enter your Mobile Money PIN to approve the payment.")}
+                </p>
                 <div className="flex items-center gap-2 text-sm">
                   <Loader2 className="h-3 w-3 animate-spin" />
                   <span>Checking status... ({pollingCount + 1})</span>

@@ -412,3 +412,48 @@ def handle_send_low_units_alert_email(user_id, meter_no, units_kwh, notification
     except Exception as exc:
         logger.exception("[LOW UNITS] Email task error: %s", exc)
         return False
+
+
+@app.task()
+def handle_send_payment_receipt_email(
+    user_id,
+    amount_ugx,
+    units_purchased,
+    transaction_id,
+    transaction_reference="",
+):
+    """Email receipt after a successful buy-units payment."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user or not user.email:
+            logger.warning("[PAYMENT RECEIPT] No user/email for transaction %s", transaction_id)
+            return False
+
+        frontend_url = settings.FRONTEND_URL.rstrip("/")
+        subject = f"gPawa: Payment receipt #{transaction_id}"
+        message = (
+            f"<p>Hello {user.first_name or 'there'},</p>"
+            "<p>Your payment was completed successfully.</p>"
+            "<ul>"
+            f"<li><strong>Amount paid:</strong> UGX {float(amount_ugx):,.2f}</li>"
+            f"<li><strong>Units purchased:</strong> {float(units_purchased):.2f} kWh</li>"
+            f"<li><strong>Transaction ID:</strong> {transaction_id}</li>"
+            f"<li><strong>Reference:</strong> {transaction_reference or 'N/A'}</li>"
+            "</ul>"
+            f"<p><a href=\"{frontend_url}/dashboard/transactions\">View transaction history</a></p>"
+            "<p>— gPawa Energy Wallet</p>"
+        )
+
+        sent, email_message = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=message,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[PAYMENT RECEIPT] Failed to email user %s: %s", user.email, email_message)
+        return sent
+    except Exception as exc:
+        logger.exception("[PAYMENT RECEIPT] Email task error: %s", exc)
+        return False

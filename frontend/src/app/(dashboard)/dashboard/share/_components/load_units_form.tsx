@@ -24,7 +24,6 @@ import { InfoBanner } from "@/components/ui/info-banner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { get } from "@/lib/fetch-client";
 import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import type { UserMeter } from "@/interface/meter.interface";
@@ -44,10 +43,8 @@ interface LoadUnitsFormProps {
 }
 
 export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
-  const { meters } = useSelectedMeter();
+  const { meters, walletBalance, refreshWallet, isLoading } = useSelectedMeter();
   const [selectedMeter, setSelectedMeter] = useState<UserMeter | null>(meters[0] ?? null);
-  const [walletBalance, setWalletBalance] = useState(0);
-  const [loadingBalance, setLoadingBalance] = useState(true);
   const [loadOpen, setLoadOpen] = useState(false);
   const [reviewAmount, setReviewAmount] = useState<number | undefined>();
 
@@ -61,20 +58,8 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
   }, [meters]);
 
   useEffect(() => {
-    async function load() {
-      try {
-        const res = await get<{ success?: boolean; wallet?: { balance?: string } }>(
-          "wallet/balance"
-        );
-        if (!res.error && res.data?.success) {
-          setWalletBalance(parseFloat(res.data.wallet?.balance ?? "0") || 0);
-        }
-      } finally {
-        setLoadingBalance(false);
-      }
-    }
-    load();
-  }, []);
+    void refreshWallet();
+  }, [refreshWallet]);
 
   if (!meters.length) {
     return (
@@ -128,7 +113,7 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
             Wallet balance
           </span>
           <span className="font-bold tabular-nums">
-            {loadingBalance ? "…" : `${walletBalance.toFixed(2)} kWh`}
+            {isLoading ? "…" : `${walletBalance.toFixed(2)} kWh`}
           </span>
         </div>
 
@@ -182,7 +167,7 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
 
             <Button
               type="submit"
-              disabled={loadingBalance || walletBalance <= 0 || !selectedMeter}
+              disabled={isLoading || walletBalance <= 0 || !selectedMeter}
               className="w-full gpawa-gradient text-white"
             >
               Review & load

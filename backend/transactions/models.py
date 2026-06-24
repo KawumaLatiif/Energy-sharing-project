@@ -71,6 +71,8 @@ class TransactionType(models.TextChoices):
     UNIT_PURCHASE = 'UNIT_PURCHASE', _('Unit Purchase')
     UNIT_SHARE = 'UNIT_SHARE', _('Unit Share')
     UNIT_TRANSFER = 'UNIT_TRANSFER', _('Unit Transfer')
+    TOKEN_GENERATE = 'TOKEN_GENERATE', _('STS Token Generated')
+    WALLET_LOAD_AMI = 'WALLET_LOAD_AMI', _('Wallet Load (AMI)')
 
 class TransactionLog(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='transaction_logs')

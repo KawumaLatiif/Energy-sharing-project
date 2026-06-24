@@ -27,6 +27,7 @@ import { IconMoneybag } from "@tabler/icons-react";
 import DashboardNavLinks from "@/components/dashboard/dashboard-nav-links";
 import { Zap, Settings, LogOut, Menu } from "lucide-react";
 import { useState } from "react";
+import { useAccount } from "@/hooks/use-account";
 
 interface RightHeaderProps {
   onProfileClick?: () => void;
@@ -36,6 +37,7 @@ interface RightHeaderProps {
 export default function RightHeader({ onProfileClick, onMeterClick }: RightHeaderProps) {
   const pathname = usePathname();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
+  const { user } = useAccount();
 
   const handleProfileClick = () => {
     if (onProfileClick) {
@@ -84,6 +86,12 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
       </Sheet>
 
       <div className="flex items-center gap-3">
+        <span
+          className="hidden text-sm text-muted-foreground md:inline-block max-w-[260px] truncate"
+          title={user?.email || ""}
+        >
+          {user?.email || ""}
+        </span>
         <NotificationBell />
         <ModeToggle />
 

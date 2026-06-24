@@ -18,54 +18,38 @@ from wallet.models import Wallet as UnitWallet
 import uuid
 
 from rest_framework.views import APIView
-# from rest_framework.response import Response
-# from rest_framework import status
-# from rest_framework.permissions import IsAuthenticated
 from django.db.models import Q
 from datetime import datetime
-# from .models import 
-from .serializers import TransactionLogSerializer
-import logging
+from transactions.unified_history import collect_unified_history, filter_history, paginate_history
 
 logger = logging.getLogger(__name__)
-
 class TransactionHistoryView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
         user = request.user
         try:
-            # Filters: optional query params
-            transaction_type = request.query_params.get('type')  # e.g., 'LOAN_REPAYMENT'
-            start_date = request.query_params.get('start_date')  # YYYY-MM-DD
-            end_date = request.query_params.get('end_date')      # YYYY-MM-DD
+            transaction_type = request.query_params.get('type')
+            start_date = request.query_params.get('start_date')
+            end_date = request.query_params.get('end_date')
             page = int(request.query_params.get('page', 1))
             page_size = int(request.query_params.get('page_size', 5))
 
-            queryset = TransactionLog.objects.filter(user=user).order_by('-created_at')
-
-            # Apply filters
-            if transaction_type:
-                queryset = queryset.filter(transaction_type=transaction_type)
-            if start_date:
-                start_dt = datetime.strptime(start_date, '%Y-%m-%d')
-                queryset = queryset.filter(created_at__gte=start_dt)
-            if end_date:
-                end_dt = datetime.strptime(end_date, '%Y-%m-%d')
-                queryset = queryset.filter(created_at__lte=end_dt)
-
-            # Pagination (simple offset-based)
-            total = queryset.count()
-            queryset = queryset[(page-1)*page_size:page*page_size]
-
-            serializer = TransactionLogSerializer(queryset, many=True)
+            entries = collect_unified_history(user)
+            entries = filter_history(
+                entries,
+                transaction_type=transaction_type,
+                start_date=start_date,
+                end_date=end_date,
+            )
+            page_entries, total = paginate_history(entries, page, page_size)
 
             return Response({
                 'success': True,
                 'total': total,
                 'page': page,
                 'page_size': page_size,
-                'transactions': serializer.data
+                'transactions': page_entries,
             }, status=status.HTTP_200_OK)
 
         except ValueError as ve:

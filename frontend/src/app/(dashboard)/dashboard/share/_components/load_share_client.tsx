@@ -21,7 +21,6 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { get } from "@/lib/fetch-client";
 import LoadUnitsForm from "./load_units_form";
 import ShareForm from "./share_form";
 import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
@@ -30,20 +29,14 @@ type Mode = "choose" | "load" | "share";
 
 export default function LoadShareClient() {
   const [mode, setMode] = useState<Mode>("choose");
-  const { meters } = useSelectedMeter();
+  const { meters, walletBalance, refreshWallet } = useSelectedMeter();
   const hasMeters = meters.length > 0;
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
 
   useEffect(() => {
-    if (mode !== "choose") return;
-    get<{ success?: boolean; wallet?: { balance?: string } }>("wallet/balance")
-      .then((res) => {
-        if (!res.error && res.data?.success) {
-          setWalletBalance(parseFloat(res.data.wallet?.balance ?? "0") || 0);
-        }
-      })
-      .catch(() => setWalletBalance(null));
-  }, [mode]);
+    if (mode === "choose") {
+      void refreshWallet();
+    }
+  }, [mode, refreshWallet]);
 
   if (mode === "load") {
     return <LoadUnitsForm onBack={() => setMode("choose")} />;
@@ -66,13 +59,11 @@ export default function LoadShareClient() {
           Load kWh onto your own meter, or share from your wallet to someone
           else&apos;s meter.
         </p>
-        {walletBalance != null && (
-          <div className="mt-5 inline-flex items-center gap-2 rounded-full border bg-muted/40 px-4 py-2 text-sm">
-            <Wallet className="h-4 w-4 text-primary" />
-            <span className="text-muted-foreground">Available in wallet</span>
-            <span className="font-semibold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
-          </div>
-        )}
+        <div className="mt-5 inline-flex items-center gap-2 rounded-full border bg-muted/40 px-4 py-2 text-sm">
+          <Wallet className="h-4 w-4 text-primary" />
+          <span className="text-muted-foreground">Available in wallet</span>
+          <span className="font-semibold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
+        </div>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 md:gap-8">

@@ -33,7 +33,8 @@ STEP 2 — Add the credentials to your .env file
 
    IMPORTANT: Keep spaces in the password exactly as Google shows them.
    Example of what it should look like:
-   EMAIL_HOST_PASSWORD=abcd efgh ijkl mnop
+   EMAIL_HOST_PASSWORD=sfho agbj vknb pflm
+
 
 3. Save the file.
 

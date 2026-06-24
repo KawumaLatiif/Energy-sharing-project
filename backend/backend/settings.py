@@ -77,13 +77,9 @@ CORS_ALLOW_CREDENTIALS = True
 CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 # =============================
-MTN_MOMO_CONFIG = {
-    'BASE_URL': 'https://sandbox.momodeveloper.mtn.com',
-    'PRIMARY_KEY': 'efc825a16cd54e91b257495f3798fc73',
-    'SECONDARY_KEY': '82ab603816854e039508b274aec3dca4',
-    'CALLBACK_HOST': 'http://localhost:3030',
-    'ENVIRONMENT': 'sandbox',  
-}
+from mtn_momo.config import MTN_MOMO_CONFIG, should_simulate_payments  # noqa: E402
+
+MTN_USE_SIMULATED_PAYMENTS = should_simulate_payments()
 
 THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
 THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 8, cast=int)
@@ -265,9 +261,9 @@ EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = get_env_variable("EMAIL_PORT", 587, cast=int)
 EMAIL_USE_TLS = get_env_variable("EMAIL_USE_TLS", "True") == "True"
 EMAIL_USE_SSL = get_env_variable("EMAIL_USE_SSL", "False") == "True"
-EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "walusimbijoseph100@gmail.com")
-EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "zrvx zznl sagx zivq") 
-DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", "walusimbijoseph100@gmail.com")
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "gpawateam@gmail.com")
+EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "sfho agbj vknb pflm") 
+DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", "gpawateam@gmail.com")
 DEFAULT_EMAIL_SENDER = DEFAULT_FROM_EMAIL
 
 # =============================

@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from "react";
 import { get } from "@/lib/fetch-client";
+import { WALLET_BALANCE_UPDATED } from "@/lib/wallet-events";
 import type { UserMeter } from "@/interface/meter.interface";
 
 const STORAGE_KEY = "gpawa_selected_meter_no";
@@ -20,6 +21,8 @@ interface SelectedMeterContextValue {
   setSelectedMeterNo: (meterNo: string) => void;
   isLoading: boolean;
   refreshMeters: () => Promise<void>;
+  walletBalance: number;
+  refreshWallet: () => Promise<void>;
 }
 
 const SelectedMeterContext = createContext<SelectedMeterContextValue | null>(null);
@@ -43,6 +46,21 @@ export function SelectedMeterProvider({ children }: { children: ReactNode }) {
   const [meters, setMeters] = useState<UserMeter[]>([]);
   const [selectedMeterNo, setSelectedMeterNoState] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [walletBalance, setWalletBalance] = useState(0);
+
+  const refreshWallet = useCallback(async () => {
+    try {
+      const res = await get<any>("wallet/balance/");
+      if (!res.error && res.data?.success) {
+        const bal = parseFloat(
+          res.data?.wallet?.balance ?? res.data?.wallet_balance ?? "0"
+        );
+        setWalletBalance(Number.isFinite(bal) ? bal : 0);
+      }
+    } catch {
+      /* keep last known balance */
+    }
+  }, []);
 
   const refreshMeters = useCallback(async () => {
     setIsLoading(true);
@@ -74,7 +92,20 @@ export function SelectedMeterProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshMeters();
-  }, [refreshMeters]);
+    refreshWallet();
+  }, [refreshMeters, refreshWallet]);
+
+  useEffect(() => {
+    const onWalletUpdate = () => {
+      refreshWallet();
+    };
+    window.addEventListener(WALLET_BALANCE_UPDATED, onWalletUpdate);
+    window.addEventListener("focus", onWalletUpdate);
+    return () => {
+      window.removeEventListener(WALLET_BALANCE_UPDATED, onWalletUpdate);
+      window.removeEventListener("focus", onWalletUpdate);
+    };
+  }, [refreshWallet]);
 
   useEffect(() => {
     if (selectedMeterNo && typeof window !== "undefined") {
@@ -98,8 +129,10 @@ export function SelectedMeterProvider({ children }: { children: ReactNode }) {
       setSelectedMeterNo,
       isLoading,
       refreshMeters,
+      walletBalance,
+      refreshWallet,
     }),
-    [meters, selectedMeter, setSelectedMeterNo, isLoading, refreshMeters]
+    [meters, selectedMeter, setSelectedMeterNo, isLoading, refreshMeters, walletBalance, refreshWallet]
   );
 
   return (
