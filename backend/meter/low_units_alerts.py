@@ -4,7 +4,7 @@ AMI low-units monitoring: poll ThingsBoard and raise user alerts.
 When remaining_units falls at or below the configured threshold (default 5 kWh),
 creates an in-app ``MeterNotification`` and queues an email (if the user has one).
 
-Alert rules (avoids spam every 5 seconds):
+Alert rules (avoids spam on every poll tick):
   - Notify when balance crosses from above threshold to at or below threshold.
   - While still low, send a reminder only after the cooldown window (default 6 hours).
 """
@@ -156,7 +156,7 @@ def check_meter_low_units(meter: Meter) -> dict:
 
 
 def poll_all_ami_low_units() -> dict:
-    """Poll every active AMI meter; used by Celery beat (default every 5 seconds)."""
+    """Poll every active AMI meter; used by Celery beat (default every 2 seconds)."""
     meters = Meter.objects.filter(
         architecture=Meter.ARCH_AMI,
         status=Meter.STATUS_ACTIVE,

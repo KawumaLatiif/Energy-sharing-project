@@ -89,11 +89,11 @@ A Celery task (`meter.tasks.retry_pending_ami_deliveries`) retries every **5 min
 
 When a meter’s remaining units drop to **5 kWh or below** (configurable via `AMI_LOW_UNITS_THRESHOLD_KWH`), gPAWA:
 
-- **Polls ThingsBoard every 5 seconds** (Celery beat task `meter.tasks.poll_ami_low_units`; interval via `AMI_LOW_UNITS_POLL_SECONDS`)
+- **Polls ThingsBoard every 2 seconds** (Celery beat task `meter.tasks.poll_ami_low_units`; interval via `AMI_LOW_UNITS_POLL_SECONDS`)
 - Shows an **in-app notification** (dashboard bell; polls API every 15 seconds)
 - Sends an **email** automatically (if the user saved an email and SMTP is configured)
 
-**Alert deduplication:** gPAWA alerts when balance **crosses** from above the threshold to at or below it, or sends a **reminder** while still low only after the cooldown window (default 6 hours, `AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS`). This avoids emailing every 5 seconds.
+**Alert deduplication:** gPAWA alerts when balance **crosses** from above the threshold to at or below it, or sends a **reminder** while still low only after the cooldown window (default 6 hours, `AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS`). This avoids emailing on every 2-second poll.
 
 **Optional:** ThingsBoard rule chains can still POST to `POST /webhooks/thingsboard/low-units`; the same deduplication and notification logic applies.
 
@@ -238,7 +238,7 @@ gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Respons
 
 #### 3. Low-units monitoring (gPAWA → ThingsBoard poll + optional webhook)
 
-**Primary path:** Celery beat runs `meter.tasks.poll_ami_low_units` every **`AMI_LOW_UNITS_POLL_SECONDS`** (default **5**). For each active AMI meter, gPAWA reads `remaining_units` from ThingsBoard, records a balance snapshot, and when `units_kwh <= AMI_LOW_UNITS_THRESHOLD_KWH` (default **5**):
+**Primary path:** Celery beat runs `meter.tasks.poll_ami_low_units` every **`AMI_LOW_UNITS_POLL_SECONDS`** (default **2**). For each active AMI meter, gPAWA reads `remaining_units` from ThingsBoard, records a balance snapshot, and when `units_kwh <= AMI_LOW_UNITS_THRESHOLD_KWH` (default **5**):
 
 1. Creates `meter_notifications` for the meter owner (dashboard bell)
 2. Queues `handle_send_low_units_alert_email` if the user has an email
@@ -300,7 +300,7 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 | `backend/meter/services.py` | `push_units_to_thingsboard()`, `query_latest_units_from_thingsboard()`, `increment_shared_remaining_units()` |
 | `backend/meter/ami_delivery.py` | `credit_ami_meter()`, `retry_pending_for_meter()`, offline reconciliation |
 | `backend/meter/low_units_alerts.py` | Poll TB, threshold check, notification + email |
-| `backend/meter/tasks.py` | `poll_ami_low_units` (every 5 s), `retry_pending_ami_deliveries` (every 5 min) |
+| `backend/meter/tasks.py` | `poll_ami_low_units` (every 2 s), `retry_pending_ami_deliveries` (every 5 min) |
 | `backend/utils/ami_gateway.py` | `apply_units_to_meter()` — delegates AMI to `ami_delivery` |
 | `backend/meter/api/views.py` | Check-units, notifications, apply-wallet, ami-status |
 | `backend/webhooks/api/views.py` | `ThingsBoardLowUnitsWebhookView` |

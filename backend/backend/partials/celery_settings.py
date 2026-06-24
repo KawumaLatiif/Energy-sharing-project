@@ -67,6 +67,6 @@ CELERY_BEAT_SCHEDULE = {
     },
     "ami-low-units-poll": {
         "task": "meter.tasks.poll_ami_low_units",
-        "schedule": timedelta(seconds=int(get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 5))),
+        "schedule": timedelta(seconds=int(get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 2))),
     },
 }
