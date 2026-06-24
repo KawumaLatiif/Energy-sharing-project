@@ -91,6 +91,9 @@ THINGSBOARD_WEBHOOK_SECRET = get_env_variable("THINGSBOARD_WEBHOOK_SECRET", "")
 THINGSBOARD_TENANT_USERNAME = get_env_variable("THINGSBOARD_TENANT_USERNAME", "")
 THINGSBOARD_TENANT_PASSWORD = get_env_variable("THINGSBOARD_TENANT_PASSWORD", "")
 THINGSBOARD_USAGE_TELEMETRY_KEY = get_env_variable("THINGSBOARD_USAGE_TELEMETRY_KEY", "daily_kwh")
+AMI_LOW_UNITS_THRESHOLD_KWH = get_env_variable("AMI_LOW_UNITS_THRESHOLD_KWH", 5, cast=float)
+AMI_LOW_UNITS_POLL_SECONDS = get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 5, cast=int)
+AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS = get_env_variable("AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS", 6, cast=int)
 
 # Application definition
 
@@ -287,6 +290,8 @@ CELERY_TASK_EAGER_PROPAGATES = True
 # In dev (ALWAYS_EAGER), don't store results — avoids any backend connection
 CELERY_TASK_IGNORE_RESULT = True
 
+from datetime import timedelta
+
 from celery.schedules import crontab
 
 CELERY_BEAT_SCHEDULE = {
@@ -303,6 +308,11 @@ CELERY_BEAT_SCHEDULE = {
     "ami-pending-unit-delivery": {
         "task": "meter.tasks.retry_pending_ami_deliveries",
         "schedule": crontab(minute="*/5"),
+        "options": {"queue": "celery"},
+    },
+    "ami-low-units-poll": {
+        "task": "meter.tasks.poll_ami_low_units",
+        "schedule": timedelta(seconds=AMI_LOW_UNITS_POLL_SECONDS),
         "options": {"queue": "celery"},
     },
 }

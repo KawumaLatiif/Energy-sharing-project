@@ -1,0 +1,29 @@
+our local backend .env is using:
+
+Database name: project
+User: postgres
+Host: 127.0.0.1
+Port: 5432
+
+
+1. Full PostgreSQL dump (Windows PowerShell)
+
+$env:PGPASSWORD="StrongPassword123"
+pg_dump -h 127.0.0.1 -p 5432 -U postgres -F c -b -v -f "D:\Energy-sharing-project\backups\project_full.dump" project
+
+-F c = custom format (good for restore with pg_restore)
+-b = includes blobs
+-v = verbose
+
+
+2. Plain SQL dump (readable .sql file)
+
+$env:PGPASSWORD="StrongPassword123"
+pg_dump -h 127.0.0.1 -p 5432 -U postgres -F p -b -v -f "D:\Energy-sharing-project\backups\project_full.sql" project
+
+3. Restore later (custom format)
+pg_restore -h 127.0.0.1 -p 5432 -U postgres -d project -v "D:\Energy-sharing-project\backups\project_full.dump"
+
+4. Create the backups folder first if it doesn’t exist. If you’re unsure which DB is active, list them with:
+
+psql -h 127.0.0.1 -p 5432 -U postgres -c "\l"

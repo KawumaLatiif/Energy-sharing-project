@@ -8,12 +8,10 @@ from rest_framework.response import Response
 from rest_framework import status, permissions
 from django.shortcuts import get_object_or_404, render
 from rest_framework.views import APIView
-from meter.models import MeterToken, Meter, MeterNotification
+from meter.models import MeterToken, Meter
 from loan.models import LoanDisbursement
 from django.db import transaction
 from django.conf import settings
-from accounts.tasks import handle_send_low_units_alert_email
-from utils.general import dispatch_task
 
 logger = logging.getLogger(__name__)
 
@@ -249,32 +247,60 @@ class ThingsBoardLowUnitsWebhookView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        from meter.low_units_alerts import (
+            create_low_units_notification,
+            low_units_threshold_kwh,
+            should_send_low_units_alert,
+        )
+        from meter.models import MeterBalanceSnapshot
+        from meter.services import record_balance_snapshot
+
+        previous_snap = (
+            MeterBalanceSnapshot.objects.filter(meter=meter)
+            .order_by("-recorded_at")
+            .first()
+        )
+        previous = (
+            Decimal(str(previous_snap.remaining_kwh)) if previous_snap is not None else None
+        )
+
+        record_balance_snapshot(meter, units_kwh, source="thingsboard_webhook")
+
+        if units_kwh > low_units_threshold_kwh():
+            return Response(
+                {
+                    "success": True,
+                    "skipped": "above_threshold",
+                    "units_kwh": float(units_kwh),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if not should_send_low_units_alert(meter, units_kwh, previous):
+            return Response(
+                {
+                    "success": True,
+                    "skipped": "cooldown",
+                    "units_kwh": float(units_kwh),
+                },
+                status=status.HTTP_200_OK,
+            )
+
         user = meter.user
         owner_name = user.first_name or user.email
-        message = (
-            f"Low units alert: meter {meter.meter_no} has {float(units_kwh):.2f} kWh remaining."
-        )
-
-        notification = MeterNotification.objects.create(
-            user=user,
-            meter=meter,
-            device_token=device_token,
-            notification_type=MeterNotification.TYPE_LOW_UNITS,
-            units_kwh=units_kwh,
+        notification = create_low_units_notification(
+            meter,
+            units_kwh,
+            source="webhook",
             occurred_at=occurred_at,
-            message=message,
         )
-
-        email_queued = False
-        if user.email:
-            dispatch_task(
-                handle_send_low_units_alert_email,
-                user.id,
-                meter.meter_no,
-                float(units_kwh),
-                notification.id,
+        if not notification:
+            return Response(
+                {"success": False, "message": "Meter has no assigned user."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
-            email_queued = True
+
+        email_queued = bool(user.email)
 
         logger.info(
             "ThingsBoard low-units webhook: user=%s meter=%s units=%s notification=%s",

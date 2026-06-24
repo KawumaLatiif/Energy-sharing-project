@@ -88,32 +88,32 @@ Selecting **8** ends the session with **`END`** (thank-you). **9** shows a weekl
 
 ---
 
-## 6) Manage — `text`: `6`
+## 1) Wallet & Meter — `text`: `1`
 
-### Submenu (`text`: `6`)
+### Submenu (`text`: `1`)
 
 ```text
-Manage
-1. My meters
+Wallet & Meter
+1. Summary
 2. Check units (AMI)
-3. Alerts
-4. Apply wallet (AMI)
 ```
 
 **`CON`**
 
-### 6.1 My meters — `6*1`
+### 1.1 Summary — `1*1`
 
-**`END`**: lists all meters on the account with architecture (`STS`/`AMI`), ledger balance (kWh), and whether a ThingsBoard token is configured (`TB` / `no-token`).
+**`END`** response includes:
 
-### 6.2 Check units (AMI) — `6*2` …
+- Unit wallet balance (`wallet.Wallet`, units)
+- Registered meter number (or `Not registered`)
+- Loan summary from **`GET /loans/stats/`** logic (`loan.services.get_user_loan_stats`): pending/active counts and outstanding UGX — same as web portal
 
-Reads **live** remaining kWh from ThingsBoard (`remaining_units` shared attribute) via `query_latest_units_from_thingsboard()`.
+### 1.2 Check units (AMI) — `1*2` …
 
-- **Single AMI meter:** `6*2` → **`END`** with live (TB) and ledger balances.
-- **Multiple AMI meters:** `6*2` → pick list (`CON`), then `6*2*<n>` → **`END`**.
+Reads **live** remaining kWh from ThingsBoard (`remaining_units`) via `query_latest_units_from_thingsboard()` — same as web **Check Units**.
 
-Requires `iot_device_token` on the meter and `THINGSBOARD_BASE_URL` configured. Tokens starting with `dev-` return stub readings (no HTTP).
+- **Single AMI meter:** `1*2` → **`END`** with live (TB) and ledger balances.
+- **Multiple AMI meters:** `1*2` → pick list (`CON`), then `1*2*<n>` → **`END`**.
 
 Example response:
 
@@ -123,22 +123,41 @@ Live (TB): 4.50 kWh
 Ledger: 10.00 kWh
 ```
 
-### 6.3 Alerts — `6*3`
+---
+
+## 6) Manage — `text`: `6`
+
+### Submenu (`text`: `6`)
+
+```text
+Manage
+1. My meters
+2. Alerts
+3. Apply wallet (AMI)
+```
+
+**`CON`**
+
+### 6.1 My meters — `6*1`
+
+**`END`**: lists all meters on the account with architecture (`STS`/`AMI`), ledger balance (kWh), and whether a ThingsBoard token is configured (`TB` / `no-token`).
+
+### 6.2 Alerts — `6*2`
 
 Same as main-menu **7** (see below).
 
-### 6.4 Apply wallet (AMI) — `6*4` …
+### 6.3 Apply wallet (AMI) — `6*3` …
 
 Moves kWh from the unit wallet to an AMI meter via the same AMI gateway as the web portal (`POST /meter/apply-wallet-units/`).
 
-- **Single AMI meter:** `6*4` → enter amount (`CON`) → `6*4*<kWh>` → **`END`** with meter and wallet balances.
-- **Multiple AMI meters:** `6*4` → pick meter (`CON`) → `6*4*<n>` → enter amount → `6*4*<n>*<kWh>` → **`END`**.
+- **Single AMI meter:** `6*3` → enter amount (`CON`) → `6*3*<kWh>` → **`END`** with meter and wallet balances.
+- **Multiple AMI meters:** `6*3` → pick meter (`CON`) → `6*3*<n>` → enter amount → `6*3*<n>*<kWh>` → **`END`**.
 
 Requires sufficient wallet balance. Uses `apply_units_to_meter()` (not manual ledger-only updates).
 
 ---
 
-## 7) Alerts — `text`: `7` (or `6*3`)
+## 7) Alerts — `text`: `7` (or `6*2`)
 
 **`END`**: up to 5 recent `meter_notifications` (e.g. low-units from ThingsBoard webhook). Unread items are prefixed with `*`. Includes unread count.
 
@@ -182,19 +201,7 @@ Uses the same backend as web/mobile `GET /meter/power-usage/?period=week`.
 
 ## Legacy note
 
-Older docs listed **6. Exit**. Exit is now **8**; **6** opens **Manage** (meters, check units, alerts).
-
----
-
-## 1) Wallet & Meter — `text`: `1`
-
-**`END`** response includes:
-
-- Unit wallet balance (`wallet.Wallet`, units)
-- Registered meter number (or `Not registered`)
-- Total outstanding on **DISBURSED** loans (UGX)
-
-One-shot; no submenu.
+Older docs listed **6. Exit**. Exit is now **8**; **6** opens **Manage**. Check units moved from **6*2** to **1*2** (Wallet & Meter).
 
 ---
 
@@ -220,7 +227,7 @@ Flow:
 Requirements:
 
 - User must have a **registered meter**
-- User must **not** have any loan except `COMPLETED` or `REJECTED` (blocks buy if loan is pending/approved/disbursed/defaulted)
+- User must **not** have any incomplete loan (`loan.services.user_can_purchase_units` — same as web buy-units API and `has_blocking_loan` on stats)
 
 Sandbox (`MTN_MOMO_CONFIG.ENVIRONMENT=sandbox`):
 
@@ -263,21 +270,21 @@ If no loans: **`END`** “No loan record found.”
 ### 3.2 Apply loan — `3*2*<amount>`
 
 1. `3*2` → **Enter amount in UGX (5000-200000)** (`CON`)
-2. `3*2*60000` → credit scoring + tier → creates `LoanApplication`
+2. `3*2*60000` → same **`loan.services.create_loan_application`** as web `POST /loans/apply/`
 
 Rules:
 
 - Requires **meter**
-- Blocks if user already has loan in `PENDING`, `APPROVED`, or `DISBURSED`
-- Amount must be **5000–200000 UGX**
-- Approval uses weighted credit score and DB **loan tiers** (`get_tier_by_score`)
+- Blocks if user already has loan in `PENDING`, `APPROVED`, or `DISBURSED` (same as web)
+- Amount must be **5000–200000 UGX**; tenure defaults to **6 months** (web model default)
+- Uses **`get_active_domestic_tariff()`** and weighted credit score / DB loan tiers
 
 **`END`**: approved (with loan id + ref + approved amount) or rejected (with reason).
 
 ### 3.3 Disburse loan — `3*3*<loan_id>`
 
 1. `3*3` → **Enter LoanID to disburse (or 0 for latest approved)** (`CON`)
-2. `3*3*<id>` or `3*3*0` → disburses **APPROVED** loan only
+2. `3*3*<id>` or `3*3*0` → **`loan.services.disburse_loan`** (same as web `POST /loans/disburse/<id>/`)
 
 Effects:
 
@@ -291,19 +298,19 @@ Effects:
 
 1. `3*4` → Enter LoanID (`CON`)
 2. `3*4*5` → Enter repayment amount UGX (`CON`)
-3. `3*4*5*15000` → repayment
+3. `3*4*5*15000` → **`loan.services.repay_loan`** (same as web `POST /loans/repay/<id>/`)
 
 Rules:
 
 - Loan must be **DISBURSED**
 - Amount ≤ outstanding balance
-- Credits equivalent units to unit wallet; may set loan to **COMPLETED** if fully paid
+- Credits equivalent units to **meter** (same as web repayment); may set loan to **COMPLETED** if fully paid
 
 **`END`** with payment summary and remaining outstanding.
 
 ### 3.5 Loan stats — `3*5`
 
-**`END`**: counts for pending/active loans and total outstanding (UGX).
+**`END`**: same fields as web **`GET /loans/stats/`** (pending, active, outstanding, blocking flag).
 
 ---
 
@@ -403,17 +410,17 @@ These exist on the web/API but **not** in the USSD menu:
 | Feature | Web | USSD |
 |---------|-----|------|
 | TopUp Wallet (MoMo) | Yes | Yes (menu **2** Buy Units) |
-| **My Meters** (list/register/check/load/**delete**) | Yes | Partial (**6*1**, **6*2**, **6*4**; no register/delete) |
+| **My Meters** (list/register/check/load/**delete**) | Yes | Partial (**1*2**, **6*1**, **6*3**; no register/delete) |
 | Load Units (own STS) | Yes | Yes (menu **5*2**) |
-| Load Units (own AMI) | Yes | Yes (menu **6*4**) |
+| Load Units (own AMI) | Yes | Yes (menu **6*3**) |
 | Share units + OTP | Yes | Yes (menu **4**; STS token / AMI device on verify) |
 | Share receiver preview | Yes | No |
 | STS token generate | Yes | Yes (`5*2`) |
 | Loans apply/disburse/repay | Yes | Yes |
 | Loan MoMo repay | Yes | No |
-| AMI check units | Yes | Yes (`6*2`) |
+| AMI check units | Yes | Yes (`1*2`) |
 | Energy Usage (weekly) | Yes | Yes (`9`) |
-| Low-units alerts | Yes | Yes (`6*3`, `7`) |
+| Low-units alerts | Yes | Yes (`6*2`, `7`) |
 | Transaction history | Yes | No |
 | Meter self-registration / removal | Yes | No |
 | Admin-provisioned password change | Yes | N/A |
@@ -422,9 +429,9 @@ These exist on the web/API but **not** in the USSD menu:
 
 | USSD path | ThingsBoard interaction |
 |-----------|-------------------------|
-| `6*2` / `6*2*<n>` | **Read** `remaining_units` from ThingsBoard (check units) |
-| `6*4` / `6*4*…` | **Apply** wallet kWh via AMI gateway (ThingsBoard telemetry when configured) |
-| `6*3`, `7` | List low-units **alerts** from TB webhook (no live TB call) |
+| `1*2` / `1*2*<n>` | **Read** `remaining_units` from ThingsBoard (check units) |
+| `6*3` / `6*3*…` | **Apply** wallet kWh via AMI gateway (ThingsBoard telemetry when configured) |
+| `6*2`, `7` | List low-units **alerts** from TB webhook (no live TB call) |
 | Buy / loan disburse / repay | **Push** telemetry via `push_units_to_thingsboard()` |
 
 See [`docs/THINGSBOARD_WEBHOOK.md`](docs/THINGSBOARD_WEBHOOK.md) for webhook setup.
@@ -453,7 +460,8 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 
 | Goal | Replies to send (in order) |
 |------|----------------------------|
-| Wallet summary | `1` |
+| Wallet summary | `1` → `1` |
+| Check AMI units (ThingsBoard) | `1` → `2` (or `1` → `2` → `1` if multiple AMI meters) |
 | Buy 30000 UGX | `2` → `1` → `30000` |
 | Check last buy status | `2` → `2` → `0` |
 | Apply loan | `3` → `2` → `60000` |
@@ -461,8 +469,8 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 | Share 10 units | `4` → `1` → `<receiver_meter>` → `10`, then verify `4` → `2` → `0` → `<otp>` |
 | List tokens | `5` |
 | List meters | `6` → `1` |
-| Check AMI units (ThingsBoard) | `6` → `2` (or `6` → `2` → `1` if multiple AMI meters) |
-| View low-units alerts | `7` or `6` → `3` |
+| Apply wallet to AMI meter | `6` → `3` → `<kWh>` |
+| View low-units alerts | `7` or `6` → `2` |
 
 ### Seeded test users (heavy dump)
 

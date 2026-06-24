@@ -65,4 +65,8 @@ CELERY_BEAT_SCHEDULE = {
         "task": "meter.tasks.retry_pending_ami_deliveries",
         "schedule": crontab(minute="*/5"),
     },
+    "ami-low-units-poll": {
+        "task": "meter.tasks.poll_ami_low_units",
+        "schedule": timedelta(seconds=int(get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 5))),
+    },
 }

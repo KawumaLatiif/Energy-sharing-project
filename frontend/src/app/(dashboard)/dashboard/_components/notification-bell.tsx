@@ -32,7 +32,7 @@ interface NotificationsResponse {
   unread_count: number;
 }
 
-const POLL_MS = 60_000;
+const POLL_MS = 15_000;
 
 function formatWhen(iso: string) {
   try {

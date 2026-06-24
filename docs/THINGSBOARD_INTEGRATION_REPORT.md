@@ -85,15 +85,17 @@ When a meter is **offline** or ThingsBoard rejects delivery:
 
 A Celery task (`meter.tasks.retry_pending_ami_deliveries`) retries every **5 minutes**. Pending units move to ledger when delivery succeeds. The customer does **not** lose paid units.
 
-#### C. Low-units **alerts** (ThingsBoard → gPAWA)
+#### C. Low-units **alerts** (gPAWA polls ThingsBoard + optional webhook)
 
-When a meter’s remaining units drop to **about 5 kWh or below**, ThingsBoard can notify gPAWA. gPAWA then:
+When a meter’s remaining units drop to **5 kWh or below** (configurable via `AMI_LOW_UNITS_THRESHOLD_KWH`), gPAWA:
 
-- Shows an **in-app notification** (web bell, mobile notifications)
-- Sends an **email** (if the user saved an email and SMTP is configured)
-- Lets the user open the meter page and **check units** or **top up**
+- **Polls ThingsBoard every 5 seconds** (Celery beat task `meter.tasks.poll_ami_low_units`; interval via `AMI_LOW_UNITS_POLL_SECONDS`)
+- Shows an **in-app notification** (dashboard bell; polls API every 15 seconds)
+- Sends an **email** automatically (if the user saved an email and SMTP is configured)
 
-This alert path is configured in **ThingsBoard rule chains** (technical setup below).
+**Alert deduplication:** gPAWA alerts when balance **crosses** from above the threshold to at or below it, or sends a **reminder** while still low only after the cooldown window (default 6 hours, `AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS`). This avoids emailing every 5 seconds.
+
+**Optional:** ThingsBoard rule chains can still POST to `POST /webhooks/thingsboard/low-units`; the same deduplication and notification logic applies.
 
 ### Where customers can do AMI-related tasks
 
@@ -117,12 +119,10 @@ All channels read and update the **same balances and meters** in the database.
 
 ### What still depends on ThingsBoard / field setup
 
-- ThingsBoard must expose **`remaining_units`** as a shared attribute for “Check units” to work (gPAWA also writes this attribute on delivery when tenant credentials are set).
+- ThingsBoard must expose **`remaining_units`** as a shared attribute for “Check units” and low-units polling to work (gPAWA also writes this attribute on delivery when tenant credentials are set).
 - **`THINGSBOARD_TENANT_USERNAME`** / **`THINGSBOARD_TENANT_PASSWORD`** — required for writing `remaining_units` via tenant REST API and for Energy Usage timeseries.
-- ThingsBoard **rule chains** must be configured to POST low-units alerts to gPAWA (not automatic until configured).
-- gPAWA’s server must be reachable from ThingsBoard for alerts (public URL, not `localhost`).
-- Physical meters must be online and correctly provisioned in ThingsBoard for **device firmware** to receive credits (server-side attribute sync can still update Check Units while offline).
-- **Celery worker + beat** must run in production for automatic pending-delivery retry.
+- **Celery worker + beat** must run in production (`CELERY_TASK_ALWAYS_EAGER=False`) for 5-second low-units polling, pending-delivery retry, and usage snapshots.
+- Optional ThingsBoard **rule chains** can POST low-units alerts to gPAWA (redundant with polling but supported).
 
 ---
 
@@ -236,10 +236,17 @@ GET {THINGSBOARD_BASE_URL}/api/v1/{iot_device_token}/attributes?sharedKeys=remai
 
 gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Response also includes `ledger_balance_kwh`, `pending_delivery_kwh`, and `pending_retry` (result of inline delivery retry).
 
-#### 3. Low-units webhook (ThingsBoard → gPAWA)
+#### 3. Low-units monitoring (gPAWA → ThingsBoard poll + optional webhook)
 
-**Endpoint:** `POST /webhooks/thingsboard/low-units`  
-**Router:** `backend/app/routers/webhooks.py`  
+**Primary path:** Celery beat runs `meter.tasks.poll_ami_low_units` every **`AMI_LOW_UNITS_POLL_SECONDS`** (default **5**). For each active AMI meter, gPAWA reads `remaining_units` from ThingsBoard, records a balance snapshot, and when `units_kwh <= AMI_LOW_UNITS_THRESHOLD_KWH` (default **5**):
+
+1. Creates `meter_notifications` for the meter owner (dashboard bell)
+2. Queues `handle_send_low_units_alert_email` if the user has an email
+
+Dedup: alert on threshold **crossing** or after **cooldown** while still low (default 6 h).
+
+**Optional webhook:** `POST /webhooks/thingsboard/low-units`  
+**View:** `backend/webhooks/api/views.py` — `ThingsBoardLowUnitsWebhookView`  
 **Auth:** Optional header `X-ThingsBoard-Webhook-Secret`
 
 **Request body:**
@@ -252,15 +259,13 @@ gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Respons
 }
 ```
 
-**Processing:**
+**Processing (webhook):**
 
 1. Lookup `meters` where `iot_device_token = device_token`, `architecture = AMI`, `status = active`  
-2. Insert `meter_notifications` row for `user_id`  
-3. Emit Socket.IO `notification:new` to room `user:{id}` (web portal)  
-4. If `users.email` set → queue HTML email via `send_low_units_alert_email()`  
-5. Return `201` with `notification_id`, `user_id`, `email_queued`
+2. Same dedup + notification + email logic as the poll task (`backend/meter/low_units_alerts.py`)  
+3. Return `201` with `notification_id`, or `200` with `skipped: cooldown` / `above_threshold`
 
-**ThingsBoard setup:** Rule chain on `remaining_units <= 5` → POST `/webhooks/thingsboard/low-units`. Full steps: **[THINGSBOARD_WEBHOOK.md](./THINGSBOARD_WEBHOOK.md)**.
+**ThingsBoard setup (optional):** Rule chain on `remaining_units <= 5` → POST `/webhooks/thingsboard/low-units`. Full steps: **[THINGSBOARD_WEBHOOK.md](./THINGSBOARD_WEBHOOK.md)**.
 
 ### End-user API surface (AMI + ThingsBoard)
 
@@ -271,7 +276,7 @@ gPAWA maps `shared.remaining_units` → `units_kwh` in the API response. Respons
 | `/api/v1/meter/apply-wallet-units/` | POST | **Yes** — push telemetry + attribute sync |
 | `/api/v1/share/share-units/` | POST | **Yes** (AMI receiver) — same delivery engine |
 | `/api/v1/meter/buy-units/` | POST | No (credits unit wallet only) |
-| `/api/v1/meter/notifications/` | GET | No (reads alerts created by webhook) |
+| `/api/v1/meter/notifications/` | GET | No (reads alerts from poll task / webhook) |
 | `/webhooks/thingsboard/low-units` | POST | Inbound from TB |
 
 ### Channel parity (same account)
@@ -294,7 +299,8 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 |------|------|
 | `backend/meter/services.py` | `push_units_to_thingsboard()`, `query_latest_units_from_thingsboard()`, `increment_shared_remaining_units()` |
 | `backend/meter/ami_delivery.py` | `credit_ami_meter()`, `retry_pending_for_meter()`, offline reconciliation |
-| `backend/meter/tasks.py` | `retry_pending_ami_deliveries` (Celery beat, every 5 min) |
+| `backend/meter/low_units_alerts.py` | Poll TB, threshold check, notification + email |
+| `backend/meter/tasks.py` | `poll_ami_low_units` (every 5 s), `retry_pending_ami_deliveries` (every 5 min) |
 | `backend/utils/ami_gateway.py` | `apply_units_to_meter()` — delegates AMI to `ami_delivery` |
 | `backend/meter/api/views.py` | Check-units, notifications, apply-wallet, ami-status |
 | `backend/webhooks/api/views.py` | `ThingsBoardLowUnitsWebhookView` |
@@ -314,6 +320,7 @@ All channels use the same PostgreSQL state. USSD invokes the same Python service
 | Push telemetry | `POST .../api/v1/{token}/telemetry` with `payment` + `amount` | HTTP 200 |
 | Read units | `GET .../api/v1/{token}/attributes?sharedKeys=remaining_units` | `shared.remaining_units` present |
 | gPAWA check-units | `GET /meters/{id}/check-units` with JWT | `units_kwh` matches TB |
+| Low-units poll | Celery beat + worker running; meter ≤ 5 kWh | Notification + email (if configured) |
 | Low-units webhook | `POST /webhooks/thingsboard/low-units` | HTTP 201, notification in app |
 | Apply flow | Top up wallet → Load Units on AMI meter | TB telemetry + attribute sync; ledger ↑ or pending queue |
 | Offline retry | Disconnect meter → Load Units → reconnect | Pending clears within 5 min or on Check Units |

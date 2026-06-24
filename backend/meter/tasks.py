@@ -31,3 +31,11 @@ def retry_pending_ami_deliveries():
     from meter.ami_delivery import retry_all_pending_ami_deliveries
 
     return retry_all_pending_ami_deliveries()
+
+
+@shared_task(name="meter.tasks.poll_ami_low_units", ignore_result=True, expires=4)
+def poll_ami_low_units():
+    """Poll ThingsBoard every few seconds; alert when remaining_units <= threshold."""
+    from meter.low_units_alerts import poll_all_ami_low_units
+
+    return poll_all_ami_low_units()
