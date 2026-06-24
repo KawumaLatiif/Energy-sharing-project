@@ -326,7 +326,7 @@ export default function PowerUsageClient() {
                       <XAxis dataKey="label" tick={{ fontSize: 12 }} />
                       <YAxis tick={{ fontSize: 12 }} unit=" kWh" />
                       <Tooltip
-                        formatter={(v: number) => [`${v} kWh`, "Used"]}
+                        formatter={(v) => [`${v ?? 0} kWh`, "Used"]}
                         labelFormatter={(l) => l}
                       />
                       <Bar dataKey="total_kwh" fill="#3b82f6" radius={[4, 4, 0, 0]} name="Total kWh" />
@@ -343,7 +343,7 @@ export default function PowerUsageClient() {
                       <XAxis dataKey="label" tick={{ fontSize: 11 }} interval="preserveStartEnd" />
                       <YAxis tick={{ fontSize: 12 }} unit=" kWh" />
                       <Tooltip
-                        formatter={(v: number) => [`${v} kWh`, "Used"]}
+                        formatter={(v) => [`${v ?? 0} kWh`, "Used"]}
                         labelFormatter={(_, payload) =>
                           payload?.[0]?.payload?.date
                             ? formatLongDate(payload[0].payload.date)

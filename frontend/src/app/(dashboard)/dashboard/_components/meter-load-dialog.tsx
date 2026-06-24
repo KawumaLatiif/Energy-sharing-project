@@ -122,8 +122,15 @@ export default function MeterLoadDialog({
           setStep("ami-success");
           onSuccess?.(result);
         } else {
+          const fallback =
+            typeof res.data?.error === "string"
+              ? res.data.error
+              : "Failed to load units to meter.";
           setError(
-            getApiErrorMessage(res.error, res.data?.error ?? "Failed to load units to meter.")
+            getApiErrorMessage(
+              typeof res.error === "string" ? res.error : undefined,
+              fallback
+            )
           );
         }
       } else {
@@ -141,8 +148,15 @@ export default function MeterLoadDialog({
           setStep("token");
           onSuccess?.();
         } else {
+          const fallback =
+            typeof res.data?.error === "string"
+              ? res.data.error
+              : "Failed to generate STS token.";
           setError(
-            getApiErrorMessage(res.error, res.data?.error ?? "Failed to generate STS token.")
+            getApiErrorMessage(
+              typeof res.error === "string" ? res.error : undefined,
+              fallback
+            )
           );
         }
       }

@@ -181,7 +181,6 @@ export default function LoginForm() {
                   <Input
                     disabled={isPending}
                     type="email"
-                    name="email"
                     autoComplete="username email"
                     placeholder="johndoe@example.com"
                     {...field}
@@ -202,7 +201,6 @@ export default function LoginForm() {
                     <Input
                       disabled={isPending}
                       type={showPassword ? 'text' : 'password'}
-                      name="password"
                       autoComplete="current-password"
                       placeholder="Password"
                       className="pr-10"
