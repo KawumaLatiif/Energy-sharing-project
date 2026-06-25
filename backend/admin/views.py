@@ -506,21 +506,21 @@ class UserManagementView(APIView, RBACMixin):
 
         user_list = []
         for u in users:
-            try:
-                meter = Meter.objects.get(user=u)
+            meter = Meter.objects.filter(user=u).order_by("-create_date").first()
+            if meter:
                 meter_info = {"meter_no": meter.meter_no, "units": float(meter.units), "status": meter.status}
                 has_meter = True
-            except Meter.DoesNotExist:
+            else:
                 has_meter = False
                 meter_info = None
 
-            try:
-                account_details = UserAccountDetails.objects.get(user=u)
+            account_details = UserAccountDetails.objects.filter(user=u).order_by("-create_date").first()
+            if account_details:
                 account_info = {
                     "account_number": account_details.account_number,
                     "address": account_details.address,
                 }
-            except UserAccountDetails.DoesNotExist:
+            else:
                 account_info = None
 
             user_list.append({
@@ -568,7 +568,9 @@ class UserDetailView(APIView, RBACMixin):
             return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
 
         try:
-            meter = Meter.objects.get(user=u)
+            meter = Meter.objects.filter(user=u).order_by("-create_date").first()
+            if not meter:
+                raise Meter.DoesNotExist
             meter_info = {
                 "id": meter.id, "meter_no": meter.meter_no,
                 "static_ip": meter.static_ip, "units": float(meter.units),
@@ -580,7 +582,9 @@ class UserDetailView(APIView, RBACMixin):
             meter_info = None
 
         try:
-            account_details = UserAccountDetails.objects.get(user=u)
+            account_details = UserAccountDetails.objects.filter(user=u).order_by("-create_date").first()
+            if not account_details:
+                raise UserAccountDetails.DoesNotExist
             account_info = {
                 "account_number": account_details.account_number,
                 "address": account_details.address,
