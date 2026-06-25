@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import LoadUnitsForm from "./load_units_form";
 import ShareForm from "./share_form";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 
 type Mode = "choose" | "load" | "share";
 

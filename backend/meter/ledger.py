@@ -104,7 +104,7 @@ def get_meter_ledger_history(meter, *, limit=50):
 
     return {
         "meter_no": meter.meter_no,
-        "ledger_balance_kwh": float(ledger_balance),
+        "units_balance_kwh": float(ledger_balance),
         "pending_delivery_kwh": float(meter.pending_units or 0),
         "events_total_kwh": float(events_total),
         "events": events,

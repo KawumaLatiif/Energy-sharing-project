@@ -1,6 +1,7 @@
 import logging
 import threading
 import uuid
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -33,7 +34,9 @@ from share.flow import ShareFlowError, build_share_summary, execute_share_units
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
 from transactions.services import record_transaction_log
 from transactions.api.generate_token import generate_numeric_token
+from transactions.tasks import handle_send_transaction_statement_email
 from ussd.models import UssdSession, ussd_session_timeout_seconds
+from utils.general import dispatch_task
 from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
@@ -124,6 +127,13 @@ def _ussd_timeout_message() -> str:
         f"Session expired ({seconds}s with no input). "
         "Dial the service code again to start a new session."
     )
+
+
+def _parse_statement_date(raw: str):
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
 
 
 def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = "", context: dict | None = None):
@@ -645,8 +655,7 @@ def _check_units_for_meter(user, meter_no: str):
 
     return True, (
         f"Meter {meter.meter_no}\n"
-        f"Live (TB): {data['units_kwh']:.2f} kWh\n"
-        f"Ledger: {float(meter.units):.2f} kWh"
+        f"Units: {data['units_kwh']:.2f} kWh"
     )
 
 
@@ -1117,7 +1126,8 @@ def ussd_entry(request):
                         "Manage\n"
                         "1. My meters\n"
                         "2. Alerts\n"
-                        "3. Apply wallet (AMI)"
+                        "3. Apply wallet (AMI)\n"
+                        "4. Email statement (PDF)"
                     ),
                     menu="manage_menu",
                 )
@@ -1194,6 +1204,69 @@ def ussd_entry(request):
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="apply_ami")
+
+            if steps[1] == "4":
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        "Statement start date (YYYY-MM-DD):",
+                        menu="statement_start_date",
+                    )
+                if len(steps) == 3:
+                    start_date = _parse_statement_date(steps[2])
+                    if not start_date:
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "Error: Invalid start date format. Use YYYY-MM-DD.",
+                            menu="statement_start_date",
+                        )
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        "Statement end date (YYYY-MM-DD):",
+                        menu="statement_end_date",
+                        context={"statement_start_date": start_date.isoformat()},
+                    )
+
+                start_date_raw = (ussd_session.context or {}).get("statement_start_date") or steps[2]
+                start_date = _parse_statement_date(start_date_raw)
+                end_date = _parse_statement_date(steps[3])
+                if not start_date or not end_date:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        "Error: Invalid date format. Use YYYY-MM-DD.",
+                        menu="statement_end_date",
+                    )
+                if end_date < start_date:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        "Error: End date cannot be before start date.",
+                        menu="statement_end_date",
+                    )
+                dispatch_task(
+                    handle_send_transaction_statement_email,
+                    user.id,
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                )
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    f"Statement requested. PDF will be sent to {user.email}.",
+                    menu="statement_email_requested",
+                )
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])

@@ -21,7 +21,7 @@ import { FormSuccess } from "@/components/common/form-success";
 import { useRouter } from "next/navigation";
 import { get, post } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import { WALLET_BALANCE_UPDATED } from "@/lib/wallet-events";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Separator } from "@/components/ui/separator";

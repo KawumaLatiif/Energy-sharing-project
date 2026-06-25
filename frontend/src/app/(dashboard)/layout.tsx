@@ -4,7 +4,7 @@ import authenticated from "@/lib/authenticated";
 import { isStaffUser } from "@/lib/staff";
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { SelectedMeterProvider } from "./dashboard/_components/selected-meter-context";
+import { SelectedMeterProvider } from "@/contexts/selected-meter-context";
 
 export default async function UserProtectedLayout({
   children,

@@ -45,6 +45,16 @@ interface Transaction {
   created_at: string;
 }
 
+interface HistorySummary {
+  transactions_count: number;
+  money_in_ugx: number;
+  money_out_ugx: number;
+  money_net_ugx: number;
+  units_in_kwh: number;
+  units_out_kwh: number;
+  units_net_kwh: number;
+}
+
 const TYPE_FILTER_OPTIONS = [
   { value: "LOAN_APPLICATION", label: "Loan Application" },
   { value: "LOAN_DISBURSEMENT", label: "Loan Disbursement" },
@@ -62,6 +72,7 @@ const TransList = () => {
   const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<HistorySummary | null>(null);
   const [filters, setFilters] = useState({
     type: '',
     start_date: '',
@@ -86,6 +97,7 @@ const TransList = () => {
       if (response.data?.success) {
         setTransactions(response.data.transactions);
         setTotal(response.data.total);
+        setSummary(response.data.summary ?? null);
       } else {
         setError('Failed to load transactions');
       }
@@ -113,6 +125,78 @@ const TransList = () => {
       end_date: "",
     });
     setPage(1);
+  };
+
+  const handlePrintStatement = async () => {
+    const params = new URLSearchParams({
+      page: "1",
+      page_size: "500",
+      ...(filters.type && { type: filters.type }),
+      ...(filters.start_date && { start_date: filters.start_date }),
+      ...(filters.end_date && { end_date: filters.end_date }),
+    });
+    const response = await get<any>(`transactions/history/?${params.toString()}`);
+    if (!response.data?.success) {
+      setError("Could not prepare statement for printing.");
+      return;
+    }
+    const printRows: Transaction[] = response.data.transactions || [];
+    const printSummary: HistorySummary = response.data.summary || summary;
+    const period = `${filters.start_date || "All time"} to ${filters.end_date || "Now"}`;
+    const html = `
+      <html>
+        <head>
+          <title>gPawa Statement</title>
+          <style>
+            body { font-family: Arial, sans-serif; padding: 24px; color: #111827; }
+            h1 { margin: 0 0 6px 0; }
+            .meta { color: #4b5563; margin-bottom: 18px; }
+            .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 18px; }
+            .card { border: 1px solid #d1d5db; border-radius: 8px; padding: 10px; }
+            .label { font-size: 12px; color: #6b7280; }
+            .value { font-size: 18px; font-weight: 700; margin-top: 4px; }
+            table { width: 100%; border-collapse: collapse; font-size: 12px; }
+            th, td { border-bottom: 1px solid #e5e7eb; padding: 8px 6px; text-align: left; }
+            th { color: #374151; font-size: 11px; text-transform: uppercase; }
+          </style>
+        </head>
+        <body>
+          <h1>gPawa Transaction Statement</h1>
+          <div class="meta">Period: ${period} | Generated: ${new Date().toLocaleString()}</div>
+          <div class="grid">
+            <div class="card"><div class="label">Transactions</div><div class="value">${printSummary?.transactions_count ?? 0}</div></div>
+            <div class="card"><div class="label">Money In (UGX)</div><div class="value">${Number(printSummary?.money_in_ugx ?? 0).toLocaleString()}</div></div>
+            <div class="card"><div class="label">Money Out (UGX)</div><div class="value">${Number(printSummary?.money_out_ugx ?? 0).toLocaleString()}</div></div>
+            <div class="card"><div class="label">Net Money (UGX)</div><div class="value">${Number(printSummary?.money_net_ugx ?? 0).toLocaleString()}</div></div>
+            <div class="card"><div class="label">Units In (kWh)</div><div class="value">${Number(printSummary?.units_in_kwh ?? 0).toFixed(2)}</div></div>
+            <div class="card"><div class="label">Units Out (kWh)</div><div class="value">${Number(printSummary?.units_out_kwh ?? 0).toFixed(2)}</div></div>
+          </div>
+          <table>
+            <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Amount/Units</th><th>Date</th></tr></thead>
+            <tbody>
+              ${printRows.map((txn) => `
+                <tr>
+                  <td>${displayId(txn.id)}</td>
+                  <td>${txn.transaction_type_display || txn.transaction_type}</td>
+                  <td>${txn.status}</td>
+                  <td>${formatAmountUnits(txn)}</td>
+                  <td>${txn.created_at}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </body>
+      </html>
+    `;
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setError("Allow popups to print statement.");
+      return;
+    }
+    popup.document.write(html);
+    popup.document.close();
+    popup.focus();
+    popup.print();
   };
 
   const getTypeBadge = (txn: Transaction) => {
@@ -211,7 +295,39 @@ const TransList = () => {
         >
           Reset
         </Button>
+        <Button onClick={handlePrintStatement} className="w-full sm:w-auto">
+          Print Statement (PDF)
+        </Button>
       </div>
+
+      {summary && (
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6">
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Transactions</p>
+            <p className="text-lg font-semibold">{summary.transactions_count}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Money In (UGX)</p>
+            <p className="text-lg font-semibold">{summary.money_in_ugx.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Money Out (UGX)</p>
+            <p className="text-lg font-semibold">{summary.money_out_ugx.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Net Money (UGX)</p>
+            <p className="text-lg font-semibold">{summary.money_net_ugx.toLocaleString()}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Units In (kWh)</p>
+            <p className="text-lg font-semibold">{summary.units_in_kwh.toFixed(2)}</p>
+          </div>
+          <div className="rounded-lg border p-3">
+            <p className="text-xs text-muted-foreground">Units Out (kWh)</p>
+            <p className="text-lg font-semibold">{summary.units_out_kwh.toFixed(2)}</p>
+          </div>
+        </div>
+      )}
 
       <div className="rounded-md border overflow-x-auto w-full max-w-full">
         <Table className="w-full">

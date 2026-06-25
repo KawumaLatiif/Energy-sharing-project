@@ -9,7 +9,7 @@ import LoanOverview from './_components/loan-overview';
 import MeterRegistrationPopup from './_components/meter-registration-popup';
 import LatestTransactions from './_components/latest-transactions';
 import MeterUnitsPanel from './_components/meter-units-panel';
-import { useSelectedMeter } from './_components/selected-meter-context';
+import { useSelectedMeter } from '@/contexts/selected-meter-context';
 import { User } from '@/interface/user.interface';
 import { Zap } from 'lucide-react';
 

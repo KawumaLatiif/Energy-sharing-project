@@ -9,7 +9,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Label } from "@/components/ui/label";
-import { useSelectedMeter } from "./selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import { cn } from "@/lib/utils";
 
 interface MeterSelectorProps {

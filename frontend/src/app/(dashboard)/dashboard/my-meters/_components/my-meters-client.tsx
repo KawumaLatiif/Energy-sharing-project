@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   Gauge,
@@ -24,10 +24,9 @@ import {
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { get } from "@/lib/fetch-client";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import { deleteMeter } from "../actions";
 import AddMeterDialog from "./add-meter-dialog";
-import LedgerHistoryDialog, { LedgerLink } from "./ledger-history-dialog";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import {
   AlertDialog,
@@ -55,14 +54,6 @@ export default function MyMetersClient() {
   const [liveQueriedAt, setLiveQueriedAt] = useState<string | null>(null);
   const [checkError, setCheckError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
-  const [ledgerOpen, setLedgerOpen] = useState(false);
-  const [ledgerMeter, setLedgerMeter] = useState<UserMeter | null>(null);
-
-  const openLedgerHistory = (meter: UserMeter, e?: MouseEvent) => {
-    e?.stopPropagation();
-    setLedgerMeter(meter);
-    setLedgerOpen(true);
-  };
 
   const selected = meters.find((m) => m.meter_number === selectedNo) ?? meters[0] ?? null;
 
@@ -238,8 +229,7 @@ export default function MyMetersClient() {
                 </div>
                 <p className="mt-3 text-sm">
                   <span className="font-semibold tabular-nums">{meter.units.toFixed(2)}</span>
-                  <span className="text-muted-foreground ml-1">kWh </span>
-                  <LedgerLink onClick={(e) => openLedgerHistory(meter, e)} />
+                  <span className="text-muted-foreground ml-1">kWh</span>
                 </p>
               </button>
             ))}
@@ -277,18 +267,7 @@ export default function MyMetersClient() {
               <CardContent className="space-y-6">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <InfoTile
-                    label={
-                      <span>
-                        <LedgerLink
-                          className="text-muted-foreground underline-offset-2 hover:underline hover:text-primary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openLedgerHistory(selected);
-                          }}
-                        />{" "}
-                        balance
-                      </span>
-                    }
+                    label="Units"
                     value={`${selected.units.toFixed(2)} kWh`}
                   />
                   <InfoTile
@@ -335,13 +314,6 @@ export default function MyMetersClient() {
                 {liveQueriedAt && (
                   <p className="text-xs text-muted-foreground">
                     Last checked: {new Date(liveQueriedAt).toLocaleString()}
-                    {liveUnits != null &&
-                      Math.abs(liveUnits - selected.units) > 0.01 && (
-                        <span className="block mt-1 text-amber-800/90">
-                          Ledger ({selected.units.toFixed(2)} kWh) and live device balance can differ
-                          until ThingsBoard updates <code className="text-xs">remaining_units</code>.
-                        </span>
-                      )}
                   </p>
                 )}
 
@@ -417,12 +389,6 @@ export default function MyMetersClient() {
           )}
         </div>
       )}
-
-      <LedgerHistoryDialog
-        meter={ledgerMeter}
-        open={ledgerOpen}
-        onOpenChange={setLedgerOpen}
-      />
 
       <AddMeterDialog
         open={addOpen}

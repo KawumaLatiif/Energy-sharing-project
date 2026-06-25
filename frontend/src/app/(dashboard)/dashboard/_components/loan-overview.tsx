@@ -13,13 +13,13 @@ import {
   FileTextIcon,
   CheckCircleIcon,
   ClockIcon,
-  TrendingUpIcon,
   DollarSignIcon,
   AlertCircleIcon,
+  WalletIcon,
 } from "lucide-react";
 import { get } from "@/lib/fetch-client";
 import { useEffect, useState } from "react";
-import { useSelectedMeter } from "./selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 
 interface LoanStats {
   active_loans: number;
@@ -77,7 +77,7 @@ export default function LoanOverview() {
   if (loading) {
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[...Array(8)].map((_, i) => (
+        {[...Array(4)].map((_, i) => (
           <Card key={i}>
             <CardHeader className="pb-2">
               <div className="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div>
@@ -93,15 +93,16 @@ export default function LoanOverview() {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
       {/* Active Loans */}
-      <Card>
+      <Card className="border-blue-200/60 bg-gradient-to-br from-blue-50/70 to-white shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardDescription>Active Loans</CardDescription>
             <ClockIcon className="h-4 w-4 text-blue-500" />
           </div>
-          <CardTitle className="text-4xl">{stats.active_loans}</CardTitle>
+          <CardTitle className="text-3xl">{stats.active_loans}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-xs text-muted-foreground">
@@ -111,11 +112,11 @@ export default function LoanOverview() {
       </Card>
 
       {/* Wallet Units Balance */}
-      <Card>
+      <Card className="border-emerald-200/60 bg-gradient-to-br from-emerald-50/70 to-white shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardDescription>Wallet Unit Balance</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-indigo-500" />
+            <WalletIcon className="h-4 w-4 text-emerald-600" />
           </div>
           <CardTitle className="text-3xl">
             {walletUnitsBalance.toFixed(2)} units
@@ -129,13 +130,13 @@ export default function LoanOverview() {
       </Card>
 
       {/* Pending Applications */}
-      <Card>
+      <Card className="border-amber-200/60 bg-gradient-to-br from-amber-50/70 to-white shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
             <CardDescription>Pending Applications</CardDescription>
             <AlertCircleIcon className="h-4 w-4 text-yellow-500" />
           </div>
-          <CardTitle className="text-4xl">
+          <CardTitle className="text-3xl">
             {stats.pending_applications}
           </CardTitle>
         </CardHeader>
@@ -144,77 +145,11 @@ export default function LoanOverview() {
         </CardContent>
       </Card>
 
-      {/* Approved Loans */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Approved Loans</CardDescription>
-            <CheckCircleIcon className="h-4 w-4 text-green-500" />
-          </div>
-          <CardTitle className="text-4xl">{stats.approved_loans}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Successfully approved
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Total Loans */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Loans</CardDescription>
-            <TrendingUpIcon className="h-4 w-4 text-purple-500" />
-          </div>
-          <CardTitle className="text-4xl">{stats.total_loans}</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            All-time applications
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Total Borrowed */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Borrowed</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-green-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {formatCurrency(stats.total_borrowed)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">
-            Total amount borrowed
-          </div>
-        </CardContent>
-      </Card>
-
-      {/* Total Repayments */}
-      <Card>
-        <CardHeader className="pb-2">
-          <div className="flex items-center justify-between">
-            <CardDescription>Total Repayments</CardDescription>
-            <DollarSignIcon className="h-4 w-4 text-blue-500" />
-          </div>
-          <CardTitle className="text-3xl">
-            {formatCurrency(stats.total_repayments)}
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-xs text-muted-foreground">Amount repaid</div>
-        </CardContent>
-      </Card>
-
       {/* Outstanding Balance */}
-      <Card>
+      <Card className="border-orange-200/60 bg-gradient-to-br from-orange-50/70 to-white shadow-sm">
         <CardHeader className="pb-2">
           <div className="flex items-center justify-between">
-            <CardDescription>Outstanding Payback Amount</CardDescription>
+            <CardDescription>Outstanding Payback</CardDescription>
             <DollarSignIcon className="h-4 w-4 text-orange-500" />
           </div>
           <CardTitle className="text-3xl">
@@ -227,9 +162,10 @@ export default function LoanOverview() {
           </div>
         </CardContent>
       </Card>
+      </div>
 
       {/* Quick Actions Card */}
-      <Card className="md:col-span-2 lg:col-span-4">
+      <Card className="border-slate-200/80 bg-white/90 shadow-sm">
         <CardHeader className="pb-2">
           <CardDescription>Quick Actions</CardDescription>
         </CardHeader>

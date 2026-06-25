@@ -21,7 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 import { get } from "@/lib/fetch-client";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import {
   Card,
   CardContent,
