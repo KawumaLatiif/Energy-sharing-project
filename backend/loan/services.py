@@ -15,7 +15,7 @@ from django.utils import timezone
 
 from accounts.models import generate_random_string
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, get_tier_by_score
-from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
+from loan.scoring import calculate_weighted_credit_score, get_or_create_credit_signal
 from meter.models import Meter, MeterNotification
 from meter.notifications import create_system_notification
 from meter.services import push_units_to_thingsboard
@@ -43,6 +43,10 @@ APPLY_BLOCK_MESSAGE = (
     "You already have an active loan. Please complete repayment before applying for a new one."
 )
 
+PLATFORM_MAX_LOAN = 200_000
+MIN_LOAN_AMOUNT = 5_000
+MIN_LOAN_CREDIT_SCORE = 75
+
 
 class LoanOperationError(Exception):
     """Raised when a loan action is not allowed or fails validation."""
@@ -66,6 +70,41 @@ def user_can_purchase_units(user) -> tuple[bool, str]:
     if incomplete_loans_queryset(user).exists():
         return False, PURCHASE_BLOCK_MESSAGE
     return True, ""
+
+
+def get_loan_eligibility(user) -> dict:
+    """Credit score, tier, and amount caps used by web, USSD, and stats API."""
+    credit_signal = get_or_create_credit_signal(user)
+    credit_score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
+    tier_info = _determine_loan_tier(credit_score)
+
+    if tier_info:
+        loan_tier, max_eligible_amount, interest_rate = tier_info
+    else:
+        loan_tier = None
+        max_eligible_amount = 0
+        interest_rate = None
+
+    is_eligible = credit_score >= MIN_LOAN_CREDIT_SCORE and max_eligible_amount > 0
+
+    return {
+        "credit_score": credit_score,
+        "loan_tier": loan_tier,
+        "max_eligible_amount": int(max_eligible_amount),
+        "platform_max_loan": PLATFORM_MAX_LOAN,
+        "min_loan_amount": MIN_LOAN_AMOUNT,
+        "min_credit_score": MIN_LOAN_CREDIT_SCORE,
+        "is_loan_eligible": is_eligible,
+        "interest_rate": float(interest_rate) if interest_rate is not None else None,
+        "credit_signal_source": getattr(credit_signal, "source", None),
+        "profile_complete_for_scoring": _user_has_profile_for_scoring(user),
+    }
+
+
+def _user_has_profile_for_scoring(user) -> bool:
+    from loan.scoring import _user_has_profile_signals
+
+    return _user_has_profile_signals(user)
 
 
 def get_user_loan_stats(user) -> dict:
@@ -94,8 +133,7 @@ def get_user_loan_stats(user) -> dict:
         for loan in loans.exclude(status__in=TERMINAL_LOAN_STATUSES)
     )
 
-    credit_signal = get_or_create_dummy_credit_signal(user)
-    credit_score = calculate_weighted_credit_score(credit_signal)
+    eligibility = get_loan_eligibility(user)
 
     return {
         "active_loans": active_loans,
@@ -105,10 +143,10 @@ def get_user_loan_stats(user) -> dict:
         "total_borrowed": total_borrowed,
         "total_repayments": total_repayments,
         "outstanding_balance": outstanding_balance,
-        "credit_score": credit_score,
         "has_blocking_loan": (
             active_loans > 0 or pending_applications > 0 or outstanding_balance > 0
         ),
+        **eligibility,
     }
 
 
@@ -165,9 +203,15 @@ def create_loan_application(
         raise LoanOperationError("Tenure must be between 1 and 12 months.")
 
     tariff = get_active_domestic_tariff()
-    credit_signal = get_or_create_dummy_credit_signal(user)
+    credit_signal = get_or_create_credit_signal(user)
     credit_score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
     tier_info = _determine_loan_tier(credit_score)
+
+    if credit_score < MIN_LOAN_CREDIT_SCORE or not tier_info:
+        raise LoanOperationError(
+            f"Credit score {credit_score}/100 is below the minimum {MIN_LOAN_CREDIT_SCORE}. "
+            "Complete your profile on the web portal to improve eligibility."
+        )
 
     if tier_info:
         tier_name, max_amount, interest_rate = tier_info
@@ -456,12 +500,50 @@ def repay_loan(
 
 def format_loan_stats_ussd(stats: dict) -> str:
     blocking = "Yes" if stats.get("has_blocking_loan") else "No"
+    score = stats.get("credit_score", 0)
+    tier = stats.get("loan_tier") or "None"
+    eligible = stats.get("max_eligible_amount", 0)
+    platform_max = stats.get("platform_max_loan", PLATFORM_MAX_LOAN)
     return (
         f"Loan stats\n"
+        f"Credit score: {score}/100\n"
+        f"Tier: {tier}\n"
+        f"Your limit: UGX {eligible:,}\n"
+        f"Platform max: UGX {platform_max:,}\n"
         f"Pending: {stats['pending_applications']}\n"
         f"Active: {stats['active_loans']}\n"
         f"Outstanding: UGX {round(stats['outstanding_balance'], 2)}\n"
         f"Blocking purchases: {blocking}"
+    )
+
+
+def format_loan_apply_preview_ussd(stats: dict) -> str:
+    score = stats.get("credit_score", 0)
+    min_score = stats.get("min_credit_score", MIN_LOAN_CREDIT_SCORE)
+    tier = stats.get("loan_tier") or "None"
+    eligible = stats.get("max_eligible_amount", 0)
+    platform_max = stats.get("platform_max_loan", PLATFORM_MAX_LOAN)
+
+    if not stats.get("is_loan_eligible"):
+        profile_hint = (
+            "Complete profile on web to improve score."
+            if not stats.get("profile_complete_for_scoring")
+            else "Score below minimum."
+        )
+        return (
+            f"Apply for loan\n"
+            f"Score: {score}/100 (min {min_score})\n"
+            f"Not eligible yet.\n"
+            f"{profile_hint}"
+        )
+
+    return (
+        f"Apply for loan\n"
+        f"Score: {score}/100\n"
+        f"Tier: {tier}\n"
+        f"Your limit: UGX {eligible:,}\n"
+        f"Platform max: UGX {platform_max:,}\n"
+        f"Enter amount UGX ({MIN_LOAN_AMOUNT}-{eligible}):"
     )
 
 

@@ -57,7 +57,7 @@ from django.db.models import Sum
 from meter.api.serializers import MeterSerializer
 from loan.models import LoanApplication
 from loan.api.serializers import LoanApplicationSerializer
-from loan.scoring import get_or_create_dummy_credit_signal
+from loan.scoring import get_or_create_credit_signal, sync_credit_signal_from_profile
 
 logger = logging.getLogger(__name__)
 
@@ -1080,6 +1080,7 @@ class UserProfileAPIView(GenericAPIView):
             if updated_fields:
                 user.save()
                 logger.info(f"User {user.id} updated profile fields: {updated_fields}")
+                sync_credit_signal_from_profile(user)
             
             # Check completion status
             user_serializer = UserConfigSerializer(user)
@@ -1117,7 +1118,7 @@ class LoginAPIView(TokenObtainPairView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.user
-        get_or_create_dummy_credit_signal(user)
+        get_or_create_credit_signal(user)
 
         # Staff members with 2FA enabled → issue a challenge token instead of full JWT
         if (user.is_staff_member or user.is_superuser) and user.totp_enabled:

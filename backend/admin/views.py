@@ -1454,7 +1454,8 @@ class LoanManagementView(APIView, RBACMixin):
             "success": True,
             "loans": [
                 {
-                    "loan_id": l.id,
+                    "id": l.id,
+                    "loan_id": l.loan_id,
                     "loan_ref": l.loan_id,
                     "status": l.status,
                     "amount_requested": float(l.amount_requested),
@@ -1576,6 +1577,50 @@ class LoanPenaltyWaiverView(APIView, RBACMixin):
         )
 
         return Response({"success": True, "message": "Late penalty waived"})
+
+
+class LoanDisburseView(APIView, RBACMixin):
+    """Disburse an approved loan to the borrower's unit wallet (operator/admin)."""
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, loan_id):
+        ok, err = self._require_operator_or_admin(request)
+        if not ok:
+            return err
+
+        try:
+            loan = LoanApplication.objects.select_related("user").get(id=loan_id)
+        except LoanApplication.DoesNotExist:
+            return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        from loan.services import LoanOperationError, disburse_loan
+
+        try:
+            result = disburse_loan(loan.user, loan.id, channel="ADMIN")
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+
+        self.log_admin_activity(
+            request.user,
+            "loan_disburse",
+            details={
+                "loan_id": loan.loan_id,
+                "loan_pk": loan.id,
+                "user_email": loan.user.email,
+                "units_disbursed": result.get("units_disbursed"),
+            },
+            request=request,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "Loan disbursed successfully",
+                "loan_id": loan.loan_id,
+                "units_disbursed": result.get("units_disbursed"),
+                "meter_push_ok": result.get("meter_push_ok"),
+            }
+        )
 
 
 class CreditLimitOverrideView(APIView, RBACMixin):

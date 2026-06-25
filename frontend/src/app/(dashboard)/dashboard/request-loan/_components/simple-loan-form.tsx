@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import Link from "next/link";
+import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,13 +31,26 @@ const PURPOSE_OPTIONS = [
   { label: "Personal", value: "PERSONAL" },
 ];
 
-// Statutory compliant rates (Uganda Tier 4 MFI Act: ≤2.8%/month = ≤33.6%/year)
-// These are annual rates stored in the backend; the backend enforces the cap.
-const PROCESSING_FEE_PCT = 0.02;   // 2% of principal
+const PLATFORM_MAX_LOAN = 200_000;
+const MIN_LOAN_AMOUNT = 5_000;
+
+interface LoanEligibility {
+  creditScore: number;
+  maxEligible: number;
+  platformMax: number;
+  minCreditScore: number;
+  loanTier: string | null;
+  isEligible: boolean;
+  profileComplete: boolean;
+  interestRate: number | null;
+}
 
 function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
 }
+
+// Statutory compliant rates (Uganda Tier 4 MFI Act: ≤2.8%/month = ≤33.6%/year)
+const PROCESSING_FEE_PCT = 0.02;   // 2% of principal
 
 interface LoanBreakdown {
   principal: number;
@@ -84,9 +98,18 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
   const [purpose, setPurpose] = useState("ENERGY_RECHARGE");
   const [purposeNote, setPurposeNote] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [annualRate, setAnnualRate] = useState(12); // fetched from backend tier
+  const [annualRate, setAnnualRate] = useState(12);
+  const [eligibility, setEligibility] = useState<LoanEligibility>({
+    creditScore: 0,
+    maxEligible: 0,
+    platformMax: PLATFORM_MAX_LOAN,
+    minCreditScore: 75,
+    loanTier: null,
+    isEligible: false,
+    profileComplete: false,
+    interestRate: null,
+  });
 
-  // Fetch active loan status and current tier rate
   useEffect(() => {
     (async () => {
       try {
@@ -99,8 +122,18 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
               (stats.pending_applications ?? 0) > 0 ||
               Number(stats.outstanding_balance ?? 0) > 0);
           setHasActiveLoan(hasBlocking);
+          setEligibility({
+            creditScore: Number(stats.credit_score ?? 0),
+            maxEligible: Number(stats.max_eligible_amount ?? 0),
+            platformMax: Number(stats.platform_max_loan ?? PLATFORM_MAX_LOAN),
+            minCreditScore: Number(stats.min_credit_score ?? 75),
+            loanTier: stats.loan_tier ?? null,
+            isEligible: Boolean(stats.is_loan_eligible),
+            profileComplete: Boolean(stats.profile_complete_for_scoring),
+            interestRate: stats.interest_rate != null ? Number(stats.interest_rate) : null,
+          });
           if (stats.interest_rate) {
-            setAnnualRate(stats.interest_rate);
+            setAnnualRate(Number(stats.interest_rate));
           }
         }
       } catch {
@@ -111,6 +144,10 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
     })();
   }, []);
 
+  const amountCap = eligibility.isEligible
+    ? Math.min(eligibility.maxEligible, eligibility.platformMax)
+    : eligibility.platformMax;
+
   const breakdown = amount
     ? computeBreakdown(Number(amount), tenure, annualRate)
     : null;
@@ -119,16 +156,33 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
 
   // ── Step validation ───────────────────────────────────────────────
   const canProceed = useCallback(() => {
-    if (step === 0) return Number(amount) >= 5000 && Number(amount) <= 200000 && tenure >= 1 && tenure <= 12;
+    if (step === 0) {
+      const value = Number(amount);
+      return (
+        value >= MIN_LOAN_AMOUNT &&
+        value <= amountCap &&
+        tenure >= 1 &&
+        tenure <= 12 &&
+        eligibility.isEligible
+      );
+    }
     if (step === 1) return !!purpose;
     if (step === 2) return termsAccepted;
     return true;
-  }, [step, amount, tenure, purpose, termsAccepted]);
+  }, [step, amount, tenure, purpose, termsAccepted, amountCap, eligibility.isEligible]);
 
   const handleNext = () => {
     setError("");
     if (!canProceed()) {
-      if (step === 0) setError("Enter an amount between UGX 5,000 and 200,000 and a tenure of 1–12 months.");
+      if (step === 0) {
+        if (!eligibility.isEligible) {
+          setError(
+            `Your credit score is ${eligibility.creditScore}/100 (minimum ${eligibility.minCreditScore}). Complete your profile or improve your score before applying.`
+          );
+        } else {
+          setError(`Enter an amount between ${formatUGX(MIN_LOAN_AMOUNT)} and ${formatUGX(amountCap)} with a tenure of 1–12 months.`);
+        }
+      }
       if (step === 2) setError("You must accept the terms to continue.");
       return;
     }
@@ -183,6 +237,39 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
     );
   }
 
+  if (!eligibility.isEligible) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Not eligible for a loan yet</AlertTitle>
+          <AlertDescription>
+            Your credit score is <strong>{eligibility.creditScore}/100</strong>. You need at least{" "}
+            <strong>{eligibility.minCreditScore}</strong> to apply.
+            {!eligibility.profileComplete && (
+              <> Complete your profile under My Account — payment history, income, and usage — to improve your score.</>
+            )}
+          </AlertDescription>
+        </Alert>
+        <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-1">
+          <p className="font-medium">Loan limits explained</p>
+          <p className="text-muted-foreground">
+            Platform maximum: {formatUGX(eligibility.platformMax)} (top tier)
+          </p>
+          <p className="text-muted-foreground">Your eligible limit: {formatUGX(eligibility.maxEligible)}</p>
+        </div>
+        <div className="flex gap-3">
+          {!eligibility.profileComplete && (
+            <Button asChild variant="outline" className="flex-1">
+              <Link href="/dashboard/myaccount">Complete Profile</Link>
+            </Button>
+          )}
+          <Button onClick={() => router.push("/dashboard")} className="flex-1">Back to Dashboard</Button>
+        </div>
+      </div>
+    );
+  }
+
   // ── Wizard ────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -193,7 +280,21 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
         <div className="space-y-4">
           <div>
             <h2 className="text-xl font-bold">How much do you need?</h2>
-            <p className="text-muted-foreground text-sm mt-0.5">Your current limit is UGX 200,000</p>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              Your eligible limit: <strong>{formatUGX(eligibility.maxEligible)}</strong>
+              {eligibility.loanTier && <> ({eligibility.loanTier} tier)</>}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Credit score: {eligibility.creditScore}/100 · Platform maximum: {formatUGX(eligibility.platformMax)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm flex gap-2">
+            <Info className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+            <p>
+              You can borrow up to <strong>{formatUGX(amountCap)}</strong> based on your tier.
+              The platform maximum of {formatUGX(eligibility.platformMax)} applies only to the highest credit tier.
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -201,14 +302,16 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
             <Input
               id="amount"
               type="number"
-              min={5000}
-              max={200000}
+              min={MIN_LOAN_AMOUNT}
+              max={amountCap}
               placeholder="e.g. 50,000"
               value={amount}
               onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : "")}
               className="text-base"
             />
-            <p className="text-xs text-muted-foreground">Min: UGX 5,000 · Max: UGX 200,000</p>
+            <p className="text-xs text-muted-foreground">
+              Min: {formatUGX(MIN_LOAN_AMOUNT)} · Your max: {formatUGX(amountCap)}
+            </p>
           </div>
 
           <div className="space-y-2">

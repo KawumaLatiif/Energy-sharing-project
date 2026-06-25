@@ -9,10 +9,15 @@ export async function getMyLoans(): Promise<LoanApplication[]> {
 }
 
 export async function applyForLoan(payload: LoanApplyPayload) {
-  return apiRequest<{ success?: boolean; loan_id?: string; status?: string; message?: string }>(
-    "loans/apply/",
-    { method: "POST", body: JSON.stringify(payload) }
-  );
+  return apiRequest<{
+    success?: boolean;
+    loan_id?: string;
+    status?: string;
+    message?: string;
+    rejection_reason?: string;
+    credit_score?: number;
+    max_eligible_amount?: number;
+  }>("loans/apply/", { method: "POST", body: JSON.stringify(payload) });
 }
 
 export async function disburseLoan(loanId: number) {
@@ -29,10 +34,10 @@ export async function repayLoan(loanId: number, amount: number) {
   );
 }
 
-export async function repayLoanMoMo(loanId: number, phone_number: string) {
+export async function repayLoanMoMo(loanId: number, phone_number: string, amount: number) {
   return apiRequest<{ external_id?: string; message?: string; status?: string }>(
     `loans/repay/momo/${loanId}/`,
-    { method: "POST", body: JSON.stringify({ phone_number }) }
+    { method: "POST", body: JSON.stringify({ phone_number, amount }) }
   );
 }
 

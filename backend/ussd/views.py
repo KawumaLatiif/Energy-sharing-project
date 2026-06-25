@@ -18,6 +18,7 @@ from loan.services import (
     LoanOperationError,
     create_loan_application,
     disburse_loan,
+    format_loan_apply_preview_ussd,
     format_loan_stats_ussd,
     format_wallet_loan_summary,
     get_disbursed_loan_balances,
@@ -167,8 +168,7 @@ def _main_menu_text() -> str:
         "6. Manage\n"
         "7. Alerts\n"
         "8. Exit\n"
-        "9. Energy Usage\n"
-        "10. Repay Loan"
+        "9. Energy Usage"
     )
 
 
@@ -378,25 +378,6 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
         f"Outstanding: UGX {result['outstanding_balance']}\n"
         f"Units added: {result['units_added']}"
     )
-
-
-def _latest_repayable_loan(user):
-    return (
-        LoanApplication.objects.filter(user=user, status="DISBURSED")
-        .order_by("-created_at")
-        .first()
-    )
-
-
-def _repay_loan_with_pin(user, loan_id_raw: str, amount_raw: str, pin: str):
-    """Simulated MoMo deduction: confirm PIN (login password), then repay."""
-    if not user.check_password(pin):
-        return False, "Incorrect PIN. Use your gPAWA login password."
-
-    ok, msg = _repay_loan(user, loan_id_raw, amount_raw)
-    if not ok:
-        return ok, msg
-    return True, f"{msg}\nMoMo debit: simulated (PIN confirmed)."
 
 
 def _validate_pin_attempt(ussd_session: UssdSession, user, pin: str, attempts_key: str):
@@ -945,7 +926,7 @@ def ussd_entry(request):
                     (
                         "Loans\n"
                         "1. Latest loan\n"
-                        "2. Apply loan\n"
+                        "2. Apply for loan\n"
                         "3. Disburse loan\n"
                         "4. Repay loan\n"
                         "5. Loan stats"
@@ -972,10 +953,14 @@ def ussd_entry(request):
                 )
 
             if steps[1] == "2":
+                loan_stats = get_user_loan_stats(user)
                 if len(steps) == 2:
+                    preview = format_loan_apply_preview_ussd(loan_stats)
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter amount in UGX (5000-200000):", menu="loan_apply_amount")
+                    if not loan_stats.get("is_loan_eligible"):
+                        return _reply_done(ussd_session, preview, menu="loan_apply_ineligible")
+                    return _session_reply(ussd_session, "CON", preview, menu="loan_apply_amount")
                 ok, msg = _apply_loan(user, steps[2])
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
@@ -1343,178 +1328,6 @@ def ussd_entry(request):
                 msg if ok else f"Error: {msg}",
                 menu="power_usage",
             )
-
-        # 10) Repay Loan (main-menu shortcut)
-        if steps[0] == "10":
-            loan = _latest_repayable_loan(user)
-            if not loan:
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
-                    ussd_session,
-                    "No disbursed loan with outstanding balance found.",
-                    menu="loan_repay_shortcut",
-                )
-
-            outstanding = float(loan.outstanding_balance)
-            if outstanding <= 0:
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
-                    ussd_session,
-                    f"Loan {loan.loan_id} is already fully repaid.",
-                    menu="loan_repay_shortcut",
-                )
-
-            if len(steps) == 1:
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_submenu(
-                    ussd_session,
-                    (
-                        f"Repay Loan\nLoanRef: {loan.loan_id}\n"
-                        f"Outstanding: UGX {outstanding:.2f}\n"
-                        "1. Pay full\n"
-                        "2. Pay partial"
-                    ),
-                    menu="loan_repay_shortcut_menu",
-                    context={"repay_loan_id": loan.id, "repay_loan_ref": loan.loan_id},
-                )
-
-            if steps[1] == "1":
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        (
-                            f"Pay full amount UGX {outstanding:.2f}\n"
-                            "Enter account PIN to confirm:"
-                        ),
-                        menu="loan_repay_full_pin",
-                        context={"repay_pin_attempts": 0},
-                    )
-                pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                    ussd_session, user, steps[2], "repay_pin_attempts"
-                )
-                if not pin_ok:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    if terminate:
-                        return _session_reply(
-                            ussd_session,
-                            "END",
-                            pin_msg,
-                            menu="loan_repay_full_pin_locked",
-                        )
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        pin_msg,
-                        menu="loan_repay_full_pin",
-                    )
-
-                ok, msg = _repay_loan_with_pin(
-                    user,
-                    str(loan.id),
-                    str(outstanding),
-                    steps[2],
-                )
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
-                    ussd_session,
-                    msg if ok else f"Error: {msg}",
-                    menu="loan_repay_full_result",
-                )
-
-            if steps[1] == "2":
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        f"Outstanding: UGX {outstanding:.2f}\nEnter partial amount UGX:",
-                        menu="loan_repay_partial_amount",
-                    )
-                if len(steps) == 3:
-                    try:
-                        partial_amount = Decimal(str(steps[2]))
-                    except (InvalidOperation, ValueError):
-                        ussd_session.last_text = text
-                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                        return _reply_done(ussd_session, "Error: Invalid amount.", menu="loan_repay_partial_amount")
-
-                    if partial_amount <= 0:
-                        ussd_session.last_text = text
-                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                        return _reply_done(
-                            ussd_session,
-                            "Error: Amount must be greater than zero.",
-                            menu="loan_repay_partial_amount",
-                        )
-
-                    if partial_amount > Decimal(str(outstanding)):
-                        ussd_session.last_text = text
-                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                        return _reply_done(
-                            ussd_session,
-                            f"Error: Amount exceeds outstanding UGX {outstanding:.2f}.",
-                            menu="loan_repay_partial_amount",
-                        )
-
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        (
-                            f"Repay UGX {float(partial_amount):.2f}\n"
-                            "Enter account PIN to confirm:"
-                        ),
-                        menu="loan_repay_partial_pin",
-                        context={"repay_pin_attempts": 0},
-                    )
-
-                pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                    ussd_session, user, steps[3], "repay_pin_attempts"
-                )
-                if not pin_ok:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    if terminate:
-                        return _session_reply(
-                            ussd_session,
-                            "END",
-                            pin_msg,
-                            menu="loan_repay_partial_pin_locked",
-                        )
-                    return _session_reply(
-                        ussd_session,
-                        "CON",
-                        pin_msg,
-                        menu="loan_repay_partial_pin",
-                    )
-
-                ok, msg = _repay_loan_with_pin(
-                    user,
-                    str(loan.id),
-                    steps[2],
-                    steps[3],
-                )
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
-                    ussd_session,
-                    msg if ok else f"Error: {msg}",
-                    menu="loan_repay_partial_result",
-                )
-
-            ussd_session.last_text = text
-            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _reply_done(ussd_session, "Invalid repay option.")
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])

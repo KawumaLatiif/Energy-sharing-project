@@ -53,6 +53,15 @@ export interface LoanStats {
   active_loans: number;
   outstanding_balance: number;
   has_blocking_loan?: boolean;
+  credit_score?: number;
+  loan_tier?: string | null;
+  max_eligible_amount?: number;
+  platform_max_loan?: number;
+  min_loan_amount?: number;
+  min_credit_score?: number;
+  is_loan_eligible?: boolean;
+  interest_rate?: number | null;
+  profile_complete_for_scoring?: boolean;
 }
 
 export interface MeterToken {

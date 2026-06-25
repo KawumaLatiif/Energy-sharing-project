@@ -21,7 +21,7 @@ from meter.models import MeterNotification
 from meter.notifications import create_system_notification
 from loan.scoring import (
     calculate_weighted_credit_score,
-    get_or_create_dummy_credit_signal,
+    get_or_create_credit_signal,
     get_factor_breakdown,
     FACTOR_WEIGHTS,
 )
@@ -80,7 +80,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
             tariff = get_active_domestic_tariff()
 
             # Collect third-party credit signals (dummy for now) and score user
-            credit_signal = get_or_create_dummy_credit_signal(request.user)
+            credit_signal = get_or_create_credit_signal(request.user)
             credit_score = self.calculate_credit_score(credit_signal)
             credit_breakdown = get_factor_breakdown(credit_signal)
 

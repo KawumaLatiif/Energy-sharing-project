@@ -26,6 +26,7 @@ from .views import (
     LoanManagementView,
     LoanDetailView,
     LoanPenaltyWaiverView,
+    LoanDisburseView,
     # Transaction monitoring (Section 6)
     TransactionLogView,
     TransactionDetailView,
@@ -92,6 +93,7 @@ urlpatterns = [
     path('loans/', LoanManagementView.as_view(), name='admin-loans'),
     path('loans/<int:loan_id>/', LoanDetailView.as_view(), name='admin-loan-detail'),
     path('loans/<int:loan_id>/waive-penalty/', LoanPenaltyWaiverView.as_view(), name='loan-waive-penalty'),
+    path('loans/<int:loan_id>/disburse/', LoanDisburseView.as_view(), name='loan-disburse'),
 
     # --- Transaction monitoring ---
     path('transactions/', TransactionLogView.as_view(), name='admin-transactions'),

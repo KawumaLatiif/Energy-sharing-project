@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { RefreshControl, ScrollView, Text, View } from "react-native";
 import { useFocusEffect } from "expo-router";
 import { ApiError } from "@/lib/api";
@@ -23,6 +23,23 @@ import {
   Subtitle,
   Title,
 } from "@/components/ui";
+
+const DEFAULT_PLATFORM_MAX = 200_000;
+const DEFAULT_MIN_LOAN = 5_000;
+const DEFAULT_MIN_CREDIT = 75;
+
+function formatUGX(n: number) {
+  return `UGX ${Math.round(n).toLocaleString()}`;
+}
+
+function hasBlockingLoan(stats: LoanStats): boolean {
+  return (
+    stats.has_blocking_loan ??
+    (stats.pending_applications > 0 ||
+      stats.active_loans > 0 ||
+      Number(stats.outstanding_balance ?? 0) > 0)
+  );
+}
 
 export default function LoansScreen() {
   const [stats, setStats] = useState<LoanStats>({
@@ -58,6 +75,25 @@ export default function LoansScreen() {
       load();
     }, [load])
   );
+
+  const blocking = hasBlockingLoan(stats);
+  const isEligible = Boolean(stats.is_loan_eligible);
+  const platformMax = stats.platform_max_loan ?? DEFAULT_PLATFORM_MAX;
+  const minLoan = stats.min_loan_amount ?? DEFAULT_MIN_LOAN;
+  const minCredit = stats.min_credit_score ?? DEFAULT_MIN_CREDIT;
+  const creditScore = Number(stats.credit_score ?? 0);
+  const maxEligible = Number(stats.max_eligible_amount ?? 0);
+  const amountCap = isEligible ? Math.min(maxEligible, platformMax) : platformMax;
+
+  const amountHint = useMemo(() => {
+    if (!isEligible) {
+      return `Platform max ${formatUGX(platformMax)} (eligibility required)`;
+    }
+    if (maxEligible < platformMax) {
+      return `${formatUGX(minLoan)} – ${formatUGX(amountCap)} (your eligible limit)`;
+    }
+    return `${formatUGX(minLoan)} – ${formatUGX(amountCap)}`;
+  }, [isEligible, maxEligible, platformMax, minLoan, amountCap]);
 
   async function runAction(fn: () => Promise<void>) {
     setError("");
@@ -96,26 +132,79 @@ export default function LoansScreen() {
         </Card>
 
         <Card>
-          <Text style={{ fontWeight: "700", marginBottom: 8 }}>Apply for loan</Text>
-          <FieldLabel>Amount (UGX, 5k–200k)</FieldLabel>
-          <Input value={amount} onChangeText={setAmount} keyboardType="number-pad" />
-          <FieldLabel>Purpose</FieldLabel>
-          <Input value={purpose} onChangeText={setPurpose} />
-          <Button
-            label="Submit application"
-            loading={submitting}
-            onPress={() =>
-              runAction(async () => {
-                const res = await applyForLoan({
-                  amount_requested: parseFloat(amount),
-                  purpose,
-                  tenure_months: 1,
-                });
-                setMessage(res.status ? `Application ${res.status}` : "Application submitted.");
-              })
-            }
+          <Text style={{ fontWeight: "700", marginBottom: 8 }}>Your eligibility</Text>
+          <StatRow label="Credit score" value={`${creditScore}/100`} />
+          <StatRow label="Minimum required" value={`${minCredit}/100`} />
+          {stats.loan_tier ? <StatRow label="Loan tier" value={stats.loan_tier} /> : null}
+          <StatRow
+            label="Your eligible limit"
+            value={isEligible ? formatUGX(maxEligible) : "Not eligible"}
           />
+          <StatRow label="Platform maximum" value={formatUGX(platformMax)} />
+          {stats.interest_rate != null ? (
+            <StatRow label="Interest rate" value={`${stats.interest_rate}% p.a.`} />
+          ) : null}
         </Card>
+
+        {blocking ? (
+          <Card>
+            <Text style={{ color: "#b45309", lineHeight: 20 }}>
+              You already have a pending or active loan. Clear it before applying for another.
+            </Text>
+          </Card>
+        ) : null}
+
+        {!blocking && !isEligible ? (
+          <Card>
+            <Text style={{ color: "#b45309", lineHeight: 20, marginBottom: 8 }}>
+              Your credit score is below {minCredit}.{" "}
+              {!stats.profile_complete_for_scoring
+                ? "Complete your profile (payment history, consumption, etc.) on the web dashboard to improve your score."
+                : "Improve your payment history and profile to become eligible."}
+            </Text>
+          </Card>
+        ) : null}
+
+        {!blocking && isEligible ? (
+          <Card>
+            <Text style={{ fontWeight: "700", marginBottom: 8 }}>Apply for loan</Text>
+            <FieldLabel>Amount ({amountHint})</FieldLabel>
+            <Input value={amount} onChangeText={setAmount} keyboardType="number-pad" />
+            <FieldLabel>Purpose</FieldLabel>
+            <Input value={purpose} onChangeText={setPurpose} />
+            <Button
+              label="Submit application"
+              loading={submitting}
+              onPress={() =>
+                runAction(async () => {
+                  const value = parseFloat(amount);
+                  if (!value || value < minLoan) {
+                    throw new Error(`Minimum loan amount is ${formatUGX(minLoan)}.`);
+                  }
+                  if (value > amountCap) {
+                    throw new Error(`Maximum for you is ${formatUGX(amountCap)}.`);
+                  }
+                  const res = await applyForLoan({
+                    amount_requested: value,
+                    purpose,
+                    tenure_months: 1,
+                  });
+                  if (res.rejection_reason) {
+                    throw new Error(res.rejection_reason);
+                  }
+                  if (res.status === "REJECTED") {
+                    throw new Error(res.message ?? "Application was rejected.");
+                  }
+                  setMessage(
+                    res.status
+                      ? `Application ${res.status}${res.loan_id ? ` (#${res.loan_id})` : ""}`
+                      : "Application submitted."
+                  );
+                })
+              }
+            />
+          </Card>
+        ) : null}
 
         {approved.length > 0 && (
           <Card>
@@ -155,12 +244,16 @@ export default function LoansScreen() {
               onPress={() =>
                 runAction(async () => {
                   if (!selectedLoanId) throw new Error("Select a loan ID.");
-                  const res = await repayLoan(selectedLoanId, parseFloat(repayAmount));
+                  const repayValue = parseFloat(repayAmount);
+                  if (!repayValue || repayValue <= 0) {
+                    throw new Error("Enter a valid repayment amount.");
+                  }
+                  const res = await repayLoan(selectedLoanId, repayValue);
                   setMessage(res.message ?? "Repayment recorded.");
                 })
               }
             />
-            <FieldLabel>MoMo phone (optional)</FieldLabel>
+            <FieldLabel>MTN MoMo number</FieldLabel>
             <Input value={repayPhone} onChangeText={setRepayPhone} keyboardType="phone-pad" />
             <Button
               label="Repay via MTN MoMo"
@@ -171,7 +264,14 @@ export default function LoansScreen() {
                   if (!selectedLoanId || !repayPhone.trim()) {
                     throw new Error("Loan ID and phone required for MoMo.");
                   }
-                  const res = await repayLoanMoMo(selectedLoanId, repayPhone.trim());
+                  const repayValue = parseFloat(repayAmount);
+                  if (!repayValue || repayValue <= 0) {
+                    throw new Error("Enter a repayment amount for MoMo.");
+                  }
+                  const phone = repayPhone.startsWith("+")
+                    ? repayPhone.trim()
+                    : `+256${repayPhone.trim().replace(/^0/, "")}`;
+                  const res = await repayLoanMoMo(selectedLoanId, phone, repayValue);
                   setMessage(res.message ?? `MoMo initiated: ${res.external_id ?? ""}`);
                 })
               }
