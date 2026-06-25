@@ -878,13 +878,13 @@ class UserProfileAPIView(GenericAPIView):
             logger.info(f"Account details: {account_details}")
             
             # Get meter information
-            try:
-                meter = Meter.objects.get(user=user)
+            meter = Meter.objects.filter(user=user).order_by("-create_date").first()
+            if meter:
                 meter_serializer = MeterSerializer(meter)
                 meter_data = meter_serializer.data
                 meter_data['has_meter'] = True
                 logger.info(f"Meter found: {meter_data}")
-            except Meter.DoesNotExist:
+            else:
                 meter_data = {
                     'has_meter': False,
                     'meter_no': None,
@@ -1526,9 +1526,9 @@ class AccountDetailsAPIView(GenericAPIView):
     def get(self, request):
         try:
             # Get or create account details for the user
-            account_details, created = UserAccountDetails.objects.get_or_create(
-                user=request.user
-            )
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details is None:
+                account_details = UserAccountDetails.objects.create(user=request.user)
             serializer = self.serializer_class(account_details)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
@@ -1550,10 +1550,10 @@ class UpdateAccountDetailsAPIView(GenericAPIView):
             logger.info(f"Request data: {request.data}")
             
             # Get or create account details for the user
-            try:
-                account_details = UserAccountDetails.objects.get(user=request.user)
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details:
                 logger.info(f"Found existing account details: {account_details.id}")
-            except UserAccountDetails.DoesNotExist:
+            else:
                 logger.info("Account details don't exist, creating new ones")
                 account_details = UserAccountDetails.objects.create(user=request.user)
                 logger.info(f"Created new account details: {account_details.id}")

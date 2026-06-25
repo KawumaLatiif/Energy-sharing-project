@@ -87,6 +87,19 @@ def _write_audit(
         logger.error(f"Failed to write audit log: {exc}")
 
 
+def _safe_int(raw_value, default: int, *, minimum: int | None = None, maximum: int | None = None) -> int:
+    """Parse integers from query params without raising 500s on bad input."""
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError):
+        value = default
+    if minimum is not None:
+        value = max(minimum, value)
+    if maximum is not None:
+        value = min(maximum, value)
+    return value
+
+
 class RBACMixin:
     """
     Provides role-checking helpers.
@@ -472,8 +485,8 @@ class UserManagementView(APIView, RBACMixin):
 
         search = request.GET.get('search', '')
         status_filter = request.GET.get('status', 'all')
-        page = int(request.GET.get('page', 1))
-        limit = int(request.GET.get('limit', 20))
+        page = _safe_int(request.GET.get('page', 1), 1, minimum=1)
+        limit = _safe_int(request.GET.get('limit', 20), 20, minimum=1, maximum=100)
         offset = (page - 1) * limit
 
         users_query = User.objects.filter(user_role=User.CLIENT)
@@ -1928,7 +1941,7 @@ class SystemErrorLogView(APIView, RBACMixin):
 
         from admin.system_errors import collect_recent_errors
 
-        limit = min(int(request.GET.get("limit", 50)), 100)
+        limit = _safe_int(request.GET.get("limit", 50), 50, minimum=1, maximum=100)
         errors = collect_recent_errors(limit=limit)
         return Response({"success": True, "errors": errors})
 
