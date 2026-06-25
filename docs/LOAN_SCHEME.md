@@ -252,6 +252,8 @@ Shared logic: `loan.services.create_loan_application`, `resolve_user_loan_access
 
 USSD details: see [USSD_INTEGRATION.md](../USSD_INTEGRATION.md).
 
+Buy-units tariff details: see [TARIFFS_AND_BUY_UNITS.md](TARIFFS_AND_BUY_UNITS.md).
+
 ---
 
 ## 11. API quick reference
