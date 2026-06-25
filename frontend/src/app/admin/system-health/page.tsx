@@ -26,6 +26,8 @@ interface ComponentHealth {
   description: string;
   latency_ms?: number;
   error?: string;
+  celery_dispatch_ok?: boolean;
+  celery_mode?: string;
 }
 
 interface SystemHealth {
@@ -170,6 +172,12 @@ export default function SystemHealthPage() {
                     <p className="font-medium text-sm">{COMPONENT_LABELS[key] ?? key}</p>
                     {comp.latency_ms !== undefined && (
                       <p className="text-xs text-muted-foreground mt-1">{comp.latency_ms}ms latency</p>
+                    )}
+                    {comp.celery_dispatch_ok !== undefined && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Celery dispatch: {comp.celery_dispatch_ok ? "OK" : "Unavailable"}
+                        {comp.celery_mode ? ` (${comp.celery_mode})` : ""}
+                      </p>
                     )}
                     {comp.error && (
                       <p className="text-xs text-red-600 mt-1 truncate" title={comp.error}>{comp.error}</p>

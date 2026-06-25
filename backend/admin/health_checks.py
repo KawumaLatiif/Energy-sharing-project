@@ -16,12 +16,21 @@ def _latency_ms(start: float) -> int:
     return round((time.perf_counter() - start) * 1000)
 
 
-def _component(description: str, status: str, *, error: str = "", latency_ms: int | None = None) -> dict:
+def _component(
+    description: str,
+    status: str,
+    *,
+    error: str = "",
+    latency_ms: int | None = None,
+    extras: dict | None = None,
+) -> dict:
     payload = {"description": description, "status": status}
     if error:
         payload["error"] = error
     if latency_ms is not None:
         payload["latency_ms"] = latency_ms
+    if extras:
+        payload.update(extras)
     return payload
 
 
@@ -59,7 +68,7 @@ def check_redis() -> dict:
 
 
 def check_api_gateway() -> dict:
-    """API is up if this code runs; also verify Celery broker when not eager."""
+    """API is up if this code runs; explicitly report Celery dispatch readiness."""
     start = time.perf_counter()
     eager = getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)
     if eager:
@@ -68,23 +77,39 @@ def check_api_gateway() -> dict:
             "AMBER",
             error="Background tasks run inline (CELERY_TASK_ALWAYS_EAGER)",
             latency_ms=_latency_ms(start),
+            extras={"celery_dispatch_ok": True, "celery_mode": "inline"},
         )
     try:
         from celery import current_app
 
         conn = current_app.connection()
         conn.ensure_connection(max_retries=1, timeout=3)
+        # Explicit dispatch readiness check (producer acquisition).
+        with current_app.producer_or_acquire() as _producer:
+            pass
         conn.release()
-        return _component("API Gateway", "GREEN", latency_ms=_latency_ms(start))
+        return _component(
+            "API Gateway",
+            "GREEN",
+            latency_ms=_latency_ms(start),
+            extras={"celery_dispatch_ok": True, "celery_mode": "broker"},
+        )
     except ImportError:
         return _component(
             "API Gateway",
             "AMBER",
             error="Celery not installed; background worker status unknown",
             latency_ms=_latency_ms(start),
+            extras={"celery_dispatch_ok": False, "celery_mode": "unknown"},
         )
     except Exception as exc:
-        return _component("API Gateway", "RED", error=f"Celery broker unreachable: {exc}", latency_ms=_latency_ms(start))
+        return _component(
+            "API Gateway",
+            "RED",
+            error=f"Celery broker unreachable: {exc}",
+            latency_ms=_latency_ms(start),
+            extras={"celery_dispatch_ok": False, "celery_mode": "broker"},
+        )
 
 
 def _thingsboard_probe() -> tuple[bool, str]:
