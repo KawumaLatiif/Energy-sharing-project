@@ -17,6 +17,8 @@ from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, Lo
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from loan.models import get_tier_by_score
+from meter.models import MeterNotification
+from meter.notifications import create_system_notification
 from loan.scoring import (
     calculate_weighted_credit_score,
     get_or_create_dummy_credit_signal,
@@ -24,6 +26,8 @@ from loan.scoring import (
     FACTOR_WEIGHTS,
 )
 from wallet.models import Wallet as UnitWallet
+from utils.general import dispatch_task
+from accounts.tasks import handle_send_loan_application_email
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +122,24 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     'loan_tier': tier_name,
                     'amount_approved': float(amount_approved) if amount_approved else 0
                 }
+            )
+            create_system_notification(
+                user=request.user,
+                notification_type=MeterNotification.TYPE_LOAN_APPLICATION,
+                message=(
+                    f"Loan application {loan.loan_id}: {loan.status}. "
+                    f"Requested UGX {amount_requested:,.2f}, "
+                    f"approved UGX {float(amount_approved):,.2f}."
+                ),
+                units_kwh=Decimal("0"),
+            )
+            dispatch_task(
+                handle_send_loan_application_email,
+                request.user.id,
+                loan.loan_id,
+                loan.status,
+                amount_requested,
+                float(amount_approved or 0),
             )
 
             # Calculate units based on tariff (for response)

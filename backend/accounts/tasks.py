@@ -476,3 +476,91 @@ def handle_send_payment_receipt_email(
     except Exception as exc:
         logger.exception("[PAYMENT RECEIPT] Email task error: %s", exc)
         return False
+
+
+@app.task()
+def handle_send_loan_application_email(user_id, loan_id, status_value, amount_requested, amount_approved=0):
+    """Email user after loan application decision (approved/rejected)."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user or not user.email:
+            logger.warning("[LOAN APPLICATION] No user/email for loan %s", loan_id)
+            return False
+
+        approved = str(status_value).upper() == "APPROVED"
+        subject = "gPawa: Loan application update"
+        if approved:
+            body = (
+                f"<p>Hello {user.first_name or 'there'},</p>"
+                "<p>Your electricity loan application has been <strong>approved</strong>.</p>"
+                "<ul>"
+                f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+                f"<li><strong>Amount requested:</strong> UGX {float(amount_requested):,.2f}</li>"
+                f"<li><strong>Amount approved:</strong> UGX {float(amount_approved):,.2f}</li>"
+                "</ul>"
+                "<p>Open your dashboard and disburse to receive units in your wallet.</p>"
+                "<p>— gPawa Energy Wallet</p>"
+            )
+        else:
+            body = (
+                f"<p>Hello {user.first_name or 'there'},</p>"
+                "<p>Your electricity loan application has been reviewed and was "
+                "<strong>not approved</strong> at this time.</p>"
+                "<ul>"
+                f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+                f"<li><strong>Amount requested:</strong> UGX {float(amount_requested):,.2f}</li>"
+                "</ul>"
+                "<p>You can continue buying units directly from your dashboard.</p>"
+                "<p>— gPawa Energy Wallet</p>"
+            )
+
+        sent, msg = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=body,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[LOAN APPLICATION] Failed to email user %s: %s", user.email, msg)
+        return sent
+    except Exception as exc:
+        logger.exception("[LOAN APPLICATION] Email task error: %s", exc)
+        return False
+
+
+@app.task()
+def handle_send_loan_disbursed_email(user_id, loan_id, amount_approved, units_disbursed):
+    """Email user after loan disbursement."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user or not user.email:
+            logger.warning("[LOAN DISBURSEMENT] No user/email for loan %s", loan_id)
+            return False
+
+        subject = "gPawa: Loan disbursed to your wallet"
+        body = (
+            f"<p>Hello {user.first_name or 'there'},</p>"
+            "<p>Your approved electricity loan has been <strong>disbursed</strong>.</p>"
+            "<ul>"
+            f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+            f"<li><strong>Amount disbursed:</strong> UGX {float(amount_approved):,.2f}</li>"
+            f"<li><strong>Units credited:</strong> {float(units_disbursed):.2f} kWh</li>"
+            "</ul>"
+            "<p>Check your dashboard wallet and meter pages for details.</p>"
+            "<p>— gPawa Energy Wallet</p>"
+        )
+
+        sent, msg = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=body,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[LOAN DISBURSEMENT] Failed to email user %s: %s", user.email, msg)
+        return sent
+    except Exception as exc:
+        logger.exception("[LOAN DISBURSEMENT] Email task error: %s", exc)
+        return False

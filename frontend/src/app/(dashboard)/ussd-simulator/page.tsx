@@ -32,6 +32,13 @@ function getKind(message: string): "CON" | "END" | "OTHER" {
   return "OTHER";
 }
 
+function formatUssdDisplay(message: string): string {
+  const text = message.trim();
+  if (text.startsWith("END ")) return text.slice(4);
+  if (text.startsWith("CON ")) return text.slice(4);
+  return text;
+}
+
 export default function UssdSimulatorPage() {
   const [sessionId, setSessionId] = useState(createSessionId());
   const [serviceCode, setServiceCode] = useState("*123#");
@@ -50,7 +57,13 @@ export default function UssdSimulatorPage() {
   const currentText = useMemo(() => pathParts.join("*"), [pathParts]);
   const lastItem = history[history.length - 1];
   const canContinue = !lastItem || lastItem.kind === "CON" || lastItem.kind === "OTHER";
-  const currentPrompt = lastItem?.responseText ?? "Dial to start";
+  const currentPrompt = lastItem ? formatUssdDisplay(lastItem.responseText) : "Dial to start";
+  const sessionTimeoutMessage = useMemo(() => {
+    const text = (lastItem?.responseText || "").toLowerCase();
+    return text.includes("session expired")
+      ? formatUssdDisplay(lastItem?.responseText || "")
+      : "";
+  }, [lastItem]);
   const expectsMeterNumberInput = useMemo(() => {
     const prompt = currentPrompt.toLowerCase();
     return prompt.includes("receiver meter number") || prompt.includes("enter meter number");
@@ -131,12 +144,16 @@ export default function UssdSimulatorPage() {
         return;
       }
       const responseText: string = data?.response || data?.error || "No response";
+      const kind = getKind(responseText);
+      if (kind === "END" && responseText.toLowerCase().includes("session expired")) {
+        setPathParts([]);
+      }
       setHistory((prev) => [
         ...prev,
         {
           requestText: textValue,
           responseText,
-          kind: getKind(responseText),
+          kind,
         },
       ]);
     } catch (err) {
@@ -183,7 +200,7 @@ export default function UssdSimulatorPage() {
           <div className="mb-4">
             <h1 className="text-xl font-bold sm:text-2xl">USSD Simulator</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              Simulates USSD for your logged-in web account only — not other users.
+              Simulates USSD for your logged-in web account only. Sessions time out after 90 seconds of inactivity.
             </p>
           </div>
 
@@ -199,6 +216,20 @@ export default function UssdSimulatorPage() {
                   Update My Account
                 </Link>
               )}
+            </div>
+          ) : null}
+
+          {sessionTimeoutMessage ? (
+            <div className="mb-4 rounded-lg border border-orange-300 bg-orange-50 p-4 text-orange-900 dark:border-orange-900 dark:bg-orange-950/40 dark:text-orange-100">
+              <p className="font-medium">Session timeout</p>
+              <p className="mt-1 text-sm">{sessionTimeoutMessage}</p>
+              <button
+                type="button"
+                className="mt-3 rounded-md bg-orange-600 px-3 py-2 text-sm font-semibold text-white hover:bg-orange-700"
+                onClick={startNewSession}
+              >
+                Start new session
+              </button>
             </div>
           ) : null}
 

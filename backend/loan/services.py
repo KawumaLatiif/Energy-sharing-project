@@ -16,11 +16,17 @@ from django.utils import timezone
 from accounts.models import generate_random_string
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, get_tier_by_score
 from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
-from meter.models import Meter
+from meter.models import Meter, MeterNotification
+from meter.notifications import create_system_notification
 from meter.services import push_units_to_thingsboard
 from transactions.models import TransactionLog, TransactionType, UnitTransaction
+from utils.general import dispatch_task
 from utils.billing import get_active_domestic_tariff
 from wallet.models import Wallet as UnitWallet
+from accounts.tasks import (
+    handle_send_loan_application_email,
+    handle_send_loan_disbursed_email,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -203,6 +209,24 @@ def create_loan_application(
             "amount_approved": float(amount_approved) if amount_approved else 0,
         },
     )
+    create_system_notification(
+        user=user,
+        notification_type=MeterNotification.TYPE_LOAN_APPLICATION,
+        message=(
+            f"Loan application {loan.loan_id}: {loan.status}. "
+            f"Requested UGX {float(amount_requested):,.2f}, "
+            f"approved UGX {float(amount_approved):,.2f}."
+        ),
+        units_kwh=Decimal("0"),
+    )
+    dispatch_task(
+        handle_send_loan_application_email,
+        user.id,
+        loan.loan_id,
+        loan.status,
+        float(amount_requested),
+        float(amount_approved or 0),
+    )
 
     return loan
 
@@ -287,6 +311,23 @@ def disburse_loan(user, loan_id=None, *, channel: str = "WEB") -> dict:
             )
         except Exception as exc:
             logger.warning("UnitTransaction creation failed during disbursement: %s", exc)
+    create_system_notification(
+        user=user,
+        notification_type=MeterNotification.TYPE_LOAN_DISBURSEMENT,
+        meter=meter,
+        message=(
+            f"Loan {loan.loan_id} disbursed: {round(float(units_to_disburse), 2):.2f} kWh "
+            f"credited to wallet."
+        ),
+        units_kwh=Decimal("0"),
+    )
+    dispatch_task(
+        handle_send_loan_disbursed_email,
+        user.id,
+        loan.loan_id,
+        float(loan.amount_approved or 0),
+        float(units_to_disburse),
+    )
 
     return {
         "loan_id": loan.loan_id,

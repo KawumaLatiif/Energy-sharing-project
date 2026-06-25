@@ -178,8 +178,12 @@ class MeterNotification(TimestampMixin):
     """Low-units and other meter alerts (e.g. from ThingsBoard webhooks)."""
 
     TYPE_LOW_UNITS = "LOW_UNITS"
+    TYPE_LOAN_APPLICATION = "LOAN_APPLICATION"
+    TYPE_LOAN_DISBURSEMENT = "LOAN_DISBURSEMENT"
     TYPE_CHOICES = [
         (TYPE_LOW_UNITS, "Low units"),
+        (TYPE_LOAN_APPLICATION, "Loan application"),
+        (TYPE_LOAN_DISBURSEMENT, "Loan disbursement"),
     ]
 
     user = models.ForeignKey(

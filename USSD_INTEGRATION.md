@@ -61,9 +61,9 @@ CON gPawa
 - **Inactivity timeout**: **90 seconds** by default (`USSD_SESSION_TIMEOUT_SECONDS` in `backend/.env`). This matches the common USSD industry limit for time between user inputs (aligned with typical mobile network USSD session behaviour).
 - The timer **resets on every `CON` response** (each menu prompt). If the user does not enter anything within the timeout window, the stored session is considered expired.
 - **On expiry**:
-  - If the user sends a **new dial** with empty `text` (fresh open), the session is reset and the **main menu** is shown.
-  - If the user **continues** with a non-empty `text` path after expiry, the backend returns **`END`** with:  
+  - If the session had prior activity and the user tries again (including pressing **Dial** in the simulator), the backend returns **`END`** with:  
     `Session expired (90s with no input). Dial the service code again to start a new session.`
+  - A brand-new session with no prior activity opens the main menu normally.
 - **`END` responses** (completed flows, Exit, errors) close the session immediately (`is_active=False`); they do not extend the inactivity timer.
 - **Dedupe**: If the same `text` is sent again (provider retry), the cached `last_response` is returned without re-running side effects.
 - **Context** stored in JSON, including:

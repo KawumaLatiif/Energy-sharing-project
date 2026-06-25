@@ -157,7 +157,8 @@ def _main_menu_text() -> str:
         "6. Manage\n"
         "7. Alerts\n"
         "8. Exit\n"
-        "9. Energy Usage"
+        "9. Energy Usage\n"
+        "10. Repay Loan"
     )
 
 
@@ -366,6 +367,59 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
         f"{result['message']}\nLoanRef: {result['loan_id']}\n"
         f"Outstanding: UGX {result['outstanding_balance']}\n"
         f"Units added: {result['units_added']}"
+    )
+
+
+def _latest_repayable_loan(user):
+    return (
+        LoanApplication.objects.filter(user=user, status="DISBURSED")
+        .order_by("-created_at")
+        .first()
+    )
+
+
+def _repay_loan_with_pin(user, loan_id_raw: str, amount_raw: str, pin: str):
+    """Simulated MoMo deduction: confirm PIN (login password), then repay."""
+    if not user.check_password(pin):
+        return False, "Incorrect PIN. Use your gPAWA login password."
+
+    ok, msg = _repay_loan(user, loan_id_raw, amount_raw)
+    if not ok:
+        return ok, msg
+    return True, f"{msg}\nMoMo debit: simulated (PIN confirmed)."
+
+
+def _validate_pin_attempt(ussd_session: UssdSession, user, pin: str, attempts_key: str):
+    """
+    Allow up to 3 wrong PIN attempts per flow; terminate session on 3rd failure.
+    """
+    ctx = dict(ussd_session.context or {})
+    if user.check_password(pin):
+        if ctx.get(attempts_key):
+            ctx[attempts_key] = 0
+            ussd_session.context = ctx
+            ussd_session.save(update_fields=["context", "updated_at"])
+        return True, False, ""
+
+    attempts = int(ctx.get(attempts_key, 0)) + 1
+    ctx[attempts_key] = attempts
+    ussd_session.context = ctx
+    ussd_session.save(update_fields=["context", "updated_at"])
+
+    if attempts >= 3:
+        ussd_session.is_active = False
+        ussd_session.save(update_fields=["is_active", "updated_at"])
+        return (
+            False,
+            True,
+            "Incorrect PIN entered 3 times. Session terminated. Dial the service code to start afresh.",
+        )
+
+    remaining = 3 - attempts
+    return (
+        False,
+        False,
+        f"Incorrect PIN. {remaining} attempt(s) left. Enter your account PIN again:",
     )
 
 
@@ -654,6 +708,7 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
 def _notifications_summary(user):
     from meter.models import MeterNotification
 
+    low_threshold = float(getattr(settings, "AMI_LOW_UNITS_THRESHOLD_KWH", 5))
     unread = MeterNotification.objects.filter(user=user, is_read=False).count()
     recent = list(
         MeterNotification.objects.filter(user=user)
@@ -666,9 +721,15 @@ def _notifications_summary(user):
     lines = [f"Alerts (unread: {unread}):"]
     for n in recent:
         mark = "*" if not n.is_read else ""
-        mno = n.meter.meter_no if n.meter else "?"
-        lines.append(f"{mark}{mno}: {float(n.units_kwh):.2f} kWh")
-    lines.append("Top up via Buy Units (menu 2).")
+        if n.notification_type == MeterNotification.TYPE_LOW_UNITS:
+            mno = n.meter.meter_no if n.meter else "?"
+            lines.append(
+                f"{mark}LOW BALANCE <= {low_threshold:.0f} kWh | Meter {mno}: "
+                f"{float(n.units_kwh):.2f} kWh remaining"
+            )
+        else:
+            lines.append(f"{mark}{(n.message or 'Alert update')[:120]}")
+    lines.append("Use menu 7 or Manage->2 to review alerts.")
     return True, "\n".join(lines)
 
 
@@ -723,8 +784,11 @@ def ussd_entry(request):
     ussd_session.user = user
 
     if session_timed_out:
+        had_prior_activity = bool((ussd_session.last_text or "").strip()) or bool(
+            (ussd_session.context or {}).get("last_response")
+        )
         ussd_session.reset()
-        if text_str:
+        if had_prior_activity or text_str:
             ussd_session.user = user
             ussd_session.phone_number = str(phone_number)
             ussd_session.service_code = service_code or ussd_session.service_code
@@ -981,7 +1045,18 @@ def ussd_entry(request):
                     "CON",
                     f"{msg}\nEnter your account PIN to confirm:",
                     menu="share_pin",
+                    context={"share_pin_attempts": 0},
                 )
+
+            pin_ok, terminate, pin_msg = _validate_pin_attempt(
+                ussd_session, user, steps[3], "share_pin_attempts"
+            )
+            if not pin_ok:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                if terminate:
+                    return _session_reply(ussd_session, "END", pin_msg, menu="share_pin_locked")
+                return _session_reply(ussd_session, "CON", pin_msg, menu="share_pin")
 
             ok, msg = _share_with_password(user, steps[1], steps[2], steps[3])
             ussd_session.last_text = text
@@ -1195,6 +1270,178 @@ def ussd_entry(request):
                 msg if ok else f"Error: {msg}",
                 menu="power_usage",
             )
+
+        # 10) Repay Loan (main-menu shortcut)
+        if steps[0] == "10":
+            loan = _latest_repayable_loan(user)
+            if not loan:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    "No disbursed loan with outstanding balance found.",
+                    menu="loan_repay_shortcut",
+                )
+
+            outstanding = float(loan.outstanding_balance)
+            if outstanding <= 0:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    f"Loan {loan.loan_id} is already fully repaid.",
+                    menu="loan_repay_shortcut",
+                )
+
+            if len(steps) == 1:
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_submenu(
+                    ussd_session,
+                    (
+                        f"Repay Loan\nLoanRef: {loan.loan_id}\n"
+                        f"Outstanding: UGX {outstanding:.2f}\n"
+                        "1. Pay full\n"
+                        "2. Pay partial"
+                    ),
+                    menu="loan_repay_shortcut_menu",
+                    context={"repay_loan_id": loan.id, "repay_loan_ref": loan.loan_id},
+                )
+
+            if steps[1] == "1":
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        (
+                            f"Pay full amount UGX {outstanding:.2f}\n"
+                            "Enter account PIN to confirm:"
+                        ),
+                        menu="loan_repay_full_pin",
+                        context={"repay_pin_attempts": 0},
+                    )
+                pin_ok, terminate, pin_msg = _validate_pin_attempt(
+                    ussd_session, user, steps[2], "repay_pin_attempts"
+                )
+                if not pin_ok:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    if terminate:
+                        return _session_reply(
+                            ussd_session,
+                            "END",
+                            pin_msg,
+                            menu="loan_repay_full_pin_locked",
+                        )
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        pin_msg,
+                        menu="loan_repay_full_pin",
+                    )
+
+                ok, msg = _repay_loan_with_pin(
+                    user,
+                    str(loan.id),
+                    str(outstanding),
+                    steps[2],
+                )
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    msg if ok else f"Error: {msg}",
+                    menu="loan_repay_full_result",
+                )
+
+            if steps[1] == "2":
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        f"Outstanding: UGX {outstanding:.2f}\nEnter partial amount UGX:",
+                        menu="loan_repay_partial_amount",
+                    )
+                if len(steps) == 3:
+                    try:
+                        partial_amount = Decimal(str(steps[2]))
+                    except (InvalidOperation, ValueError):
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(ussd_session, "Error: Invalid amount.", menu="loan_repay_partial_amount")
+
+                    if partial_amount <= 0:
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "Error: Amount must be greater than zero.",
+                            menu="loan_repay_partial_amount",
+                        )
+
+                    if partial_amount > Decimal(str(outstanding)):
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            f"Error: Amount exceeds outstanding UGX {outstanding:.2f}.",
+                            menu="loan_repay_partial_amount",
+                        )
+
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        (
+                            f"Repay UGX {float(partial_amount):.2f}\n"
+                            "Enter account PIN to confirm:"
+                        ),
+                        menu="loan_repay_partial_pin",
+                        context={"repay_pin_attempts": 0},
+                    )
+
+                pin_ok, terminate, pin_msg = _validate_pin_attempt(
+                    ussd_session, user, steps[3], "repay_pin_attempts"
+                )
+                if not pin_ok:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    if terminate:
+                        return _session_reply(
+                            ussd_session,
+                            "END",
+                            pin_msg,
+                            menu="loan_repay_partial_pin_locked",
+                        )
+                    return _session_reply(
+                        ussd_session,
+                        "CON",
+                        pin_msg,
+                        menu="loan_repay_partial_pin",
+                    )
+
+                ok, msg = _repay_loan_with_pin(
+                    user,
+                    str(loan.id),
+                    steps[2],
+                    steps[3],
+                )
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    msg if ok else f"Error: {msg}",
+                    menu="loan_repay_partial_result",
+                )
+
+            ussd_session.last_text = text
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _reply_done(ussd_session, "Invalid repay option.")
 
         ussd_session.last_text = text
         ussd_session.save(update_fields=["user", "last_text", "updated_at"])
