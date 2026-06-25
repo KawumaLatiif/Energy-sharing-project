@@ -68,14 +68,20 @@ def check_redis() -> dict:
 
 
 def check_api_gateway() -> dict:
-    """API is up if this code runs; explicitly report Celery dispatch readiness."""
+    """API is up if this health check runs successfully."""
+    start = time.perf_counter()
+    return _component("API Gateway", "GREEN", latency_ms=_latency_ms(start))
+
+
+def check_celery_dispatch() -> dict:
+    """Verify background tasks can be dispatched to the Celery broker."""
     start = time.perf_counter()
     eager = getattr(settings, "CELERY_TASK_ALWAYS_EAGER", False)
     if eager:
         return _component(
-            "API Gateway",
+            "Celery Dispatch",
             "AMBER",
-            error="Background tasks run inline (CELERY_TASK_ALWAYS_EAGER)",
+            error="Tasks run inline (CELERY_TASK_ALWAYS_EAGER); no broker dispatch",
             latency_ms=_latency_ms(start),
             extras={"celery_dispatch_ok": True, "celery_mode": "inline"},
         )
@@ -84,19 +90,18 @@ def check_api_gateway() -> dict:
 
         conn = current_app.connection()
         conn.ensure_connection(max_retries=1, timeout=3)
-        # Explicit dispatch readiness check (producer acquisition).
         with current_app.producer_or_acquire() as _producer:
             pass
         conn.release()
         return _component(
-            "API Gateway",
+            "Celery Dispatch",
             "GREEN",
             latency_ms=_latency_ms(start),
             extras={"celery_dispatch_ok": True, "celery_mode": "broker"},
         )
     except ImportError:
         return _component(
-            "API Gateway",
+            "Celery Dispatch",
             "AMBER",
             error="Celery not installed; background worker status unknown",
             latency_ms=_latency_ms(start),
@@ -104,9 +109,9 @@ def check_api_gateway() -> dict:
         )
     except Exception as exc:
         return _component(
-            "API Gateway",
+            "Celery Dispatch",
             "RED",
-            error=f"Celery broker unreachable: {exc}",
+            error=f"Broker unreachable: {exc}",
             latency_ms=_latency_ms(start),
             extras={"celery_dispatch_ok": False, "celery_mode": "broker"},
         )
@@ -307,6 +312,7 @@ def check_firebase() -> dict:
 def run_all_health_checks() -> dict:
     components = {
         "api_gateway": check_api_gateway(),
+        "celery_dispatch": check_celery_dispatch(),
         "postgresql": check_postgresql(),
         "redis": check_redis(),
         "cvs_sts_api": check_cvs_sts_api(),

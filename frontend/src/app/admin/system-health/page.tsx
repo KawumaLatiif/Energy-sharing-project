@@ -58,6 +58,7 @@ interface ErrorsApiResponse {
 
 const COMPONENT_LABELS: Record<string, string> = {
   api_gateway: "API Gateway",
+  celery_dispatch: "Celery Dispatch",
   postgresql: "PostgreSQL Database",
   redis: "Redis Cache",
   cvs_sts_api: "CVS / STS Token API",
@@ -122,7 +123,7 @@ export default function SystemHealthPage() {
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-28" />)}
+          {[...Array(9)].map((_, i) => <Skeleton key={i} className="h-28" />)}
         </div>
       ) : health ? (
         <>
