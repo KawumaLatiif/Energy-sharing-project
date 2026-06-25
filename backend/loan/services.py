@@ -21,6 +21,7 @@ from meter.notifications import create_system_notification
 from meter.services import push_units_to_thingsboard
 from transactions.models import TransactionLog, TransactionType, UnitTransaction
 from utils.general import dispatch_task
+from loan.tenure import validate_tenure_months
 from utils.billing import get_active_domestic_tariff
 from wallet.models import Wallet as UnitWallet
 from accounts.tasks import (
@@ -134,6 +135,7 @@ def get_user_loan_stats(user) -> dict:
     )
 
     eligibility = get_loan_eligibility(user)
+    repayable = get_repayable_loan(user)
 
     return {
         "active_loans": active_loans,
@@ -146,6 +148,7 @@ def get_user_loan_stats(user) -> dict:
         "has_blocking_loan": (
             active_loans > 0 or pending_applications > 0 or outstanding_balance > 0
         ),
+        "repayable_loan": serialize_repayable_loan(repayable),
         **eligibility,
     }
 
@@ -162,6 +165,39 @@ def get_disbursed_loan_balances(user):
             loans_with_balance.append((loan, balance))
             total_outstanding += balance
     return loans_with_balance, total_outstanding
+
+
+def get_repayable_loan(user):
+    """Most recent disbursed loan with an outstanding balance."""
+    for loan in LoanApplication.objects.filter(user=user, status="DISBURSED").order_by(
+        "-created_at"
+    ):
+        if float(loan.outstanding_balance) > 0:
+            return loan
+    return None
+
+
+def serialize_repayable_loan(loan: LoanApplication | None) -> dict | None:
+    if not loan:
+        return None
+    return {
+        "id": loan.id,
+        "loan_id": loan.loan_id,
+        "outstanding_balance": float(loan.outstanding_balance),
+        "amount_approved": float(loan.amount_approved or 0),
+        "due_date": loan.due_date.isoformat() if loan.due_date else None,
+    }
+
+
+def format_repay_loan_menu_ussd(loan: LoanApplication) -> str:
+    balance = round(float(loan.outstanding_balance), 2)
+    return (
+        f"Repay loan\n"
+        f"Ref: {loan.loan_id}\n"
+        f"Outstanding: UGX {balance:,.2f}\n"
+        f"1. Pay full amount\n"
+        f"2. Pay partial amount"
+    )
 
 
 def _determine_loan_tier(score):
@@ -199,8 +235,10 @@ def create_loan_application(
     if amount_requested < Decimal("5000") or amount_requested > Decimal("200000"):
         raise LoanOperationError("Amount out of range. Use 5000 to 200000.")
 
-    if tenure_months < 1 or tenure_months > 12:
-        raise LoanOperationError("Tenure must be between 1 and 12 months.")
+    try:
+        tenure_months = validate_tenure_months(tenure_months)
+    except ValueError as exc:
+        raise LoanOperationError(str(exc)) from exc
 
     tariff = get_active_domestic_tariff()
     credit_signal = get_or_create_credit_signal(user)
@@ -388,6 +426,18 @@ def _payment_on_time(loan) -> bool:
     return timezone.now() <= loan.due_date
 
 
+def _resolve_loan_for_repay(user, loan_id=None):
+    if loan_id in (None, "", "0", 0):
+        loan = get_repayable_loan(user)
+        if not loan:
+            raise LoanOperationError("No active loan to repay.")
+        return loan
+    try:
+        return LoanApplication.objects.get(id=int(loan_id), user=user)
+    except (ValueError, LoanApplication.DoesNotExist):
+        raise LoanOperationError("Loan not found.") from None
+
+
 def repay_loan(
     user,
     loan_id,
@@ -397,10 +447,7 @@ def repay_loan(
     payment_method: str = "CASH",
 ) -> dict:
     """Same rules as ``LoanRepaymentView.post`` (web repayment)."""
-    try:
-        loan = LoanApplication.objects.get(id=int(loan_id), user=user)
-    except (ValueError, LoanApplication.DoesNotExist):
-        raise LoanOperationError("Loan not found.") from None
+    loan = _resolve_loan_for_repay(user, loan_id)
 
     if loan.status != "DISBURSED":
         raise LoanOperationError("Loan is not disbursed or already completed")

@@ -7,7 +7,7 @@ import string
 from django.utils import timezone
 from datetime import timedelta
 from django.core.exceptions import ValidationError
-from dateutil.relativedelta import relativedelta
+from loan.tenure import loan_due_date
 import logging
 logger = logging.getLogger(__name__)
 
@@ -235,7 +235,7 @@ class LoanApplication(TimeStampedModel):
     @property
     def due_date(self):
         if hasattr(self, 'disbursement') and self.disbursement:
-            return self.disbursement.disbursement_date + relativedelta(months=self.tenure_months)
+            return loan_due_date(self.disbursement.disbursement_date, self.tenure_months)
         return None
     
     @property

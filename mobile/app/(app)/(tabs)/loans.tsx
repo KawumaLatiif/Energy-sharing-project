@@ -6,8 +6,8 @@ import {
   applyForLoan,
   disburseLoan,
   getMyLoans,
-  repayLoan,
-  repayLoanMoMo,
+  repayActiveLoan,
+  repayActiveLoanMoMo,
 } from "@/lib/loan-api";
 import { getLoanStats } from "@/lib/dashboard-api";
 import type { LoanApplication, LoanStats } from "@/types/api";
@@ -27,6 +27,9 @@ import {
 const DEFAULT_PLATFORM_MAX = 200_000;
 const DEFAULT_MIN_LOAN = 5_000;
 const DEFAULT_MIN_CREDIT = 75;
+const LOAN_TENURE_MIN = 1;
+const LOAN_TENURE_MAX = 12;
+const LOAN_MONTH_DAYS = 30;
 
 function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
@@ -49,10 +52,11 @@ export default function LoansScreen() {
   });
   const [loans, setLoans] = useState<LoanApplication[]>([]);
   const [amount, setAmount] = useState("50000");
+  const [tenure, setTenure] = useState("1");
   const [purpose, setPurpose] = useState("Household electricity");
   const [repayAmount, setRepayAmount] = useState("");
   const [repayPhone, setRepayPhone] = useState("");
-  const [selectedLoanId, setSelectedLoanId] = useState<number | null>(null);
+  const [repayMode, setRepayMode] = useState<"full" | "partial" | null>(null);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -63,7 +67,6 @@ export default function LoansScreen() {
       const [s, list] = await Promise.all([getLoanStats(), getMyLoans()]);
       setStats(s);
       setLoans(list);
-      if (list[0]?.id) setSelectedLoanId(list[0].id);
     } finally {
       setLoading(false);
     }
@@ -112,7 +115,22 @@ export default function LoansScreen() {
   if (loading) return <LoadingScreen />;
 
   const approved = loans.filter((l) => l.status === "APPROVED");
-  const disbursed = loans.filter((l) => ["DISBURSED", "ACTIVE", "DEFAULTED"].includes(l.status));
+  const repayableLoan =
+    stats.repayable_loan ??
+    (() => {
+      const active = loans.find(
+        (l) =>
+          l.status === "DISBURSED" && Number(l.outstanding_balance ?? 0) > 0
+      );
+      return active
+        ? {
+            id: active.id,
+            loan_id: active.loan_id,
+            outstanding_balance: Number(active.outstanding_balance ?? 0),
+          }
+        : null;
+    })();
+  const repayOutstanding = repayableLoan?.outstanding_balance ?? 0;
 
   return (
     <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
@@ -170,6 +188,11 @@ export default function LoansScreen() {
             <Text style={{ fontWeight: "700", marginBottom: 8 }}>Apply for loan</Text>
             <FieldLabel>Amount ({amountHint})</FieldLabel>
             <Input value={amount} onChangeText={setAmount} keyboardType="number-pad" />
+            <FieldLabel>Tenure (months)</FieldLabel>
+            <Input value={tenure} onChangeText={setTenure} keyboardType="number-pad" />
+            <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 12 }}>
+              {LOAN_TENURE_MIN}–{LOAN_TENURE_MAX} months. Each month = {LOAN_MONTH_DAYS} days from disbursement.
+            </Text>
             <FieldLabel>Purpose</FieldLabel>
             <Input value={purpose} onChangeText={setPurpose} />
             <Button
@@ -178,16 +201,26 @@ export default function LoansScreen() {
               onPress={() =>
                 runAction(async () => {
                   const value = parseFloat(amount);
+                  const tenureMonths = parseInt(tenure, 10);
                   if (!value || value < minLoan) {
                     throw new Error(`Minimum loan amount is ${formatUGX(minLoan)}.`);
                   }
                   if (value > amountCap) {
                     throw new Error(`Maximum for you is ${formatUGX(amountCap)}.`);
                   }
+                  if (
+                    !tenureMonths ||
+                    tenureMonths < LOAN_TENURE_MIN ||
+                    tenureMonths > LOAN_TENURE_MAX
+                  ) {
+                    throw new Error(
+                      `Tenure must be ${LOAN_TENURE_MIN}–${LOAN_TENURE_MAX} months.`
+                    );
+                  }
                   const res = await applyForLoan({
                     amount_requested: value,
                     purpose,
-                    tenure_months: 1,
+                    tenure_months: tenureMonths,
                   });
                   if (res.rejection_reason) {
                     throw new Error(res.rejection_reason);
@@ -227,29 +260,68 @@ export default function LoansScreen() {
           </Card>
         )}
 
-        {disbursed.length > 0 && (
+        {repayableLoan && repayOutstanding > 0 && (
           <Card>
             <Text style={{ fontWeight: "700", marginBottom: 8 }}>Repay loan</Text>
-            <FieldLabel>Loan ID</FieldLabel>
-            <Input
-              value={selectedLoanId ? String(selectedLoanId) : ""}
-              onChangeText={(v) => setSelectedLoanId(parseInt(v, 10) || null)}
-              keyboardType="number-pad"
+            <StatRow label="Reference" value={repayableLoan.loan_id} />
+            <StatRow
+              label="Outstanding"
+              value={formatUGX(repayOutstanding)}
             />
-            <FieldLabel>Amount (UGX)</FieldLabel>
-            <Input value={repayAmount} onChangeText={setRepayAmount} keyboardType="number-pad" />
+            <View style={{ flexDirection: "row", gap: 8, marginBottom: 12 }}>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Pay full"
+                  variant={repayMode === "full" ? "primary" : "secondary"}
+                  onPress={() => {
+                    setRepayMode("full");
+                    setRepayAmount(String(Math.round(repayOutstanding)));
+                  }}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Button
+                  label="Pay partial"
+                  variant={repayMode === "partial" ? "primary" : "secondary"}
+                  onPress={() => {
+                    setRepayMode("partial");
+                    setRepayAmount("");
+                  }}
+                />
+              </View>
+            </View>
+            {repayMode === "partial" ? (
+              <>
+                <FieldLabel>Amount (UGX)</FieldLabel>
+                <Input
+                  value={repayAmount}
+                  onChangeText={setRepayAmount}
+                  keyboardType="number-pad"
+                />
+              </>
+            ) : null}
             <Button
               label="Repay from wallet"
               loading={submitting}
+              disabled={!repayMode}
               onPress={() =>
                 runAction(async () => {
-                  if (!selectedLoanId) throw new Error("Select a loan ID.");
-                  const repayValue = parseFloat(repayAmount);
+                  const repayValue =
+                    repayMode === "full"
+                      ? repayOutstanding
+                      : parseFloat(repayAmount);
                   if (!repayValue || repayValue <= 0) {
                     throw new Error("Enter a valid repayment amount.");
                   }
-                  const res = await repayLoan(selectedLoanId, repayValue);
+                  if (repayValue > repayOutstanding) {
+                    throw new Error(
+                      `Maximum repayment is ${formatUGX(repayOutstanding)}.`
+                    );
+                  }
+                  const res = await repayActiveLoan(repayValue);
                   setMessage(res.message ?? "Repayment recorded.");
+                  setRepayMode(null);
+                  setRepayAmount("");
                 })
               }
             />
@@ -259,20 +331,31 @@ export default function LoansScreen() {
               label="Repay via MTN MoMo"
               variant="secondary"
               loading={submitting}
+              disabled={!repayMode}
               onPress={() =>
                 runAction(async () => {
-                  if (!selectedLoanId || !repayPhone.trim()) {
-                    throw new Error("Loan ID and phone required for MoMo.");
+                  if (!repayPhone.trim()) {
+                    throw new Error("Enter your MoMo number.");
                   }
-                  const repayValue = parseFloat(repayAmount);
+                  const repayValue =
+                    repayMode === "full"
+                      ? repayOutstanding
+                      : parseFloat(repayAmount);
                   if (!repayValue || repayValue <= 0) {
-                    throw new Error("Enter a repayment amount for MoMo.");
+                    throw new Error("Enter a valid repayment amount.");
+                  }
+                  if (repayValue > repayOutstanding) {
+                    throw new Error(
+                      `Maximum repayment is ${formatUGX(repayOutstanding)}.`
+                    );
                   }
                   const phone = repayPhone.startsWith("+")
                     ? repayPhone.trim()
                     : `+256${repayPhone.trim().replace(/^0/, "")}`;
-                  const res = await repayLoanMoMo(selectedLoanId, phone, repayValue);
+                  const res = await repayActiveLoanMoMo(phone, repayValue);
                   setMessage(res.message ?? `MoMo initiated: ${res.external_id ?? ""}`);
+                  setRepayMode(null);
+                  setRepayAmount("");
                 })
               }
             />

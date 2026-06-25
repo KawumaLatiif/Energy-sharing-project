@@ -52,13 +52,14 @@ export async function repayLoan(loanId: number, amount: number) {
   }
 }
 
-export async function repayLoanWithMomo(loanId: number, amount: number, phoneNumber: string) {
+export async function repayLoanWithMomo(amount: number, phoneNumber: string, loanId?: number) {
   try {
-    console.log('MoMo repayment:', { loanId, amount, phoneNumber });
-    
-    const response = await post<any>(`loans/repay/momo/${loanId}/`, { 
-      amount, 
-      phone_number: phoneNumber 
+    const path = loanId
+      ? `loans/repay/momo/${loanId}/`
+      : "loans/repay/momo/active/";
+    const response = await post<any>(path, {
+      amount,
+      phone_number: phoneNumber,
     });
     
     if (response.error) {

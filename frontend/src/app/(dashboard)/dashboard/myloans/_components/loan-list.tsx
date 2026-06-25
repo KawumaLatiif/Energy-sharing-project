@@ -306,6 +306,8 @@ export default function LoanList({ loans }: LoanListProps) {
     return new Date() > new Date(loan.due_date);
   };
 
+  const repayableLoan = loans.find((loan) => canRepay(loan)) ?? null;
+
   return (
     <div className="w-full space-y-4">
       {/* Success/Error Messages */}
@@ -318,6 +320,25 @@ export default function LoanList({ loans }: LoanListProps) {
       {errorMessage && (
         <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-4">
           <p className="text-sm font-medium">{errorMessage}</p>
+        </div>
+      )}
+
+      {repayableLoan && (
+        <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium">Repay your active loan</p>
+            <p className="text-sm text-muted-foreground">
+              Outstanding: {calculateOutstandingBalance(repayableLoan).toLocaleString()} UGX
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setSelectedLoan(repayableLoan);
+              setShowRepaymentForm(true);
+            }}
+          >
+            Repay loan
+          </Button>
         </div>
       )}
 

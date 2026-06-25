@@ -356,11 +356,13 @@ export default function LoanApplicationForm() {
                                     name="tenure_months"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Tenure (Months)</FormLabel>
+                                            <FormLabel>Tenure (months)</FormLabel>
                                             <FormControl>
                                                 <Input
                                                     type="number"
-                                                    placeholder="Enter months (1-12)"
+                                                    min={1}
+                                                    max={12}
+                                                    placeholder="1–12 (each month = 30 days from disbursement)"
                                                     {...field}
                                                     onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                                                 />

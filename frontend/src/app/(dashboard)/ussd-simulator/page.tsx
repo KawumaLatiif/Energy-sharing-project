@@ -189,6 +189,13 @@ export default function UssdSimulatorPage() {
     await send(next.join("*"));
   }
 
+  async function submitNavKey(key: string) {
+    const next = [...pathParts, key];
+    setPathParts(next);
+    setNextReply("1");
+    await send(next.join("*"));
+  }
+
   const simulatorDisabled = loadingAccount || !!authError || !phoneNumber;
 
   return (
@@ -300,6 +307,22 @@ export default function UssdSimulatorPage() {
                 </label>
 
                 <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    className="rounded-md border border-neutral-600 px-3 py-2 text-sm text-white disabled:opacity-60"
+                    onClick={() => void submitNavKey("#")}
+                    disabled={loading || !canContinue || simulatorDisabled}
+                  >
+                    Back (#)
+                  </button>
+                  <button
+                    type="button"
+                    className="rounded-md border border-neutral-600 px-3 py-2 text-sm text-white disabled:opacity-60"
+                    onClick={() => void submitNavKey("*")}
+                    disabled={loading || !canContinue || simulatorDisabled}
+                  >
+                    Main Menu (*)
+                  </button>
                   <button
                     className="rounded-md bg-amber-500 px-3 py-2 text-sm font-semibold text-black disabled:opacity-60"
                     onClick={openMenu}

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db.utils import OperationalError, ProgrammingError
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, TariffBlock, LoanTier
+from loan.tenure import validate_tenure_months
 
 # class TariffBlockSerializer(serializers.ModelSerializer):
 #     class Meta:
@@ -254,6 +255,7 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    tenure_months = serializers.IntegerField(min_value=1, max_value=12)
 
     class Meta:
         model = LoanApplication
@@ -267,6 +269,12 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
         if value > 200000:
             raise serializers.ValidationError("Maximum loan amount is 200,000 UGX")
         return value
+
+    def validate_tenure_months(self, value):
+        try:
+            return validate_tenure_months(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
     
 class LoanTierSerializer(serializers.ModelSerializer):
     class Meta:

@@ -62,6 +62,12 @@ export interface LoanStats {
   is_loan_eligible?: boolean;
   interest_rate?: number | null;
   profile_complete_for_scoring?: boolean;
+  repayable_loan?: {
+    id: number;
+    loan_id: string;
+    outstanding_balance: number;
+    amount_approved?: number;
+  } | null;
 }
 
 export interface MeterToken {

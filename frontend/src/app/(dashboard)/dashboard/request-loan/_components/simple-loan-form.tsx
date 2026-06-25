@@ -33,6 +33,9 @@ const PURPOSE_OPTIONS = [
 
 const PLATFORM_MAX_LOAN = 200_000;
 const MIN_LOAN_AMOUNT = 5_000;
+const LOAN_MONTH_DAYS = 30;
+const LOAN_TENURE_MIN = 1;
+const LOAN_TENURE_MAX = 12;
 
 interface LoanEligibility {
   creditScore: number;
@@ -67,7 +70,7 @@ function computeBreakdown(amount: number, tenure: number, annualRate: number): L
   const processingFee = amount * PROCESSING_FEE_PCT;
   const total = amount + interest + processingFee;
   const due = new Date();
-  due.setMonth(due.getMonth() + tenure);
+  due.setDate(due.getDate() + tenure * LOAN_MONTH_DAYS);
   return {
     principal: amount,
     interestRate: annualRate,
@@ -161,8 +164,8 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
       return (
         value >= MIN_LOAN_AMOUNT &&
         value <= amountCap &&
-        tenure >= 1 &&
-        tenure <= 12 &&
+        tenure >= LOAN_TENURE_MIN &&
+        tenure <= LOAN_TENURE_MAX &&
         eligibility.isEligible
       );
     }
@@ -180,7 +183,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
             `Your credit score is ${eligibility.creditScore}/100 (minimum ${eligibility.minCreditScore}). Complete your profile or improve your score before applying.`
           );
         } else {
-          setError(`Enter an amount between ${formatUGX(MIN_LOAN_AMOUNT)} and ${formatUGX(amountCap)} with a tenure of 1–12 months.`);
+          setError(`Enter an amount between ${formatUGX(MIN_LOAN_AMOUNT)} and ${formatUGX(amountCap)} with tenure ${LOAN_TENURE_MIN}–${LOAN_TENURE_MAX} months.`);
         }
       }
       if (step === 2) setError("You must accept the terms to continue.");
@@ -315,15 +318,18 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tenure">Repayment Period (months)</Label>
+            <Label htmlFor="tenure">Repayment period (months)</Label>
             <Input
               id="tenure"
               type="number"
-              min={1}
-              max={12}
+              min={LOAN_TENURE_MIN}
+              max={LOAN_TENURE_MAX}
               value={tenure}
               onChange={(e) => setTenure(Number(e.target.value) || 1)}
             />
+            <p className="text-xs text-muted-foreground">
+              Choose {LOAN_TENURE_MIN}–{LOAN_TENURE_MAX} months. Each month = {LOAN_MONTH_DAYS} days from when the loan is disbursed.
+            </p>
           </div>
 
           {breakdown && (
@@ -380,7 +386,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
           </div>
 
           <div className="rounded-xl border border-border p-4 space-y-2 text-sm text-muted-foreground bg-muted/30">
-            <p>1. <strong>Interest:</strong> {monthlyRate}% per month ({annualRate}% per annum) on the principal sum, applied pro-rata over {tenure} month{tenure > 1 ? "s" : ""}.</p>
+            <p>1. <strong>Interest:</strong> {monthlyRate}% per month ({annualRate}% per annum) on the principal sum, applied pro-rata over {tenure} month{tenure > 1 ? "s" : ""} ({tenure * LOAN_MONTH_DAYS} days).</p>
             <p>2. <strong>Fees:</strong> {(PROCESSING_FEE_PCT * 100).toFixed(0)}% processing fee on principal, charged once at disbursement.</p>
             <p>3. <strong>Arrears:</strong> Electricity Utility arrears are prioritised during disbursement (if purpose selected).</p>
             <p>4. <strong>Late payments:</strong> A 0.1% per day penalty applies on overdue principal. Total charges (interest + penalties + fees) will never exceed 100% of the principal — as required by Uganda&apos;s Tier 4 Microfinance Institutions Act.</p>
@@ -422,7 +428,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
             rows={[
               { label: "Loan Amount", value: formatUGX(breakdown.principal) },
               { label: "Purpose", value: PURPOSE_OPTIONS.find(o => o.value === purpose)?.label ?? purpose },
-              { label: "Tenure", value: `${tenure} month${tenure > 1 ? "s" : ""}` },
+              { label: "Tenure", value: `${tenure} month${tenure > 1 ? "s" : ""} (${tenure * LOAN_MONTH_DAYS} days)` },
               { label: `Interest (${monthlyRate}%/month)`, value: formatUGX(breakdown.interest) },
               { label: "Processing Fee", value: formatUGX(breakdown.processingFee) },
               { label: "Due Date", value: breakdown.dueDate, muted: true },

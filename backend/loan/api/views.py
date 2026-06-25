@@ -551,3 +551,50 @@ class LoanStatsView(APIView):
             logger.exception("Loan stats failed")
             return Response({"error": "Failed to fetch stats"}, status=500)
 
+
+class RepayableLoanView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        from loan.services import get_repayable_loan, serialize_repayable_loan
+
+        loan = get_repayable_loan(request.user)
+        return Response(
+            {"repayable_loan": serialize_repayable_loan(loan)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActiveLoanRepaymentView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        try:
+            from loan.services import LoanOperationError, repay_loan
+
+            result = repay_loan(
+                request.user,
+                None,
+                request.data.get("amount", 0),
+                channel="WEB",
+                payment_method="CASH",
+            )
+            return Response(
+                {
+                    "message": result["message"],
+                    "units_added": result["units_added"],
+                    "payment_reference": result["payment_reference"],
+                    "outstanding_balance": result["outstanding_balance"],
+                    "loan_status": result["loan_status"],
+                    "loan_id": result["loan_id"],
+                }
+            )
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Active loan repayment error: {str(e)}")
+            return Response(
+                {"error": f"Failed to process repayment: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+

@@ -51,7 +51,16 @@ export default function RepaymentForm({
   const [pollingCount, setPollingCount] = useState(0);
 
   const outstandingBalance = loan.outstanding_balance || 0;
+  const [paymentMode, setPaymentMode] = useState<"full" | "partial">("full");
   const quickAmounts = [5000, 10000, 20000, 50000];
+
+  useEffect(() => {
+    if (paymentMode === "full") {
+      setAmount(String(Math.round(outstandingBalance)));
+    } else if (paymentMode === "partial" && amount === String(Math.round(outstandingBalance))) {
+      setAmount("");
+    }
+  }, [paymentMode, outstandingBalance]);
 
   // Format phone number for Uganda
   const formatPhoneNumber = (input: string): string => {
@@ -140,9 +149,9 @@ export default function RepaymentForm({
     try {
       const formattedPhone = formatPhoneNumber(phoneNumber);
       const result = await repayLoanWithMomo(
-        loan.id,
         parseFloat(amount),
-        formattedPhone
+        formattedPhone,
+        loan.id
       );
 
       if (result.status === "PENDING") {
@@ -233,6 +242,25 @@ export default function RepaymentForm({
           </CardHeader>
 
           <CardContent className="space-y-4">
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                variant={paymentMode === "full" ? "default" : "outline"}
+                onClick={() => setPaymentMode("full")}
+                disabled={isProcessing && momoStatus === "pending"}
+              >
+                Pay full amount
+              </Button>
+              <Button
+                type="button"
+                variant={paymentMode === "partial" ? "default" : "outline"}
+                onClick={() => setPaymentMode("partial")}
+                disabled={isProcessing && momoStatus === "pending"}
+              >
+                Pay partial
+              </Button>
+            </div>
+
             {/* Phone Input */}
             <div className="space-y-2">
               <label className="text-sm font-medium">
@@ -262,7 +290,10 @@ export default function RepaymentForm({
                 value={amount}
                 onChange={(e) => handleAmountChange(e.target.value)}
                 className="text-lg font-medium"
-                disabled={isProcessing && momoStatus === "pending"}
+                disabled={
+                  (isProcessing && momoStatus === "pending") ||
+                  paymentMode === "full"
+                }
               />
               <p className="text-xs text-muted-foreground">
                 Minimum: 1,000 UGX • Maximum:{" "}
@@ -277,7 +308,10 @@ export default function RepaymentForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setAmount(quickAmount.toString())}
+                    onClick={() => {
+                      setPaymentMode("partial");
+                      setAmount(quickAmount.toString());
+                    }}
                     disabled={
                       (isProcessing && momoStatus === "pending") ||
                       quickAmount > outstandingBalance
