@@ -57,7 +57,7 @@ from django.db.models import Sum
 from meter.api.serializers import MeterSerializer
 from loan.models import LoanApplication
 from loan.api.serializers import LoanApplicationSerializer
-from loan.scoring import get_or_create_credit_signal, sync_credit_signal_from_profile
+from loan.scoring import get_or_create_credit_signal, profile_scoring_fields_complete, sync_credit_signal_from_profile
 
 logger = logging.getLogger(__name__)
 
@@ -1021,25 +1021,9 @@ class UserProfileAPIView(GenericAPIView):
                 logger.info(f"Missing basic fields for user {user.id}")
                 return False
 
-            # Check if user has provided profile assessment data
-            profile_fields = [
-                'monthly_expenditure',
-                'purchase_frequency',
-                'payment_consistency',
-                'disconnection_history',
-                'meter_sharing',
-                'monthly_income',
-                'income_stability',
-                'consumption_level'
-            ]
-
-            has_profile_data = True
-            for field in profile_fields:
-                value = getattr(user, field, None)
-                if not value:
-                    has_profile_data = False
-                    logger.info(f"Missing profile field: {field}")
-                    break
+            has_profile_data = profile_scoring_fields_complete(user)
+            if not has_profile_data:
+                logger.info(f"Loan assessment fields incomplete for user {user.id}")
 
             logger.info(f"Profile completion check: basic={all(required_fields)}, profile={has_profile_data}")
 

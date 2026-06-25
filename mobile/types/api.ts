@@ -62,6 +62,11 @@ export interface LoanStats {
   is_loan_eligible?: boolean;
   interest_rate?: number | null;
   profile_complete_for_scoring?: boolean;
+  starter_max_loan?: number;
+  trust_level?: string;
+  trust_cap?: number;
+  loans_completed_on_time?: number;
+  loan_overdue?: boolean;
   repayable_loan?: {
     id: number;
     loan_id: string;

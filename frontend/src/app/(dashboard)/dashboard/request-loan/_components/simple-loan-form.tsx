@@ -2,7 +2,6 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
 import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -46,6 +45,9 @@ interface LoanEligibility {
   isEligible: boolean;
   profileComplete: boolean;
   interestRate: number | null;
+  trustLevel: string;
+  starterMax: number;
+  loansCompletedOnTime: number;
 }
 
 function formatUGX(n: number) {
@@ -111,41 +113,57 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
     isEligible: false,
     profileComplete: false,
     interestRate: null,
+    trustLevel: "starter",
+    starterMax: 30_000,
+    loansCompletedOnTime: 0,
   });
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const statsRes = await get<any>("loans/stats/");
-        if (statsRes.data) {
-          const stats = statsRes.data;
-          const hasBlocking =
-            stats.has_blocking_loan ??
-            ((stats.active_loans ?? 0) > 0 ||
-              (stats.pending_applications ?? 0) > 0 ||
-              Number(stats.outstanding_balance ?? 0) > 0);
-          setHasActiveLoan(hasBlocking);
-          setEligibility({
-            creditScore: Number(stats.credit_score ?? 0),
-            maxEligible: Number(stats.max_eligible_amount ?? 0),
-            platformMax: Number(stats.platform_max_loan ?? PLATFORM_MAX_LOAN),
-            minCreditScore: Number(stats.min_credit_score ?? 75),
-            loanTier: stats.loan_tier ?? null,
-            isEligible: Boolean(stats.is_loan_eligible),
-            profileComplete: Boolean(stats.profile_complete_for_scoring),
-            interestRate: stats.interest_rate != null ? Number(stats.interest_rate) : null,
-          });
-          if (stats.interest_rate) {
-            setAnnualRate(Number(stats.interest_rate));
-          }
+  const loadEligibility = useCallback(async () => {
+    try {
+      const statsRes = await get<any>("loans/stats/");
+      if (statsRes.data) {
+        const stats = statsRes.data;
+        const hasBlocking =
+          stats.has_blocking_loan ??
+          ((stats.active_loans ?? 0) > 0 ||
+            (stats.pending_applications ?? 0) > 0 ||
+            Number(stats.outstanding_balance ?? 0) > 0);
+        setHasActiveLoan(hasBlocking);
+        setEligibility({
+          creditScore: Number(stats.credit_score ?? 0),
+          maxEligible: Number(stats.max_eligible_amount ?? 0),
+          platformMax: Number(stats.platform_max_loan ?? PLATFORM_MAX_LOAN),
+          minCreditScore: Number(stats.min_credit_score ?? 75),
+          loanTier: stats.loan_tier ?? null,
+          isEligible: Boolean(stats.is_loan_eligible),
+          profileComplete: Boolean(stats.profile_complete_for_scoring),
+          interestRate: stats.interest_rate != null ? Number(stats.interest_rate) : null,
+          trustLevel: String(stats.trust_level ?? "starter"),
+          starterMax: Number(stats.starter_max_loan ?? 30_000),
+          loansCompletedOnTime: Number(stats.loans_completed_on_time ?? 0),
+        });
+        if (stats.interest_rate) {
+          setAnnualRate(Number(stats.interest_rate));
         }
-      } catch {
-        /* ignore */
-      } finally {
-        setIsChecking(false);
       }
-    })();
+    } catch {
+      /* ignore */
+    } finally {
+      setIsChecking(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadEligibility();
+  }, [loadEligibility]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      loadEligibility();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadEligibility]);
 
   const amountCap = eligibility.isEligible
     ? Math.min(eligibility.maxEligible, eligibility.platformMax)
@@ -245,30 +263,19 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
       <div className="space-y-4">
         <Alert variant="destructive">
           <AlertTriangle className="h-4 w-4" />
-          <AlertTitle>Not eligible for a loan yet</AlertTitle>
+          <AlertTitle>Borrowing temporarily limited</AlertTitle>
           <AlertDescription>
-            Your credit score is <strong>{eligibility.creditScore}/100</strong>. You need at least{" "}
-            <strong>{eligibility.minCreditScore}</strong> to apply.
-            {!eligibility.profileComplete && (
-              <> Complete your profile under My Account — payment history, income, and usage — to improve your score.</>
-            )}
+            Your limit is <strong>{formatUGX(eligibility.maxEligible)}</strong> (score{" "}
+            {eligibility.creditScore}/100). Repay any overdue loan to restore your full starter access of{" "}
+            {formatUGX(eligibility.starterMax)}.
           </AlertDescription>
         </Alert>
-        <div className="rounded-xl border bg-muted/30 p-4 text-sm space-y-1">
-          <p className="font-medium">Loan limits explained</p>
-          <p className="text-muted-foreground">
-            Platform maximum: {formatUGX(eligibility.platformMax)} (top tier)
-          </p>
-          <p className="text-muted-foreground">Your eligible limit: {formatUGX(eligibility.maxEligible)}</p>
-        </div>
-        <div className="flex gap-3">
-          {!eligibility.profileComplete && (
-            <Button asChild variant="outline" className="flex-1">
-              <Link href="/dashboard/myaccount">Complete Profile</Link>
-            </Button>
-          )}
-          <Button onClick={() => router.push("/dashboard")} className="flex-1">Back to Dashboard</Button>
-        </div>
+        <Button onClick={() => router.push("/dashboard/myloans")} className="w-full">
+          Repay loan
+        </Button>
+        <Button variant="outline" onClick={() => router.push("/dashboard")} className="w-full">
+          Back to Dashboard
+        </Button>
       </div>
     );
   }
@@ -295,8 +302,24 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
           <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm flex gap-2">
             <Info className="h-4 w-4 shrink-0 text-primary mt-0.5" />
             <p>
-              You can borrow up to <strong>{formatUGX(amountCap)}</strong> based on your tier.
-              The platform maximum of {formatUGX(eligibility.platformMax)} applies only to the highest credit tier.
+              {eligibility.trustLevel === "starter" ? (
+                <>
+                  <strong>Starter access:</strong> every customer can borrow up to{" "}
+                  {formatUGX(eligibility.starterMax)}. Repay on time to unlock higher limits (+UGX 15,000
+                  per loan).
+                </>
+              ) : eligibility.trustLevel === "building" ? (
+                <>
+                  <strong>Trust building:</strong> you have repaid {eligibility.loansCompletedOnTime}{" "}
+                  loan{eligibility.loansCompletedOnTime === 1 ? "" : "s"} on time. Keep it up to grow your
+                  limit toward {formatUGX(eligibility.platformMax)}.
+                </>
+              ) : (
+                <>
+                  You can borrow up to <strong>{formatUGX(amountCap)}</strong>. Platform maximum is{" "}
+                  {formatUGX(eligibility.platformMax)} for top-tier customers.
+                </>
+              )}
             </p>
           </div>
 

@@ -16,6 +16,12 @@ from django.utils import timezone
 from accounts.models import generate_random_string
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, get_tier_by_score
 from loan.scoring import calculate_weighted_credit_score, get_or_create_credit_signal
+from loan.trust_ladder import (
+    STARTER_MAX_LOAN,
+    apply_trust_to_score,
+    compute_repayment_trust,
+    effective_max_loan,
+)
 from meter.models import Meter, MeterNotification
 from meter.notifications import create_system_notification
 from meter.services import push_units_to_thingsboard
@@ -75,37 +81,53 @@ def user_can_purchase_units(user) -> tuple[bool, str]:
 
 def get_loan_eligibility(user) -> dict:
     """Credit score, tier, and amount caps used by web, USSD, and stats API."""
+    from accounts.models import User
+    from loan.scoring import profile_scoring_fields_complete
+
+    user = User.objects.filter(pk=user.pk).first() or user
+    access = resolve_user_loan_access(user)
+    access["profile_complete_for_scoring"] = profile_scoring_fields_complete(user)
+    return access
+
+
+def resolve_user_loan_access(user) -> dict:
+    """
+    Unified loan access: starter 30k for everyone in good standing; trust ladder
+    raises cap/score after on-time repayments.
+    """
     credit_signal = get_or_create_credit_signal(user)
-    credit_score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
+    profile_score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
+    trust = compute_repayment_trust(user)
+    credit_score = apply_trust_to_score(profile_score, trust)
     tier_info = _determine_loan_tier(credit_score)
 
     if tier_info:
-        loan_tier, max_eligible_amount, interest_rate = tier_info
+        loan_tier, tier_max, interest_rate = tier_info
     else:
-        loan_tier = None
-        max_eligible_amount = 0
-        interest_rate = None
+        loan_tier, tier_max, interest_rate = "STARTER", float(STARTER_MAX_LOAN), 12.0
 
-    is_eligible = credit_score >= MIN_LOAN_CREDIT_SCORE and max_eligible_amount > 0
+    max_eligible = effective_max_loan(tier_max, trust, PLATFORM_MAX_LOAN)
+    is_eligible = max_eligible >= MIN_LOAN_AMOUNT and credit_score >= MIN_LOAN_CREDIT_SCORE
 
     return {
         "credit_score": credit_score,
+        "profile_score": profile_score,
         "loan_tier": loan_tier,
-        "max_eligible_amount": int(max_eligible_amount),
+        "max_eligible_amount": max_eligible,
         "platform_max_loan": PLATFORM_MAX_LOAN,
+        "starter_max_loan": STARTER_MAX_LOAN,
         "min_loan_amount": MIN_LOAN_AMOUNT,
         "min_credit_score": MIN_LOAN_CREDIT_SCORE,
         "is_loan_eligible": is_eligible,
         "interest_rate": float(interest_rate) if interest_rate is not None else None,
         "credit_signal_source": getattr(credit_signal, "source", None),
-        "profile_complete_for_scoring": _user_has_profile_for_scoring(user),
+        "trust_level": trust.trust_level,
+        "trust_cap": trust.trust_cap,
+        "loans_completed_on_time": trust.on_time_completions,
+        "loans_completed_late": trust.late_completions,
+        "loans_defaulted": trust.defaulted_count,
+        "loan_overdue": trust.active_overdue,
     }
-
-
-def _user_has_profile_for_scoring(user) -> bool:
-    from loan.scoring import _user_has_profile_signals
-
-    return _user_has_profile_signals(user)
 
 
 def get_user_loan_stats(user) -> dict:
@@ -241,26 +263,22 @@ def create_loan_application(
         raise LoanOperationError(str(exc)) from exc
 
     tariff = get_active_domestic_tariff()
-    credit_signal = get_or_create_credit_signal(user)
-    credit_score = max(0, min(calculate_weighted_credit_score(credit_signal), 100))
-    tier_info = _determine_loan_tier(credit_score)
+    access = resolve_user_loan_access(user)
+    credit_score = access["credit_score"]
+    max_eligible = access["max_eligible_amount"]
+    tier_name = access["loan_tier"]
+    interest_rate = access["interest_rate"] or 12.0
 
-    if credit_score < MIN_LOAN_CREDIT_SCORE or not tier_info:
+    if not access["is_loan_eligible"]:
         raise LoanOperationError(
-            f"Credit score {credit_score}/100 is below the minimum {MIN_LOAN_CREDIT_SCORE}. "
-            "Complete your profile on the web portal to improve eligibility."
+            f"Loan limit is UGX {max_eligible:,}. "
+            "Repay any overdue loan to restore your borrowing limit."
         )
 
-    if tier_info:
-        tier_name, max_amount, interest_rate = tier_info
-        amount_approved = min(Decimal(str(max_amount)), amount_requested)
-    else:
-        amount_approved = Decimal("0")
-        tier_name = None
-        interest_rate = Decimal("10.0")
+    amount_approved = min(Decimal(str(max_eligible)), amount_requested)
 
     status_value = "APPROVED" if amount_approved > 0 else "REJECTED"
-    rejection_reason = "" if amount_approved > 0 else "Credit score below 75%"
+    rejection_reason = "" if amount_approved > 0 else "Amount below minimum or limit exceeded"
 
     loan = LoanApplication.objects.create(
         user=user,
@@ -570,13 +588,13 @@ def format_loan_apply_preview_ussd(stats: dict) -> str:
     tier = stats.get("loan_tier") or "None"
     eligible = stats.get("max_eligible_amount", 0)
     platform_max = stats.get("platform_max_loan", PLATFORM_MAX_LOAN)
+    trust = stats.get("trust_level", "starter")
 
     if not stats.get("is_loan_eligible"):
-        profile_hint = (
-            "Complete profile on web to improve score."
-            if not stats.get("profile_complete_for_scoring")
-            else "Score below minimum."
-        )
+        if stats.get("loan_overdue") or stats.get("trust_level") == "at_risk":
+            profile_hint = "Repay overdue loan to restore limit."
+        else:
+            profile_hint = "Contact support if this persists."
         return (
             f"Apply for loan\n"
             f"Score: {score}/100 (min {min_score})\n"
@@ -584,11 +602,17 @@ def format_loan_apply_preview_ussd(stats: dict) -> str:
             f"{profile_hint}"
         )
 
+    trust_note = ""
+    if trust == "starter":
+        trust_note = f" (starter UGX {eligible:,})"
+    elif trust == "building":
+        trust_note = " (trust building)"
+
     return (
         f"Apply for loan\n"
         f"Score: {score}/100\n"
         f"Tier: {tier}\n"
-        f"Your limit: UGX {eligible:,}\n"
+        f"Your limit: UGX {eligible:,}{trust_note}\n"
         f"Platform max: UGX {platform_max:,}\n"
         f"Enter amount UGX ({MIN_LOAN_AMOUNT}-{eligible}):"
     )

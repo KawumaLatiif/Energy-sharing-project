@@ -155,6 +155,7 @@ Rebuild APK after API URL changes: see [`MOBILE_APP.md`](MOBILE_APP.md).
 
 | Document | Contents |
 |----------|----------|
+| [`LOAN_SCHEME.md`](LOAN_SCHEME.md) | Micro-electricity loans: Trust Ladder, limits, tenure, repayment |
 | [`PLATFORM_ALIGNMENT.md`](PLATFORM_ALIGNMENT.md) | This file — migrations & deploy checklist |
 | [`MOBILE_APP.md`](MOBILE_APP.md) | Android app setup & features |
 | [`POWER_USAGE.md`](POWER_USAGE.md) | AMI usage data sources & Celery |

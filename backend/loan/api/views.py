@@ -79,22 +79,22 @@ class LoanApplicationView(generics.ListCreateAPIView):
 
             tariff = get_active_domestic_tariff()
 
-            # Collect third-party credit signals (dummy for now) and score user
+            from loan.services import resolve_user_loan_access
+
+            access = resolve_user_loan_access(request.user)
             credit_signal = get_or_create_credit_signal(request.user)
-            credit_score = self.calculate_credit_score(credit_signal)
+            credit_score = access["credit_score"]
             credit_breakdown = get_factor_breakdown(credit_signal)
 
-            # Determine approved amount and tier
             amount_requested = float(data.get("amount_requested", 0))
-            tier_info = self.determine_loan_tier(credit_score)
-            
-            if tier_info:
-                tier_name, max_amount, interest_rate = tier_info
-                amount_approved = min(max_amount, amount_requested)
-            else:
+            max_eligible = access["max_eligible_amount"]
+            tier_name = access["loan_tier"]
+            interest_rate = access["interest_rate"] or 12.0
+
+            if not access["is_loan_eligible"]:
                 amount_approved = 0
-                tier_name = None
-                interest_rate = 10.0
+            else:
+                amount_approved = min(max_eligible, amount_requested)
 
             # Save loan - DON'T disburse automatically
             loan = serializer.save(
@@ -105,7 +105,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 interest_rate=interest_rate,
                 tariff = tariff,
                 status="APPROVED" if amount_approved > 0 else "REJECTED",
-                rejection_reason="" if amount_approved > 0 else "Credit score below 75%"
+                rejection_reason="" if amount_approved > 0 else "Loan limit exceeded or account at risk"
             )
 
             # Log application
@@ -157,7 +157,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 "amount_requested": amount_requested,
                 "amount_approved": float(amount_approved) if amount_approved > 0 else 0,
                 "loan_tier": tier_name,
-                "max_eligible_amount": tier_info[1] if tier_info else 0,
+                "max_eligible_amount": max_eligible,
                 "interest_rate": interest_rate,
                 "tariff_applied": tariff.tariff_code if tariff else None,
                 "units_calculated": units_calculated,
@@ -171,6 +171,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     "subfactor_scores": credit_breakdown["subfactor_scores"],
                     "threshold": 75,
                     "source": credit_signal.source,
+                    "trust_level": access.get("trust_level"),
+                    "trust_cap": access.get("trust_cap"),
+                    "starter_max_loan": access.get("starter_max_loan"),
                 },
             }
 

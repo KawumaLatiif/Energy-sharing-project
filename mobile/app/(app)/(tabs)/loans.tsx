@@ -175,10 +175,8 @@ export default function LoansScreen() {
         {!blocking && !isEligible ? (
           <Card>
             <Text style={{ color: "#b45309", lineHeight: 20, marginBottom: 8 }}>
-              Your credit score is below {minCredit}.{" "}
-              {!stats.profile_complete_for_scoring
-                ? "Complete your profile (payment history, consumption, etc.) on the web dashboard to improve your score."
-                : "Improve your payment history and profile to become eligible."}
+              Borrowing is limited (score {creditScore}/{minCredit}). Repay any overdue loan to restore
+              your starter limit of {formatUGX(stats.starter_max_loan ?? 30_000)}.
             </Text>
           </Card>
         ) : null}
@@ -186,6 +184,12 @@ export default function LoansScreen() {
         {!blocking && isEligible ? (
           <Card>
             <Text style={{ fontWeight: "700", marginBottom: 8 }}>Apply for loan</Text>
+            {(stats.trust_level === "starter" || !stats.trust_level) && (
+              <Text style={{ color: "#6b7280", fontSize: 12, marginBottom: 12, lineHeight: 18 }}>
+                Starter access: up to {formatUGX(stats.starter_max_loan ?? 30_000)}. Repay on time to
+                unlock higher limits.
+              </Text>
+            )}
             <FieldLabel>Amount ({amountHint})</FieldLabel>
             <Input value={amount} onChangeText={setAmount} keyboardType="number-pad" />
             <FieldLabel>Tenure (months)</FieldLabel>

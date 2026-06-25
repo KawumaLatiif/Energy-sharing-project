@@ -49,6 +49,18 @@ PROFILE_SIGNAL_FIELDS = (
     "income_stability",
 )
 
+# All loan-assessment answers required before scoring uses profile data (not defaults).
+LOAN_PROFILE_FIELDS = (
+    "monthly_expenditure",
+    "purchase_frequency",
+    "payment_consistency",
+    "disconnection_history",
+    "meter_sharing",
+    "monthly_income",
+    "income_stability",
+    "consumption_level",
+)
+
 
 def _derive_payment_history(user) -> str:
     payment = (getattr(user, "payment_consistency", None) or "").strip()
@@ -100,6 +112,11 @@ def _user_has_profile_signals(user) -> bool:
     return any((getattr(user, field, None) or "").strip() for field in PROFILE_SIGNAL_FIELDS)
 
 
+def profile_scoring_fields_complete(user) -> bool:
+    """True when every loan-assessment field on the user record is filled."""
+    return all((getattr(user, field, None) or "").strip() for field in LOAN_PROFILE_FIELDS)
+
+
 def derive_signal_values_from_user(user) -> dict:
     """Map onboarding/profile answers to credit signal categories (deterministic)."""
     has_profile = _user_has_profile_signals(user)
@@ -134,16 +151,17 @@ def sync_credit_signal_from_profile(user) -> UserCreditSignal | SimpleNamespace 
 def get_or_create_credit_signal(user):
     """
     Build credit signals from profile data when available; otherwise use neutral defaults.
-    Replaces legacy random dummy enrichment.
+    Always re-syncs from the user record when the loan assessment is complete.
     """
+    if profile_scoring_fields_complete(user):
+        synced = sync_credit_signal_from_profile(user)
+        if synced is not None:
+            return synced
+
     values = derive_signal_values_from_user(user)
     try:
         signal, created = UserCreditSignal.objects.get_or_create(user=user, defaults=values)
         if not created and signal.source == "DUMMY_THIRD_PARTY":
-            for key, value in values.items():
-                setattr(signal, key, value)
-            signal.save(update_fields=list(values.keys()) + ["updated_at"])
-        elif not created and values["source"] == "PROFILE" and signal.source == "DEFAULT":
             for key, value in values.items():
                 setattr(signal, key, value)
             signal.save(update_fields=list(values.keys()) + ["updated_at"])
