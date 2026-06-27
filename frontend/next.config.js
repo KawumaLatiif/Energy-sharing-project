@@ -1,6 +1,7 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
   reactCompiler: true,
+  trailingSlash: true,
   async redirects() {
     return [
       { source: "/About", destination: "/about", permanent: true },
