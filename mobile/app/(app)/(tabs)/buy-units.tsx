@@ -18,6 +18,7 @@ import {
   Subtitle,
   Title,
 } from "@/components/ui";
+import { PIN_LENGTH, PinField } from "@/components/pin-field";
 import type { UnitEstimate } from "@/types/api";
 
 function formatUGX(n: number) {
@@ -27,6 +28,7 @@ function formatUGX(n: number) {
 export default function BuyUnitsScreen() {
   const [amount, setAmount] = useState("5000");
   const [phone, setPhone] = useState("");
+  const [pin, setPin] = useState("");
   const [estimate, setEstimate] = useState<UnitEstimate | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -104,10 +106,19 @@ export default function BuyUnitsScreen() {
       setError("Enter your MTN Mobile Money number.");
       return;
     }
+    if (pin.length !== PIN_LENGTH) {
+      setError("Enter your 4-digit transaction PIN to confirm.");
+      return;
+    }
 
     setLoading(true);
     try {
-      const res = await buyUnits(n, phone.startsWith("+") ? phone : `+256${phone.replace(/^0/, "")}`);
+      const res = await buyUnits(
+        n,
+        phone.startsWith("+") ? phone : `+256${phone.replace(/^0/, "")}`,
+        pin
+      );
+      setPin("");
       if (res.status === "PENDING" && res.transaction_id) {
         setStatus("Approve the payment on your phone…");
         setPolling(true);
@@ -192,6 +203,8 @@ export default function BuyUnitsScreen() {
           keyboardType="phone-pad"
           placeholder="+2567XXXXXXXX"
         />
+
+        <PinField value={pin} onChangeText={setPin} editable={!loading && !polling} />
 
         <Button
           label={polling ? "Waiting for payment…" : "Review & Pay"}

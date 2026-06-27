@@ -11,6 +11,7 @@ import {
 } from "@/lib/loan-api";
 import { getLoanStats } from "@/lib/dashboard-api";
 import type { LoanApplication, LoanStats } from "@/types/api";
+import { PIN_LENGTH, PinField } from "@/components/pin-field";
 import {
   Button,
   Card,
@@ -54,6 +55,7 @@ export default function LoansScreen() {
   const [amount, setAmount] = useState("50000");
   const [tenure, setTenure] = useState("1");
   const [purpose, setPurpose] = useState("Household electricity");
+  const [applyPin, setApplyPin] = useState("");
   const [repayAmount, setRepayAmount] = useState("");
   const [repayPhone, setRepayPhone] = useState("");
   const [repayMode, setRepayMode] = useState<"full" | "partial" | null>(null);
@@ -199,6 +201,7 @@ export default function LoansScreen() {
             </Text>
             <FieldLabel>Purpose</FieldLabel>
             <Input value={purpose} onChangeText={setPurpose} />
+            <PinField value={applyPin} onChangeText={setApplyPin} editable={!submitting} />
             <Button
               label="Submit application"
               loading={submitting}
@@ -221,10 +224,14 @@ export default function LoansScreen() {
                       `Tenure must be ${LOAN_TENURE_MIN}–${LOAN_TENURE_MAX} months.`
                     );
                   }
+                  if (applyPin.length !== PIN_LENGTH) {
+                    throw new Error("Enter your 4-digit transaction PIN to confirm.");
+                  }
                   const res = await applyForLoan({
                     amount_requested: value,
                     purpose,
                     tenure_months: tenureMonths,
+                    pin: applyPin,
                   });
                   if (res.rejection_reason) {
                     throw new Error(res.rejection_reason);
@@ -232,6 +239,7 @@ export default function LoansScreen() {
                   if (res.status === "REJECTED") {
                     throw new Error(res.message ?? "Application was rejected.");
                   }
+                  setApplyPin("");
                   setMessage(
                     res.status
                       ? `Application ${res.status}${res.loan_id ? ` (#${res.loan_id})` : ""}`

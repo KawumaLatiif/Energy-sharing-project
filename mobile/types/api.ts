@@ -107,6 +107,7 @@ export interface LoanApplyPayload {
   amount_requested: number;
   purpose: string;
   tenure_months: number;
+  pin: string;
 }
 
 export interface TransactionItem {

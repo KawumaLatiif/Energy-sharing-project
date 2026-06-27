@@ -68,7 +68,7 @@ export async function estimateUnits(amount: number): Promise<UnitEstimate> {
   return apiRequest<UnitEstimate>(`meter/estimate-units/?amount=${amount}`);
 }
 
-export async function buyUnits(amount: number, phone_number: string) {
+export async function buyUnits(amount: number, phone_number: string, pin: string) {
   return apiRequest<{
     status?: string;
     transaction_id?: string | number;
@@ -77,7 +77,7 @@ export async function buyUnits(amount: number, phone_number: string) {
     token?: string;
   }>("meter/buy-units/", {
     method: "POST",
-    body: JSON.stringify({ amount, phone_number, channel: "MOBILE_APP" }),
+    body: JSON.stringify({ amount, phone_number, pin, channel: "MOBILE_APP" }),
   });
 }
 
