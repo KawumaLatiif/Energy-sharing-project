@@ -74,7 +74,7 @@ class ConfirmShareSerializer(serializers.Serializer):
         decimal_places=2,
         min_value=Decimal("2.00"),
     )
-    password = serializers.CharField(required=True, write_only=True, trim_whitespace=False)
+    pin = serializers.CharField(required=True, write_only=True, trim_whitespace=True)
 
     def validate_meter_number(self, value):
         ok, result = validate_meter_no(value)

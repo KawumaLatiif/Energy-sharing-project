@@ -115,8 +115,10 @@ def _find_user_by_phone(phone_number: str):
     return candidates[0] if len(candidates) == 1 else None
 
 
-# Temporary USSD PIN for all users (replace with per-user PIN later).
-DEFAULT_USSD_PIN = "1234"
+# Shared confirmation PIN for all users (single source of truth across channels).
+from utils.transaction_pin import DEFAULT_TRANSACTION_PIN
+
+DEFAULT_USSD_PIN = DEFAULT_TRANSACTION_PIN
 
 # USSD navigation keys (shown on every submenu / prompt / result screen).
 NAV_MAIN = "*"
@@ -1119,9 +1121,11 @@ def ussd_entry(request):
                         menu="buy_pin",
                         context={"buy_amount": str(purchase_amount), "buy_pin_attempts": 0},
                     )
-                if len(steps) == 4:
+                if len(steps) >= 4:
+                    # On a PIN re-prompt the cumulative text grows (extra trailing
+                    # step per retry), so the newest entry is always the last step.
                     pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                        ussd_session, user, steps[3], "buy_pin_attempts"
+                        ussd_session, user, steps[-1], "buy_pin_attempts"
                     )
                     if not pin_ok:
                         ussd_session.last_text = text
@@ -1383,8 +1387,9 @@ def ussd_entry(request):
                     context={"share_pin_attempts": 0},
                 )
 
+            # Last step is the newest PIN entry (text grows on each re-prompt).
             pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                ussd_session, user, steps[3], "share_pin_attempts"
+                ussd_session, user, steps[-1], "share_pin_attempts"
             )
             if not pin_ok:
                 ussd_session.last_text = text
@@ -1393,7 +1398,7 @@ def ussd_entry(request):
                     return _session_reply(ussd_session, "END", pin_msg, menu="share_pin_locked")
                 return _reply_prompt(ussd_session, pin_msg, menu="share_pin")
 
-            ok, msg = _share_with_password(user, steps[1], steps[2], steps[3])
+            ok, msg = _share_with_password(user, steps[1], steps[2], steps[-1])
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
             return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_result")

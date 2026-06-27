@@ -52,7 +52,17 @@ class LoanApplicationView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         try:
             data = request.data
-            
+
+            from utils.transaction_pin import PIN_ERROR_MESSAGE, verify_transaction_pin
+
+            # PIN is the final authentication step, required even though the user
+            # is already logged in.
+            if not verify_transaction_pin(request.user, data.get("pin")):
+                return Response(
+                    {"error": PIN_ERROR_MESSAGE},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             # Prevent multiple active loans
             from loan.services import user_can_apply_for_loan
 

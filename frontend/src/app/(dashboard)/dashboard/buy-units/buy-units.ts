@@ -13,7 +13,9 @@ import {
   AUTHENTICATION_REFRESH_COOKIE,
 } from "@/common/constants/auth-cookie";
 
-export const buyUnits = async (data: z.infer<typeof BuyUnitSchema>) => {
+export const buyUnits = async (
+  data: z.infer<typeof BuyUnitSchema> & { pin: string }
+) => {
   const res = await post<BuyUnitsResponse>("meter/buy-units/", data);
 
   console.log("Buy units: ", res.data);

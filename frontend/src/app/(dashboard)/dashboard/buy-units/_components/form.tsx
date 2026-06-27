@@ -40,6 +40,7 @@ import Link from "next/link";
 import { get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { notifyWalletBalanceUpdated } from "@/lib/wallet-events";
+import { PIN_LENGTH, PinInput } from "@/components/common/pin-input";
 
 function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
@@ -123,6 +124,7 @@ export default function BuyUnitsForm() {
   const [estimate, setEstimate] = useState<UnitEstimate | null>(null);
   const [estimating, setEstimating] = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
+  const [pin, setPin] = useState("");
   const estimateTimeout = useRef<NodeJS.Timeout | null>(null);
 
   const { user, loading } = useAccount();
@@ -258,6 +260,10 @@ export default function BuyUnitsForm() {
   }, [paymentStatus]);
 
   async function onSubmit(values: z.infer<typeof BuyUnitSchema>) {
+    if (pin.length !== PIN_LENGTH) {
+      setError("Enter your 4-digit transaction PIN to confirm.");
+      return;
+    }
     setError("");
     setSuccess("");
     setPaymentStatus("pending");
@@ -268,7 +274,8 @@ export default function BuyUnitsForm() {
 
     startTransition(async () => {
       try {
-        const data = await buyUnits(values);
+        const data = await buyUnits({ ...values, pin });
+        setPin("");
 
         if (data?.error) {
           setPaymentStatus("failed");
@@ -403,12 +410,16 @@ export default function BuyUnitsForm() {
         {/* --- CONFIRM BOTTOM SHEET --- */}
         <BottomSheet
           open={showConfirm}
-          onClose={() => setShowConfirm(false)}
+          onClose={() => {
+            setShowConfirm(false);
+            setPin("");
+          }}
           title="Confirm Purchase"
           primaryAction={{
             label: "Pay Now",
             onClick: form.handleSubmit(onSubmit),
             loading: isPending || paymentStatus === "pending",
+            disabled: pin.length !== PIN_LENGTH,
           }}
         >
           <BreakdownCard
@@ -427,6 +438,9 @@ export default function BuyUnitsForm() {
                 : undefined
             }
           />
+          <div className="mt-4">
+            <PinInput value={pin} onChange={setPin} disabled={isPending} />
+          </div>
         </BottomSheet>
 
         {/* --- PAYMENT STATUS ALERTS --- */}

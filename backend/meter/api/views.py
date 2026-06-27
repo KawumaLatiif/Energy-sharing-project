@@ -1315,9 +1315,16 @@ class BuyUnitsView(GenericAPIView):
         return remaining, total_repaid
     
     def post(self, request, *args, **kwargs):
+        from utils.transaction_pin import PIN_ERROR_MESSAGE, verify_transaction_pin
+
+        # PIN is the final authentication step, required even though the user
+        # is already logged in.
+        if not verify_transaction_pin(request.user, request.data.get("pin")):
+            return Response({"error": PIN_ERROR_MESSAGE}, status=status.HTTP_400_BAD_REQUEST)
+
         amount = request.data.get("amount")
         phone_number = request.data.get("phone_number")
-        
+
         if not amount or not phone_number:
             return Response({
                 "error": "Amount and phone number are required"

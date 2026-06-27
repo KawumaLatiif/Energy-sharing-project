@@ -42,6 +42,7 @@ import {
   METER_NO_MAX_LENGTH,
   meterNumberFieldSchema,
 } from "@/lib/meter-validation";
+import { PIN_LENGTH, PinInput } from "@/components/common/pin-input";
 
 function createShareSchema(maxUnits: number) {
   const cap = Math.max(maxUnits, 2);
@@ -105,7 +106,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
   const [totalUnits, setTotalUnits] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [confirmPassword, setConfirmPassword] = useState("");
+  const [pin, setPin] = useState("");
   const [transactionDetails, setTransactionDetails] = useState<{
     meter_number: string;
     units: number;
@@ -235,8 +236,8 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
 
   const confirmShareWithPin = async () => {
     if (!pendingShare) return;
-    if (!confirmPassword.trim()) {
-      setError("Enter your account PIN (login password).");
+    if (pin.length !== PIN_LENGTH) {
+      setError("Enter your 4-digit transaction PIN.");
       return;
     }
 
@@ -248,12 +249,12 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
       const response = await post<ShareUnitsResponse>("share/share-units/", {
         meter_number: pendingShare.meter_number,
         units: pendingShare.units,
-        password: confirmPassword,
+        pin,
       });
 
       if (response.data?.success === true) {
         setConfirmOpen(false);
-        setConfirmPassword("");
+        setPin("");
         setTransactionDetails({
           meter_number: pendingShare.meter_number,
           units: pendingShare.units,
@@ -453,7 +454,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
           <DialogHeader>
             <DialogTitle>Confirm share</DialogTitle>
             <DialogDescription>
-              Review details and enter your account PIN to confirm.
+              Review details and enter your transaction PIN to confirm.
             </DialogDescription>
           </DialogHeader>
 
@@ -473,23 +474,13 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
                 </InfoBanner>
               )}
 
-              <div className="space-y-2">
-                <label className="text-sm font-medium" htmlFor="share-pin">
-                  Account PIN
-                </label>
-                <Input
-                  id="share-pin"
-                  type="password"
-                  placeholder="Your login password"
-                  value={confirmPassword}
-                  onChange={(e) => setConfirmPassword(e.target.value)}
-                  autoComplete="current-password"
-                  disabled={isPending}
-                />
-                <p className="text-xs text-muted-foreground">
-                  Use the same password you use to sign in to gPAWA.
-                </p>
-              </div>
+              <PinInput
+                value={pin}
+                onChange={setPin}
+                disabled={isPending}
+                autoFocus
+                onEnter={confirmShareWithPin}
+              />
             </div>
           )}
 
@@ -499,7 +490,10 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
             <Button
               type="button"
               variant="outline"
-              onClick={() => setConfirmOpen(false)}
+              onClick={() => {
+                setConfirmOpen(false);
+                setPin("");
+              }}
               disabled={isPending}
             >
               Cancel
@@ -507,7 +501,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
             <Button
               type="button"
               onClick={confirmShareWithPin}
-              disabled={isPending || !confirmPassword.trim()}
+              disabled={isPending || pin.length !== PIN_LENGTH}
               className="gpawa-gradient text-white"
             >
               {isPending ? (
