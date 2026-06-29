@@ -33,14 +33,17 @@ from wallet.models import Wallet as UnitWallet
 from accounts.tasks import (
     handle_send_loan_application_email,
     handle_send_loan_disbursed_email,
+    handle_send_loan_repayment_email,
+    handle_send_third_party_loan_payment_to_owner,
+    handle_send_third_party_loan_payment_to_payer,
 )
 
 logger = logging.getLogger(__name__)
 
-# Status sets aligned with `LoanApplicationView.create` and `BuyUnitsView.post`
+# Status sets aligned with `LoanApplicationView.create` and purchase blocking.
 APPLY_BLOCK_STATUSES = ("PENDING", "APPROVED", "DISBURSED")
 TERMINAL_LOAN_STATUSES = ("COMPLETED", "REJECTED")
-ACTIVE_LOAN_STATUSES = ("APPROVED", "DISBURSED", "DEFAULTED")
+DEBT_LOAN_STATUSES = ("DISBURSED", "DEFAULTED")
 
 PURCHASE_BLOCK_MESSAGE = (
     "You cannot buy units while you have a pending or incomplete loan. "
@@ -67,14 +70,63 @@ def incomplete_loans_queryset(user):
     return LoanApplication.objects.filter(user=user).exclude(status__in=TERMINAL_LOAN_STATUSES)
 
 
+def reconcile_user_loan_statuses(user) -> int:
+    """
+    Persist the derived terminal state for loans that were fully paid but still
+    carry an old active status. This keeps dashboards, lists, and blockers in
+    sync with the DB status.
+    """
+    updated = 0
+    loans = LoanApplication.objects.filter(
+        user=user,
+        status__in=DEBT_LOAN_STATUSES,
+    ).prefetch_related("repayments")
+
+    for loan in loans:
+        if float(loan.outstanding_balance) <= 0:
+            loan.status = "COMPLETED"
+            loan.save(update_fields=["status", "updated_at"])
+            updated += 1
+
+    return updated
+
+
+def get_blocking_loan_state(user) -> dict:
+    """
+    Single source of truth for whether loans should block unit purchases.
+    Pending applications block because they are unresolved; paid loans do not.
+    """
+    reconcile_user_loan_statuses(user)
+
+    loans = LoanApplication.objects.filter(user=user)
+    pending_applications = loans.filter(status="PENDING").count()
+    debt_loans = []
+    outstanding_balance = Decimal("0")
+
+    for loan in loans.filter(status__in=DEBT_LOAN_STATUSES).prefetch_related("repayments"):
+        balance = Decimal(str(loan.outstanding_balance))
+        if balance > 0:
+            debt_loans.append(loan)
+            outstanding_balance += balance
+
+    return {
+        "pending_applications": pending_applications,
+        "active_loans": len(debt_loans),
+        "outstanding_balance": outstanding_balance,
+        "has_blocking_loan": pending_applications > 0 or outstanding_balance > 0,
+    }
+
+
 def user_can_apply_for_loan(user) -> tuple[bool, str]:
+    reconcile_user_loan_statuses(user)
     if LoanApplication.objects.filter(user=user, status__in=APPLY_BLOCK_STATUSES).exists():
         return False, APPLY_BLOCK_MESSAGE
     return True, ""
 
 
 def user_can_purchase_units(user) -> tuple[bool, str]:
-    if incomplete_loans_queryset(user).exists():
+    state = get_blocking_loan_state(user)
+    if state["has_blocking_loan"]:
         return False, PURCHASE_BLOCK_MESSAGE
     return True, ""
 
@@ -132,10 +184,12 @@ def resolve_user_loan_access(user) -> dict:
 
 def get_user_loan_stats(user) -> dict:
     """Same payload as ``GET /api/v1/loans/stats/``."""
+    reconcile_user_loan_statuses(user)
     loans = LoanApplication.objects.filter(user=user)
 
-    pending_applications = loans.filter(status="PENDING").count()
-    active_loans = loans.filter(status__in=ACTIVE_LOAN_STATUSES).count()
+    blocking_state = get_blocking_loan_state(user)
+    pending_applications = blocking_state["pending_applications"]
+    active_loans = blocking_state["active_loans"]
     approved_loans = loans.filter(status="APPROVED").count()
     total_loans = loans.count()
 
@@ -151,10 +205,7 @@ def get_user_loan_stats(user) -> dict:
         or 0
     )
 
-    outstanding_balance = sum(
-        float(loan.outstanding_balance)
-        for loan in loans.exclude(status__in=TERMINAL_LOAN_STATUSES)
-    )
+    outstanding_balance = float(blocking_state["outstanding_balance"])
 
     eligibility = get_loan_eligibility(user)
     repayable = get_repayable_loan(user)
@@ -167,9 +218,7 @@ def get_user_loan_stats(user) -> dict:
         "total_borrowed": total_borrowed,
         "total_repayments": total_repayments,
         "outstanding_balance": outstanding_balance,
-        "has_blocking_loan": (
-            active_loans > 0 or pending_applications > 0 or outstanding_balance > 0
-        ),
+        "has_blocking_loan": blocking_state["has_blocking_loan"],
         "repayable_loan": serialize_repayable_loan(repayable),
         **eligibility,
     }
@@ -177,6 +226,7 @@ def get_user_loan_stats(user) -> dict:
 
 def get_disbursed_loan_balances(user):
     """Mirrors ``BuyUnitsView._get_active_loan_balances``."""
+    reconcile_user_loan_statuses(user)
     loans_with_balance = []
     total_outstanding = Decimal("0")
     for loan in LoanApplication.objects.filter(user=user, status="DISBURSED").order_by(
@@ -191,6 +241,7 @@ def get_disbursed_loan_balances(user):
 
 def get_repayable_loan(user):
     """Most recent disbursed loan with an outstanding balance."""
+    reconcile_user_loan_statuses(user)
     for loan in LoanApplication.objects.filter(user=user, status="DISBURSED").order_by(
         "-created_at"
     ):
@@ -463,6 +514,8 @@ def repay_loan(
     *,
     channel: str = "WEB",
     payment_method: str = "CASH",
+    paid_by_user=None,
+    is_anonymous: bool = False,
 ) -> dict:
     """Same rules as ``LoanRepaymentView.post`` (web repayment)."""
     loan = _resolve_loan_for_repay(user, loan_id)
@@ -499,14 +552,15 @@ def repay_loan(
             is_on_time=_payment_on_time(loan),
             payment_method=payment_method,
             payment_status="SUCCESS",
+            paid_by=paid_by_user,
+            is_anonymous=is_anonymous,
         )
 
-        try:
-            meter = Meter.objects.get(user=user)
-            meter.units += units_equivalent
-            meter.save()
-        except Meter.DoesNotExist:
-            raise LoanOperationError("Meter not found") from None
+        meter = Meter.objects.filter(user=user, is_deleted=False).first()
+        if not meter:
+            raise LoanOperationError("Meter not found")
+        meter.units += Decimal(str(units_equivalent))
+        meter.save()
 
         TransactionLog.objects.create(
             user=user,
@@ -553,6 +607,72 @@ def repay_loan(
             message = "Loan fully repaid! Thank you."
 
     loan.refresh_from_db()
+    is_fully_repaid = loan.status == "COMPLETED"
+    is_third_party = paid_by_user is not None and paid_by_user.id != user.id
+
+    if is_third_party:
+        payer_name = (
+            f"{paid_by_user.first_name} {paid_by_user.last_name}".strip()
+            or paid_by_user.email
+        )
+        payer_display = "an anonymous benefactor" if is_anonymous else payer_name
+        owner_name = f"{user.first_name} {user.last_name}".strip() or user.email
+        verb = "fully repaid" if is_fully_repaid else "partially paid"
+        owner_msg = (
+            f"Hello {user.first_name or 'there'}, your loan {loan.loan_id} has been "
+            f"{verb} by {payer_display}."
+        )
+        payer_msg = (
+            f"You {verb} {owner_name}'s loan {loan.loan_id} of UGX {amount:,.2f}."
+        )
+        create_system_notification(
+            user=user,
+            notification_type=MeterNotification.TYPE_LOAN_REPAYMENT,
+            message=owner_msg,
+            units_kwh=Decimal(str(units_equivalent)),
+        )
+        create_system_notification(
+            user=paid_by_user,
+            notification_type=MeterNotification.TYPE_LOAN_REPAYMENT,
+            message=payer_msg,
+            units_kwh=Decimal("0"),
+        )
+        dispatch_task(
+            handle_send_third_party_loan_payment_to_owner,
+            user.id,
+            loan.loan_id,
+            amount,
+            payer_display,
+            is_fully_repaid,
+        )
+        dispatch_task(
+            handle_send_third_party_loan_payment_to_payer,
+            paid_by_user.id,
+            owner_name,
+            loan.loan_id,
+            amount,
+            is_fully_repaid,
+        )
+    else:
+        repayment_message = (
+            f"Loan {loan.loan_id} fully repaid. Outstanding balance: UGX 0.00."
+            if is_fully_repaid
+            else f"Loan {loan.loan_id} repayment of UGX {amount:,.2f} received. Remaining: UGX {loan.outstanding_balance:,.2f}."
+        )
+        create_system_notification(
+            user=user,
+            notification_type=MeterNotification.TYPE_LOAN_REPAYMENT,
+            message=repayment_message,
+            units_kwh=Decimal(str(units_equivalent)),
+        )
+        dispatch_task(
+            handle_send_loan_repayment_email,
+            user.id,
+            loan.loan_id,
+            amount,
+            float(loan.outstanding_balance),
+            is_fully_repaid,
+        )
     return {
         "message": message,
         "loan_id": loan.loan_id,

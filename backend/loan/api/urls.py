@@ -4,9 +4,11 @@ from .views import (
     LoanApplicationView,
     LoanDetailView,
     LoanDisbursementView,
+    LoanLookupByPhoneView,
     LoanNotificationView,
     LoanRepaymentView,
     LoanStatsView,
+    PayForSomeoneView,
     RepayableLoanView,
     TariffListView,
     UserLoansView,
@@ -29,5 +31,7 @@ urlpatterns = [
     path('repay/momo/active/', ActiveMoMoPaymentView.as_view(), name='loan-repay-momo-active'),
     path('payment-status/<str:external_id>/', PaymentStatusView.as_view(), name='payment-status'),
     # path('momo-callback/', MoMoPaymentCallbackView.as_view(), name='momo-callback'),
-    path('tariffs/', TariffListView.as_view(), name='tariff-list')
+    path('tariffs/', TariffListView.as_view(), name='tariff-list'),
+    path('lookup-by-phone/', LoanLookupByPhoneView.as_view(), name='loan-lookup-by-phone'),
+    path('pay-for-someone/', PayForSomeoneView.as_view(), name='loan-pay-for-someone'),
 ]

@@ -5,7 +5,6 @@ import { usePathname } from "next/navigation";
 import {
   ArrowUpRight,
   Activity,
-  FileTextIcon,
   Forward,
   Gauge,
   Home,
@@ -68,15 +67,11 @@ export default function DashboardNavLinks({ className }: { className?: string })
         </Link>
       )}
       <Link
-        href="/dashboard/request-loan"
-        className={linkClass(pathname === "/dashboard/request-loan")}
+        href="/dashboard/loans"
+        className={linkClass(pathname.startsWith("/dashboard/loans") || pathname.startsWith("/dashboard/request-loan") || pathname.startsWith("/dashboard/myloans"))}
       >
         <IconMoneybag className="h-4 w-4" />
-        Micro-Electricity Loans
-      </Link>
-      <Link href="/dashboard/myloans" className={linkClass(pathname === "/dashboard/myloans")}>
-        <FileTextIcon className="h-4 w-4" />
-        My Loans
+        Loans
       </Link>
       <Link
         href="/dashboard/transactions"

@@ -115,11 +115,6 @@ def _find_user_by_phone(phone_number: str):
     return candidates[0] if len(candidates) == 1 else None
 
 
-# Shared confirmation PIN for all users (single source of truth across channels).
-from utils.transaction_pin import DEFAULT_TRANSACTION_PIN
-
-DEFAULT_USSD_PIN = DEFAULT_TRANSACTION_PIN
-
 # USSD navigation keys (shown on every submenu / prompt / result screen).
 NAV_MAIN = "*"
 NAV_BACK = "#"
@@ -178,8 +173,6 @@ MENU_PARENT: dict[str, str] = {
     "check_units_pick": "wallet_menu",
     "buy_menu": "root",
     "buy_amount": "buy_menu",
-    "buy_pin": "buy_menu",
-    "buy_pin_locked": "buy_menu",
     "buy_result": "buy_menu",
     "buy_status": "buy_menu",
     "buy_status_result": "buy_menu",
@@ -197,7 +190,6 @@ MENU_PARENT: dict[str, str] = {
     "loan_stats": "loans_menu",
     "share_meter": "root",
     "share_units": "root",
-    "share_pin": "root",
     "share_preview_error": "root",
     "share_result": "root",
     "tokens_menu": "root",
@@ -596,79 +588,6 @@ def _repay_loan(user, loan_id_raw: str | None, amount_raw: str):
         f"{result['message']}\nLoanRef: {result['loan_id']}\n"
         f"Outstanding: UGX {result['outstanding_balance']}\n"
         f"Units added: {result['units_added']}"
-    )
-
-
-def _is_valid_ussd_pin(pin: str) -> bool:
-    """USSD confirmation PIN (default for all users until per-user PIN is enabled)."""
-    return str(pin or "").strip() == DEFAULT_USSD_PIN
-
-
-def _validate_pin_attempt(ussd_session: UssdSession, user, pin: str, attempts_key: str):
-    """
-    Allow up to 3 wrong PIN attempts per flow; terminate session on 3rd failure.
-    """
-    ctx = dict(ussd_session.context or {})
-    if _is_valid_ussd_pin(pin):
-        if ctx.get(attempts_key):
-            ctx[attempts_key] = 0
-            ussd_session.context = ctx
-            ussd_session.save(update_fields=["context", "updated_at"])
-        return True, False, ""
-
-    attempts = int(ctx.get(attempts_key, 0)) + 1
-    ctx[attempts_key] = attempts
-    ussd_session.context = ctx
-    ussd_session.save(update_fields=["context", "updated_at"])
-
-    if attempts >= 3:
-        ussd_session.is_active = False
-        ussd_session.save(update_fields=["is_active", "updated_at"])
-        return (
-            False,
-            True,
-            "Incorrect PIN entered 3 times. Session terminated. Dial the service code to start afresh.",
-        )
-
-    remaining = 3 - attempts
-    return (
-        False,
-        False,
-        f"Incorrect PIN. {remaining} attempt(s) left. Enter PIN again:",
-    )
-
-
-def _share_with_password(user, receiver_meter_no: str, units_raw: str, password: str):
-    try:
-        units = Decimal(str(units_raw))
-    except (InvalidOperation, ValueError):
-        return False, "Invalid units."
-
-    if not _is_valid_ussd_pin(password):
-        return False, "Incorrect PIN."
-
-    try:
-        result = execute_share_units(
-            sender=user,
-            receiver_meter_no=receiver_meter_no,
-            units=units,
-            channel="USSD",
-        )
-    except ShareFlowError as exc:
-        return False, exc.message
-
-    msg_suffix = ""
-    if result.get("share_token"):
-        msg_suffix = f"\nToken: {result['share_token']}"
-    elif result.get("receiver_architecture") == Meter.ARCH_AMI:
-        msg_suffix = "\nAMI meter topped up."
-
-    return True, (
-        f"Share completed.\nRef: {result['transaction_id']}\n"
-        f"To: {result['receiver_meter']} ({result.get('receiver_name', '')})\n"
-        f"Units: {result['units_shared']}\n"
-        f"Wallet: {result['new_sender_wallet_balance']} kWh"
-        f"{msg_suffix}"
     )
 
 
@@ -1113,28 +1032,7 @@ def ussd_entry(request):
                             "Error: Invalid amount.",
                             menu="buy_result",
                         )
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _reply_prompt(
-                        ussd_session,
-                        f"Top-up UGX {purchase_amount:,.0f}\nEnter PIN to confirm:",
-                        menu="buy_pin",
-                        context={"buy_amount": str(purchase_amount), "buy_pin_attempts": 0},
-                    )
-                if len(steps) >= 4:
-                    # On a PIN re-prompt the cumulative text grows (extra trailing
-                    # step per retry), so the newest entry is always the last step.
-                    pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                        ussd_session, user, steps[-1], "buy_pin_attempts"
-                    )
-                    if not pin_ok:
-                        ussd_session.last_text = text
-                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                        if terminate:
-                            return _session_reply(ussd_session, "END", pin_msg, menu="buy_pin_locked")
-                        return _reply_prompt(ussd_session, pin_msg, menu="buy_pin")
-                    amount_raw = (ussd_session.context or {}).get("buy_amount") or steps[2]
-                    ok, msg = _start_buy_units(user, phone_number, amount_raw)
+                    ok, msg = _start_buy_units(user, phone_number, str(purchase_amount))
                     ctx = {}
                     if ok:
                         tx_line = [line for line in msg.split("\n") if line.startswith("TxID:")]
@@ -1373,35 +1271,38 @@ def ussd_entry(request):
                 )
 
             if len(steps) == 3:
-                ok, msg = _share_preview_for_ussd(user, steps[1], steps[2])
-                if not ok:
+                preview_ok, preview_msg = _share_preview_for_ussd(user, steps[1], steps[2])
+                if not preview_ok:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _reply_done(ussd_session, f"Error: {msg}", menu="share_preview_error")
+                    return _reply_done(ussd_session, f"Error: {preview_msg}", menu="share_preview_error")
+                try:
+                    units = Decimal(str(steps[2]))
+                    result = execute_share_units(
+                        sender=user,
+                        receiver_meter_no=steps[1],
+                        units=units,
+                        channel="USSD",
+                    )
+                    msg_suffix = ""
+                    if result.get("share_token"):
+                        msg_suffix = f"\nToken: {result['share_token']}"
+                    elif result.get("receiver_architecture") == Meter.ARCH_AMI:
+                        msg_suffix = "\nAMI meter topped up."
+                    share_msg = (
+                        f"Share completed.\nRef: {result['transaction_id']}\n"
+                        f"To: {result['receiver_meter']} ({result.get('receiver_name', '')})\n"
+                        f"Units: {result['units_shared']}\n"
+                        f"Wallet: {result['new_sender_wallet_balance']} kWh"
+                        f"{msg_suffix}"
+                    )
+                    share_ok = True
+                except ShareFlowError as exc:
+                    share_msg = exc.message
+                    share_ok = False
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_prompt(
-                    ussd_session,
-                    f"{msg}\nEnter PIN to confirm:",
-                    menu="share_pin",
-                    context={"share_pin_attempts": 0},
-                )
-
-            # Last step is the newest PIN entry (text grows on each re-prompt).
-            pin_ok, terminate, pin_msg = _validate_pin_attempt(
-                ussd_session, user, steps[-1], "share_pin_attempts"
-            )
-            if not pin_ok:
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                if terminate:
-                    return _session_reply(ussd_session, "END", pin_msg, menu="share_pin_locked")
-                return _reply_prompt(ussd_session, pin_msg, menu="share_pin")
-
-            ok, msg = _share_with_password(user, steps[1], steps[2], steps[-1])
-            ussd_session.last_text = text
-            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_result")
+                return _reply_done(ussd_session, share_msg if share_ok else f"Error: {share_msg}", menu="share_result")
 
         # 5) Tokens — list or generate STS
         if steps[0] == "5":

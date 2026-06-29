@@ -53,16 +53,6 @@ class LoanApplicationView(generics.ListCreateAPIView):
         try:
             data = request.data
 
-            from utils.transaction_pin import PIN_ERROR_MESSAGE, verify_transaction_pin
-
-            # PIN is the final authentication step, required even though the user
-            # is already logged in.
-            if not verify_transaction_pin(request.user, data.get("pin")):
-                return Response(
-                    {"error": PIN_ERROR_MESSAGE},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
-
             # Prevent multiple active loans
             from loan.services import user_can_apply_for_loan
 
@@ -284,6 +274,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
     def get_queryset(self):
         # For GET requests, return user's loans
         if self.request.method == "GET":
+            from loan.services import reconcile_user_loan_statuses
+
+            reconcile_user_loan_statuses(self.request.user)
             return LoanApplication.objects.filter(user=self.request.user)
         return LoanApplication.objects.none()
 
@@ -292,6 +285,9 @@ class UserLoansView(generics.ListAPIView):
     serializer_class = LoanApplicationSerializer
     
     def get_queryset(self):
+        from loan.services import reconcile_user_loan_statuses
+
+        reconcile_user_loan_statuses(self.request.user)
         return LoanApplication.objects.filter(user=self.request.user)
 
 class LoanDetailView(generics.RetrieveAPIView):
@@ -299,6 +295,9 @@ class LoanDetailView(generics.RetrieveAPIView):
     serializer_class = LoanApplicationSerializer
     
     def get_queryset(self):
+        from loan.services import reconcile_user_loan_statuses
+
+        reconcile_user_loan_statuses(self.request.user)
         return LoanApplication.objects.filter(user=self.request.user)
 
 # class LoanRepaymentView(APIView):
@@ -611,3 +610,107 @@ class ActiveLoanRepaymentView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+
+class LoanLookupByPhoneView(APIView):
+    """
+    GET /loans/lookup-by-phone/?phone=256XXXXXXXXX
+    Returns the outstanding loan for the user with that phone number.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from accounts.models import User as UserModel
+        phone = request.query_params.get("phone", "").strip()
+        if not phone:
+            return Response({"error": "phone query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not phone.startswith("+"):
+            phone = "+" + phone
+
+        try:
+            owner = UserModel.objects.get(phone_number=phone)
+        except UserModel.DoesNotExist:
+            return Response({"error": "No registered user found with that phone number."}, status=status.HTTP_404_NOT_FOUND)
+
+        if owner == request.user:
+            return Response({"error": "Use the standard repayment flow for your own loans."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from loan.services import get_repayable_loan
+        loan = get_repayable_loan(owner)
+        if not loan:
+            return Response({"error": "This user has no outstanding loan balance."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "owner": {
+                "id": owner.id,
+                "name": f"{owner.first_name} {owner.last_name}".strip() or owner.email,
+                "phone": str(owner.phone_number),
+            },
+            "loan": {
+                "id": loan.id,
+                "loan_id": loan.loan_id,
+                "outstanding_balance": float(loan.outstanding_balance),
+                "total_amount_due": float(loan.total_amount_due) if hasattr(loan, 'total_amount_due') else float(loan.outstanding_balance),
+                "status": loan.status,
+            },
+        })
+
+
+class PayForSomeoneView(APIView):
+    """
+    POST /loans/pay-for-someone/
+    Body: { owner_phone, loan_id, amount, is_anonymous }
+    Pays off (fully or partially) another user's loan from the payer's wallet.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from accounts.models import User as UserModel
+        from loan.services import repay_loan, LoanOperationError
+
+        owner_phone = request.data.get("owner_phone", "").strip()
+        loan_id = request.data.get("loan_id")
+        amount = request.data.get("amount")
+        is_anonymous = bool(request.data.get("is_anonymous", False))
+
+        if not owner_phone or not loan_id or not amount:
+            return Response({"error": "owner_phone, loan_id, and amount are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not owner_phone.startswith("+"):
+            owner_phone = "+" + owner_phone
+
+        try:
+            owner = UserModel.objects.get(phone_number=owner_phone)
+        except UserModel.DoesNotExist:
+            return Response({"error": "No registered user found with that phone number."}, status=status.HTTP_404_NOT_FOUND)
+
+        if owner == request.user:
+            return Response({"error": "Use the standard repayment flow for your own loans."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = repay_loan(
+                user=owner,
+                loan_id=loan_id,
+                amount=amount,
+                channel="WEB",
+                payment_method="CASH",
+                paid_by_user=request.user,
+                is_anonymous=is_anonymous,
+            )
+            owner_name = f"{owner.first_name} {owner.last_name}".strip() or owner.email
+            return Response({
+                "message": result["message"],
+                "owner_name": owner_name,
+                "loan_id": result["loan_id"],
+                "units_added": result["units_added"],
+                "outstanding_balance": result["outstanding_balance"],
+                "loan_status": result["loan_status"],
+                "payment_reference": result["payment_reference"],
+                "is_anonymous": is_anonymous,
+            })
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.error("PayForSomeone error: %s", exc)
+            return Response({"error": "Payment failed. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -18,15 +18,6 @@ import TokenPopup from "./token-popup";
 import BuyUnitsSuggestion from "./buy-units-suggestion";
 import { get } from "@/lib/fetch-client";
 import Link from "next/link";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { PIN_LENGTH, PinInput } from "@/components/common/pin-input";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -131,9 +122,6 @@ export default function LoanApplicationForm() {
     const [isCheckingLoans, setIsCheckingLoans] = useState(true);
     const [hasBlockingLoan, setHasBlockingLoan] = useState(false);
     const [loanBlockMessage, setLoanBlockMessage] = useState<string | null>(null);
-    const [pin, setPin] = useState("");
-    const [confirmOpen, setConfirmOpen] = useState(false);
-    const [pendingValues, setPendingValues] = useState<LoanFormValues | null>(null);
     const [loanResult, setLoanResult] = useState<{
         status: string;
         token?: string;
@@ -236,19 +224,6 @@ export default function LoanApplicationForm() {
             setError("Please register your meter first");
             return;
         }
-        // PIN is the final authentication step before the request is sent.
-        setError("");
-        setPendingValues(values);
-        setPin("");
-        setConfirmOpen(true);
-    };
-
-    const confirmWithPin = async () => {
-        if (!pendingValues) return;
-        if (pin.length !== PIN_LENGTH) {
-            setError("Enter your 4-digit transaction PIN to confirm.");
-            return;
-        }
         setIsPending(true);
         setError("");
         setSuccess("");
@@ -258,25 +233,18 @@ export default function LoanApplicationForm() {
         setShowMeterAlert(false);
 
         try {
-            const result = await submitLoanApplication({ ...pendingValues, pin });
+            const result = await submitLoanApplication(values);
 
             if (result.error) {
-                // Keep the dialog open so the user can re-enter the PIN.
-                setPin("");
                 setError(result.error);
                 return;
             }
-
-            setConfirmOpen(false);
-            setPin("");
-            setPendingValues(null);
 
             if (result.data) {
                 setLoanResult(result.data);
 
                 if (result.data.status === 'APPROVED') {
                     setSuccess(result.data.message || "Loan approved! Go to 'My Loans' to disburse and receive your electricity units.");
-                    // Don't show token popup - wait for manual disbursement
                     setTimeout(() => {
                         router.push('/dashboard/myloans');
                     }, 3000);
@@ -649,71 +617,6 @@ export default function LoanApplicationForm() {
                     </Form>
                 </div>
             </CardWrapper>
-
-            {/* PIN confirmation — final authentication before submitting */}
-            <Dialog
-                open={confirmOpen}
-                onOpenChange={(open) => {
-                    if (isPending) return;
-                    setConfirmOpen(open);
-                    if (!open) {
-                        setPin("");
-                        setError("");
-                    }
-                }}
-            >
-                <DialogContent className="sm:max-w-md">
-                    <DialogHeader>
-                        <DialogTitle>Confirm loan request</DialogTitle>
-                        <DialogDescription>
-                            Enter your transaction PIN to submit
-                            {pendingValues?.amount_requested
-                                ? ` your request for UGX ${Number(pendingValues.amount_requested).toLocaleString()}`
-                                : " this loan request"}
-                            .
-                        </DialogDescription>
-                    </DialogHeader>
-
-                    <PinInput
-                        value={pin}
-                        onChange={setPin}
-                        disabled={isPending}
-                        autoFocus
-                        onEnter={confirmWithPin}
-                    />
-
-                    <FormError message={error} />
-
-                    <DialogFooter className="gap-2 sm:gap-0">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                                setConfirmOpen(false);
-                                setPin("");
-                                setError("");
-                            }}
-                            disabled={isPending}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            type="button"
-                            onClick={confirmWithPin}
-                            disabled={isPending || pin.length !== PIN_LENGTH}
-                        >
-                            {isPending ? (
-                                <>
-                                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                    Submitting…
-                                </>
-                            ) : (
-                                "Confirm request"
-                            )}
-                        </Button>
-                    </DialogFooter>
-                </DialogContent>
-            </Dialog>
 
             {/* Token Popup for Approved Loans */}
             {showTokenPopup && loanResult?.token && (

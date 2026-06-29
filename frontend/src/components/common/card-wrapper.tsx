@@ -29,8 +29,8 @@ const CardWrapper = ({
       : "min-h-full flex flex-col justify-center py-10 sm:py-14 sm:px-6 lg:px-8";
   const cardBase =
     variant === "auth"
-      ? "bg-white/95 dark:bg-slate-900/90 backdrop-blur-sm py-5 px-4 shadow-xl shadow-blue-500/10 rounded-2xl sm:px-10 border border-gray-200/70 dark:border-slate-800/70 sm:max-h-[85vh] sm:overflow-y-auto"
-      : "bg-white/95 dark:bg-slate-900/90 backdrop-blur-sm py-8 px-5 shadow-xl shadow-blue-500/10 sm:rounded-2xl sm:px-10 border border-gray-200/70 dark:border-slate-800/70";
+      ? "bg-white/95 dark:bg-card/95 backdrop-blur-sm py-5 px-4 shadow-xl shadow-blue-500/10 dark:shadow-black/30 rounded-2xl sm:px-10 border border-gray-200/70 dark:border-white/10 sm:max-h-[85vh] sm:overflow-y-auto"
+      : "bg-white/95 dark:bg-card/95 backdrop-blur-sm py-8 px-5 shadow-xl shadow-blue-500/10 dark:shadow-black/30 sm:rounded-2xl sm:px-10 border border-gray-200/70 dark:border-white/10";
 
   return (
     <div className="relative">

@@ -564,3 +564,125 @@ def handle_send_loan_disbursed_email(user_id, loan_id, amount_approved, units_di
     except Exception as exc:
         logger.exception("[LOAN DISBURSEMENT] Email task error: %s", exc)
         return False
+
+
+@app.task()
+def handle_send_loan_repayment_email(user_id, loan_id, amount_paid, outstanding_balance, is_fully_repaid):
+    """Email user after a loan repayment (partial or full)."""
+    try:
+        user = User.objects.filter(pk=user_id).first()
+        if not user or not user.email:
+            logger.warning("[LOAN REPAYMENT] No user/email for loan %s", loan_id)
+            return False
+
+        if is_fully_repaid:
+            subject = "gPawa: Loan fully repaid"
+            body = (
+                f"<p>Hello {user.first_name or 'there'},</p>"
+                "<p>Your electricity loan has been <strong>fully repaid</strong>. Thank you!</p>"
+                "<ul>"
+                f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+                f"<li><strong>Final payment:</strong> UGX {float(amount_paid):,.2f}</li>"
+                f"<li><strong>Outstanding balance:</strong> UGX 0.00</li>"
+                "</ul>"
+                "<p>Your loan account is now clear. You can apply for a new loan anytime.</p>"
+                "<p>— gPawa Energy Wallet</p>"
+            )
+        else:
+            subject = "gPawa: Loan repayment received"
+            body = (
+                f"<p>Hello {user.first_name or 'there'},</p>"
+                "<p>We have received your loan repayment.</p>"
+                "<ul>"
+                f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+                f"<li><strong>Amount paid:</strong> UGX {float(amount_paid):,.2f}</li>"
+                f"<li><strong>Remaining balance:</strong> UGX {float(outstanding_balance):,.2f}</li>"
+                "</ul>"
+                "<p>Keep making payments to clear your loan and improve your credit score.</p>"
+                "<p>— gPawa Energy Wallet</p>"
+            )
+
+        sent, msg = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[user.email],
+            subject=subject,
+            message=body,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[LOAN REPAYMENT] Failed to email user %s: %s", user.email, msg)
+        return sent
+    except Exception as exc:
+        logger.exception("[LOAN REPAYMENT] Email task error: %s", exc)
+        return False
+
+
+@app.task()
+def handle_send_third_party_loan_payment_to_owner(owner_id, loan_id, amount_paid, payer_display_name, is_fully_repaid):
+    """Email the loan owner when someone else pays their loan."""
+    try:
+        owner = User.objects.filter(pk=owner_id).first()
+        if not owner or not owner.email:
+            return False
+        verb = "fully repaid" if is_fully_repaid else "partially paid"
+        subject = f"gPawa: Your loan has been {verb}"
+        body = (
+            f"<p>Hello {owner.first_name or 'there'},</p>"
+            f"<p>Your electricity loan <strong>{loan_id}</strong> has been <strong>{verb}</strong> by "
+            f"<strong>{payer_display_name}</strong>.</p>"
+            f"<ul>"
+            f"<li><strong>Amount paid:</strong> UGX {float(amount_paid):,.2f}</li>"
+            f"<li><strong>Loan status:</strong> {'Fully cleared' if is_fully_repaid else 'Partially repaid'}</li>"
+            f"</ul>"
+            f"<p>Check your dashboard for the updated balance.</p>"
+            f"<p>— gPawa Energy Wallet</p>"
+        )
+        sent, msg = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[owner.email],
+            subject=subject,
+            message=body,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[THIRD PARTY PAYMENT OWNER] Failed to email %s: %s", owner.email, msg)
+        return sent
+    except Exception as exc:
+        logger.exception("[THIRD PARTY PAYMENT OWNER] Email task error: %s", exc)
+        return False
+
+
+@app.task()
+def handle_send_third_party_loan_payment_to_payer(payer_id, owner_name, loan_id, amount_paid, is_fully_repaid):
+    """Email the payer confirming they cleared someone else's loan."""
+    try:
+        payer = User.objects.filter(pk=payer_id).first()
+        if not payer or not payer.email:
+            return False
+        verb = "fully repaid" if is_fully_repaid else "partially paid"
+        subject = f"gPawa: You {verb} a loan on behalf of {owner_name}"
+        body = (
+            f"<p>Hello {payer.first_name or 'there'},</p>"
+            f"<p>You have successfully {verb} the electricity loan belonging to "
+            f"<strong>{owner_name}</strong>.</p>"
+            f"<ul>"
+            f"<li><strong>Loan ID:</strong> {loan_id}</li>"
+            f"<li><strong>Amount paid:</strong> UGX {float(amount_paid):,.2f}</li>"
+            f"<li><strong>Status:</strong> {'Loan fully cleared' if is_fully_repaid else 'Partial payment applied'}</li>"
+            f"</ul>"
+            f"<p>Thank you for your generosity.</p>"
+            f"<p>— gPawa Energy Wallet</p>"
+        )
+        sent, msg = send_email(
+            sender=settings.DEFAULT_EMAIL_SENDER,
+            recipients=[payer.email],
+            subject=subject,
+            message=body,
+            reply_to=[settings.DEFAULT_EMAIL_SENDER],
+        )
+        if not sent:
+            logger.error("[THIRD PARTY PAYMENT PAYER] Failed to email %s: %s", payer.email, msg)
+        return sent
+    except Exception as exc:
+        logger.exception("[THIRD PARTY PAYMENT PAYER] Email task error: %s", exc)
+        return False

@@ -14,7 +14,7 @@ import {
 } from "@/common/constants/auth-cookie";
 
 export const buyUnits = async (
-  data: z.infer<typeof BuyUnitSchema> & { pin: string }
+  data: z.infer<typeof BuyUnitSchema>
 ) => {
   const res = await post<BuyUnitsResponse>("meter/buy-units/", data);
 

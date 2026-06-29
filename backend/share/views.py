@@ -118,16 +118,6 @@ class ShareUnitsView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        from utils.transaction_pin import PIN_ERROR_MESSAGE, verify_transaction_pin
-
-        # PIN is the final authentication step, required even though the user
-        # is already logged in.
-        if not verify_transaction_pin(request.user, serializer.validated_data["pin"]):
-            return Response(
-                {"error": PIN_ERROR_MESSAGE},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
             result = execute_share_units(
                 sender=request.user,

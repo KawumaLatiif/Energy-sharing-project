@@ -10,7 +10,10 @@
       "WebFetch(domain:thenilewires.com)",
       "PowerShell(python \"D:\\\\Energy-sharing-project\\\\gen_tariff_doc.py\")",
       "Bash(python -m py_compile ussd/views.py)",
-      "Bash(python -m py_compile utils/transaction_pin.py ussd/views.py meter/api/views.py share/views.py share/serializers.py loan/api/views.py)"
+      "Bash(python -m py_compile utils/transaction_pin.py ussd/views.py meter/api/views.py share/views.py share/serializers.py loan/api/views.py)",
+      "Bash(python -m py_compile loan/services.py backend/settings.py)",
+      "Bash(python manage.py check)",
+      "Bash(nslookup iot.energy-share.sun.ac.ug)"
     ]
   }
 }

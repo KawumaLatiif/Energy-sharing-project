@@ -306,8 +306,16 @@ class LoanRepayment(TimeStampedModel):
     units_paid = models.FloatField()
     is_on_time = models.BooleanField(default=True)
     payment_reference = models.CharField(max_length=50, unique=True)
-    
-    
+    paid_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='third_party_payments',
+        help_text="User who paid on behalf of the loan owner (null = self-payment)",
+    )
+    is_anonymous = models.BooleanField(
+        default=False,
+        help_text="Whether the payer chose to stay anonymous to the loan owner",
+    )
+
     payment_method = models.CharField(
         max_length=20, 
         choices=[

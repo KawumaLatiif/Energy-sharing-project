@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -227,7 +226,7 @@ export default function RepaymentForm({
               <Smartphone className="h-5 w-5" />
               Mobile Money Payment - Loan {loan.loan_id}
             </CardTitle>
-            <CardDescription className="space-y-2">
+            <div className="space-y-2 text-sm text-muted-foreground">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="space-y-1">
                   <div className="flex justify-between">
@@ -238,7 +237,7 @@ export default function RepaymentForm({
                   </div>
                 </div>
               </div>
-            </CardDescription>
+            </div>
           </CardHeader>
 
           <CardContent className="space-y-4">

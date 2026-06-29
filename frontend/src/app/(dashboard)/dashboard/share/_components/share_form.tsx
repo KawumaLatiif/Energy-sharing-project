@@ -42,7 +42,6 @@ import {
   METER_NO_MAX_LENGTH,
   meterNumberFieldSchema,
 } from "@/lib/meter-validation";
-import { PIN_LENGTH, PinInput } from "@/components/common/pin-input";
 
 function createShareSchema(maxUnits: number) {
   const cap = Math.max(maxUnits, 2);
@@ -106,7 +105,6 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
   const [totalUnits, setTotalUnits] = useState<number>(0);
   const [isLoadingBalance, setIsLoadingBalance] = useState(true);
   const [showSuccess, setShowSuccess] = useState(false);
-  const [pin, setPin] = useState("");
   const [transactionDetails, setTransactionDetails] = useState<{
     meter_number: string;
     units: number;
@@ -236,10 +234,6 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
 
   const confirmShareWithPin = async () => {
     if (!pendingShare) return;
-    if (pin.length !== PIN_LENGTH) {
-      setError("Enter your 4-digit transaction PIN.");
-      return;
-    }
 
     setIsPending(true);
     setError("");
@@ -249,12 +243,10 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
       const response = await post<ShareUnitsResponse>("share/share-units/", {
         meter_number: pendingShare.meter_number,
         units: pendingShare.units,
-        pin,
       });
 
       if (response.data?.success === true) {
         setConfirmOpen(false);
-        setPin("");
         setTransactionDetails({
           meter_number: pendingShare.meter_number,
           units: pendingShare.units,
@@ -473,14 +465,6 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
                   {deliveryMethod}
                 </InfoBanner>
               )}
-
-              <PinInput
-                value={pin}
-                onChange={setPin}
-                disabled={isPending}
-                autoFocus
-                onEnter={confirmShareWithPin}
-              />
             </div>
           )}
 
@@ -492,7 +476,6 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
               variant="outline"
               onClick={() => {
                 setConfirmOpen(false);
-                setPin("");
               }}
               disabled={isPending}
             >
@@ -501,7 +484,7 @@ export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProp
             <Button
               type="button"
               onClick={confirmShareWithPin}
-              disabled={isPending || pin.length !== PIN_LENGTH}
+              disabled={isPending}
               className="gpawa-gradient text-white"
             >
               {isPending ? (

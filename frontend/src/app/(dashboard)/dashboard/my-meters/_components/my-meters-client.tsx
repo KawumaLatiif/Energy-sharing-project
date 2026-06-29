@@ -223,7 +223,7 @@ export default function MyMetersClient() {
                       {meter.meter_number}
                     </p>
                   </div>
-                  <Badge variant="outline" className={meter.architecture === "AMI" ? "border-sky-200 text-sky-700" : ""}>
+                  <Badge variant="outline" className={meter.architecture === "AMI" ? "border-sky-300 text-sky-700 dark:border-sky-700 dark:text-sky-400" : "dark:border-muted"}>
                     {meter.architecture}
                   </Badge>
                 </div>
@@ -248,8 +248,8 @@ export default function MyMetersClient() {
                   <Badge
                     className={
                       selected.architecture === "AMI"
-                        ? "bg-sky-500/10 text-sky-700 border-sky-200"
-                        : "bg-amber-500/10 text-amber-800 border-amber-200"
+                        ? "bg-sky-500/10 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-700"
+                        : "bg-amber-500/10 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700"
                     }
                   >
                     {selected.architecture === "AMI" ? (
@@ -305,7 +305,7 @@ export default function MyMetersClient() {
                 </div>
 
                 {selected.architecture === "AMI" && selected.pending_units > 0 && (
-                  <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-200">
                     {selected.pending_units.toFixed(2)} kWh are queued for your meter. Delivery
                     retries automatically every few minutes and when you tap Check Units.
                   </div>
@@ -318,7 +318,7 @@ export default function MyMetersClient() {
                 )}
 
                 {selected.architecture === "STS" && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                     STS meters do not support remote balance checks. Read your remaining units
                     directly from the Customer Interface Unit (CIU) on your wall.
                   </div>
@@ -328,7 +328,7 @@ export default function MyMetersClient() {
                   <p className="text-sm text-destructive">{checkError}</p>
                 )}
                 {actionMessage && (
-                  <p className="text-sm text-green-700">{actionMessage}</p>
+                  <p className="text-sm text-green-700 dark:text-green-400">{actionMessage}</p>
                 )}
 
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -454,8 +454,8 @@ function InfoTile({
   return (
     <div
       className={cn(
-        "rounded-lg border px-4 py-3",
-        highlight && "border-sky-200 bg-sky-50/50"
+        "rounded-lg border px-4 py-3 dark:border-white/10",
+        highlight && "border-sky-200 bg-sky-50/50 dark:border-sky-800 dark:bg-sky-900/20"
       )}
     >
       <p className="text-xs text-muted-foreground">{label}</p>

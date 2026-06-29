@@ -138,7 +138,7 @@ function normalizeAdminLoan(raw: Record<string, unknown>): Loan {
     (id > 0 ? String(id) : "");
 
   return {
-    ...(raw as Loan),
+    ...(raw as unknown as Loan),
     id,
     loan_id: loanRef,
     user: {
