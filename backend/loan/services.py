@@ -73,10 +73,20 @@ def incomplete_loans_queryset(user):
 def reconcile_user_loan_statuses(user) -> int:
     """
     Persist the derived terminal state for loans that were fully paid but still
-    carry an old active status. This keeps dashboards, lists, and blockers in
-    sync with the DB status.
+    carry an old active status, and retry disbursement for loans stranded at
+    APPROVED (e.g. a prior auto-disbursement attempt failed). Runs on every
+    loan list/stats fetch so approved credit never stays stuck waiting on a
+    customer action - there isn't one.
     """
     updated = 0
+
+    for loan in LoanApplication.objects.filter(user=user, status="APPROVED"):
+        try:
+            disburse_loan(user, loan.id, channel="RECONCILE")
+            updated += 1
+        except Exception:
+            logger.exception("Retry auto-disbursement failed for loan %s", loan.loan_id)
+
     loans = LoanApplication.objects.filter(
         user=user,
         status__in=DEBT_LOAN_STATUSES,
@@ -379,6 +389,15 @@ def create_loan_application(
         float(amount_approved or 0),
     )
 
+    if loan.status == "APPROVED":
+        try:
+            disburse_loan(user, loan.id, channel=channel)
+            loan.refresh_from_db()
+        except Exception:
+            # Leave the loan APPROVED rather than failing the application -
+            # it can be disbursed later (e.g. via the admin panel).
+            logger.exception("Auto-disbursement failed for loan %s", loan.loan_id)
+
     return loan
 
 
@@ -402,16 +421,21 @@ def disburse_loan(user, loan_id=None, *, channel: str = "WEB") -> dict:
     loan = _resolve_loan_for_disburse(user, loan_id)
     if not loan:
         raise LoanOperationError("No approved loan found.")
-    if loan.status != "APPROVED":
-        raise LoanOperationError(f"Loan is {loan.status}. Only APPROVED loans can be disbursed.")
-    if not loan.amount_approved or loan.amount_approved <= 0:
-        raise LoanOperationError("Loan amount not approved.")
 
     meter = Meter.objects.filter(user=user).first()
     if not meter:
         raise LoanOperationError("No meter found.")
 
     with transaction.atomic():
+        # Lock the row so two concurrent disbursement attempts (e.g. the apply
+        # request racing a reconcile-triggered retry) can't both pass the
+        # APPROVED check and double-credit the wallet.
+        loan = LoanApplication.objects.select_for_update().get(pk=loan.pk)
+        if loan.status != "APPROVED":
+            raise LoanOperationError(f"Loan is {loan.status}. Only APPROVED loans can be disbursed.")
+        if not loan.amount_approved or loan.amount_approved <= 0:
+            raise LoanOperationError("Loan amount not approved.")
+
         if loan.tariff:
             units_to_disburse = loan.calculate_units_from_amount()
         else:

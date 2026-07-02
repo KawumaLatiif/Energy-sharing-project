@@ -21,10 +21,11 @@ async function getLoans() {
 export default async function LoansPage({
   searchParams,
 }: {
-  searchParams: { tab?: string };
+  searchParams: Promise<{ tab?: string }>;
 }) {
   const loans = await getLoans();
-  const defaultTab = searchParams?.tab ?? "my-loans";
+  const params = await searchParams;
+  const defaultTab = params?.tab ?? "my-loans";
 
   return (
     <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">

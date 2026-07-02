@@ -96,7 +96,6 @@ class LoanApplicationView(generics.ListCreateAPIView):
             else:
                 amount_approved = min(max_eligible, amount_requested)
 
-            # Save loan - DON'T disburse automatically
             loan = serializer.save(
                 user=request.user,
                 credit_score=credit_score,
@@ -142,6 +141,20 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 float(amount_approved or 0),
             )
 
+            # Loans within the client's credit limit are disbursed immediately;
+            # disburse_loan() raises its own notification + email for the disbursement.
+            disbursement_result = None
+            if loan.status == "APPROVED":
+                from loan.services import disburse_loan
+
+                try:
+                    disbursement_result = disburse_loan(request.user, loan.id, channel="WEB")
+                    loan.refresh_from_db()
+                except Exception:
+                    # Leave the loan APPROVED rather than failing the application -
+                    # it can be disbursed later (e.g. via the admin panel).
+                    logger.exception("Auto-disbursement failed for loan %s", loan.loan_id)
+
             # Calculate units based on tariff (for response)
             if tariff and amount_approved:
                 units_calculated = loan.calculate_units_from_amount()
@@ -177,9 +190,21 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 },
             }
 
-            if loan.status == "APPROVED":
+            if loan.status == "DISBURSED":
                 response_data.update({
-                    "message": f"Loan approved! You qualified for {tier_name} tier. Go to 'My Loans' to disburse and receive your electricity units."
+                    "message": (
+                        f"Loan approved and disbursed! You qualified for {tier_name} tier. "
+                        f"{disbursement_result['units_disbursed']} units have been added to your wallet."
+                    ),
+                    "units_disbursed": disbursement_result["units_disbursed"],
+                    "meter_push_ok": disbursement_result["meter_push_ok"],
+                })
+            elif loan.status == "APPROVED":
+                response_data.update({
+                    "message": (
+                        f"Loan approved! You qualified for {tier_name} tier. "
+                        "We're crediting your units now - if they don't arrive shortly, contact support."
+                    )
                 })
             else:
                 response_data.update({

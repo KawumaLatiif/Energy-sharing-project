@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import {
-  ArrowUpRight,
   CheckCheck,
   Clock10Icon,
   EllipsisVertical,
@@ -32,9 +31,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import BuyUnitsSuggestion from "../../request-loan/_components/buy-units-suggestion";
-import TokenPopup from "../../request-loan/_components/token-popup";
 import RepaymentForm from "../../request-loan/_components/repayment-form";
-import { disburseLoan, repayLoan } from "../action";
+import { repayLoan } from "../action";
 import { get } from "@/lib/fetch-client";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
@@ -84,9 +82,7 @@ export default function LoanList({ loans }: LoanListProps) {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [detailLoan, setDetailLoan] = useState<Loan | null>(null);
   const [showRepaymentForm, setShowRepaymentForm] = useState(false);
-  const [showTokenPopup, setShowTokenPopup] = useState(false);
   const [showBuySuggestion, setShowBuySuggestion] = useState(false);
-  const [disbursementData, setDisbursementData] = useState<{ token: string, units: number } | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -140,37 +136,6 @@ export default function LoanList({ loans }: LoanListProps) {
     return status === 'DISBURSED' && balance > 0;
   };
 
-  // const canRepay = (loan: Loan): boolean => {
-  //   const status = getLoanStatus(loan);
-  //   const balance = calculateOutstandingBalance(loan);
-  //   return status === 'DISBURSED' && balance > 0;
-  // };
-
-  const canDisburse = (loan: Loan): boolean => {
-    const status = getLoanStatus(loan);
-    return status === 'APPROVED';
-  };
-
-  // const handleDisbursementSuccess = (data: { token: string; units_added: number } | any) => {
-  //   setDisbursementData({
-  //     token: data.token || '',
-  //     units: data.units_added || 0
-  //   });
-  //   setShowTokenPopup(true);
-  // };
-
-  // const handleRepaymentSuccess = () => {
-  //   setShowRepaymentForm(false);
-  //   setSelectedLoan(null);
-  //   setSuccessMessage("Payment processed successfully!");
-  //   // Clear success message after 3 seconds
-  //   setTimeout(() => {
-  //     setSuccessMessage(null);
-  //     window.location.reload();
-  //   }, 3000);
-  // };
-
-
   const handleRepaymentSuccess = () => {
     setShowRepaymentForm(false);
     setSelectedLoan(null);
@@ -205,7 +170,7 @@ export default function LoanList({ loans }: LoanListProps) {
       'PENDING': { text: 'Pending', className: 'bg-yellow-100 text-yellow-800' },
       'APPROVED': { text: 'Approved', className: 'bg-green-100 text-green-800' },
       'REJECTED': { text: 'Rejected', className: 'bg-red-100 text-red-800' },
-      'DISBURSED': { text: 'Accepted', className: 'bg-blue-100 text-blue-800' },
+      'DISBURSED': { text: 'Disbursed', className: 'bg-blue-100 text-blue-800' },
       'COMPLETED': { text: 'Completed', className: 'bg-gray-100 text-gray-800' },
       'DEFAULTED': { text: 'Defaulted', className: 'bg-red-200 text-red-900' },
     };
@@ -216,54 +181,6 @@ export default function LoanList({ loans }: LoanListProps) {
       ...config,
       rejectionReason: loan.rejection_reason && status === 'REJECTED' ? loan.rejection_reason : null
     };
-  };
-
-  const handleDisburseLoan = async (loan: Loan) => {
-    if (!canDisburse(loan)) {
-      setErrorMessage('Loan cannot be accepted at this time');
-      return;
-    }
-
-    try {
-      console.log('Starting acceptance for loan:', loan.id);
-      setSuccessMessage('Accepting loan...');
-
-      const data = await disburseLoan(loan.id);
-      console.log('Acceptment response:', data);
-
-      handleDisbursementSuccess(data);
-      setSuccessMessage('Loan accepted successfully! Units have been added to your wallet.');
-
-      setTimeout(() => {
-        window.location.reload();
-      }, 3000);
-
-    } catch (error: any) {
-      console.error('Disbursement error:', error);
-
-      if (error.message.includes('Authentication') || error.message.includes('login')) {
-        setErrorMessage('Your session has expired. Please log in again.');
-        setTimeout(() => {
-          window.location.href = '/auth/login';
-        }, 2000);
-      } else {
-        setErrorMessage(error.message || 'An error occurred while accepting the loan.');
-      }
-    }
-  };
-
-  const handleDisbursementSuccess = (data: { token?: string; units_added?: number } | any) => {
-    console.log('Disbursement success data:', data);
-    const token = data.token || data.disbursement_token || '';
-    const units = data.units_added || data.units_disbursed || data.units_added_to_wallet || 0;
-
-    if (token) {
-      setDisbursementData({ token, units });
-      setShowTokenPopup(true);
-    } else {
-      setDisbursementData(null);
-      setShowTokenPopup(false);
-    }
   };
 
   // Clear messages after 5 seconds
@@ -292,7 +209,7 @@ export default function LoanList({ loans }: LoanListProps) {
     const status = getLoanStatus(loan);
     const explanations: Record<string, string> = {
       'PENDING': 'Your loan application is under review',
-      'APPROVED': 'Loan approved! Click "Accept Loan" to receive your electricity units',
+      'APPROVED': "Loan approved! We're crediting your units now - if they don't arrive shortly, contact support.",
       'DISBURSED': 'Electricity units have been added to your meter. You can now make repayments',
       'COMPLETED': 'Loan has been fully repaid - Thank you!',
       'REJECTED': 'Your loan application was not approved',
@@ -452,18 +369,6 @@ export default function LoanList({ loans }: LoanListProps) {
                             </span>
                           </DropdownMenuItem>
                         )}
-
-                        {canDisburse(loan) && (
-                          <DropdownMenuItem
-                            onClick={() => handleDisburseLoan(loan)}
-                            className="cursor-pointer"
-                          >
-                            <span className="flex items-center">
-                              <ArrowUpRight className="h-4 w-4 mr-2" />
-                              Accept Loan
-                            </span>
-                          </DropdownMenuItem>
-                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -482,18 +387,6 @@ export default function LoanList({ loans }: LoanListProps) {
           onCancel={() => {
             setShowRepaymentForm(false);
             setSelectedLoan(null);
-          }}
-        />
-      )}
-
-      {/* Token Popup Modal */}
-      {showTokenPopup && disbursementData && (
-        <TokenPopup
-          token={disbursementData.token}
-          units={disbursementData.units}
-          onClose={() => {
-            setShowTokenPopup(false);
-            setDisbursementData(null);
           }}
         />
       )}

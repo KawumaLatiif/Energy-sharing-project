@@ -244,7 +244,7 @@ export default function LoanApplicationForm() {
                 setLoanResult(result.data);
 
                 if (result.data.status === 'APPROVED') {
-                    setSuccess(result.data.message || "Loan approved! Go to 'My Loans' to disburse and receive your electricity units.");
+                    setSuccess(result.data.message || "Loan approved! We're crediting your units now - if they don't arrive shortly, contact support.");
                     setTimeout(() => {
                         router.push('/dashboard/myloans');
                     }, 3000);

@@ -366,10 +366,9 @@ def build_document(api_shots: dict[str, Path], sim_shots: dict[str, Path]) -> No
     add_para(doc, "Submenu (text = 3):", bold=True)
     for item in [
         "1. Latest loan — summary of most recent application",
-        "2. Apply loan — amount 5000–200000 UGX, credit scoring and tier approval",
-        "3. Disburse loan — approved loans only; 0 = latest approved",
-        "4. Repay loan — disbursed loans; LoanID then amount",
-        "5. Loan stats — pending/active counts and outstanding total",
+        "2. Apply loan — amount 5000–200000 UGX, credit scoring, tier approval, and automatic disbursement",
+        "3. Repay loan — disbursed loans; LoanID then amount",
+        "4. Loan stats — pending/active counts and outstanding total",
     ]:
         doc.add_paragraph(item, style="List Bullet")
 

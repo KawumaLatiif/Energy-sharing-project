@@ -17,14 +17,9 @@ export async function applyForLoan(payload: LoanApplyPayload) {
     rejection_reason?: string;
     credit_score?: number;
     max_eligible_amount?: number;
+    units_disbursed?: number;
+    meter_push_ok?: boolean;
   }>("loans/apply/", { method: "POST", body: JSON.stringify(payload) });
-}
-
-export async function disburseLoan(loanId: number) {
-  return apiRequest<{ success?: boolean; message?: string; token?: string }>(
-    `loans/disburse/${loanId}/`,
-    { method: "POST", body: JSON.stringify({}) }
-  );
 }
 
 export async function repayLoan(loanId: number, amount: number) {

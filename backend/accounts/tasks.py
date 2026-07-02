@@ -498,7 +498,8 @@ def handle_send_loan_application_email(user_id, loan_id, status_value, amount_re
                 f"<li><strong>Amount requested:</strong> UGX {float(amount_requested):,.2f}</li>"
                 f"<li><strong>Amount approved:</strong> UGX {float(amount_approved):,.2f}</li>"
                 "</ul>"
-                "<p>Open your dashboard and disburse to receive units in your wallet.</p>"
+                "<p>Your electricity units are being credited to your wallet automatically — "
+                "you'll receive a follow-up email once disbursement completes.</p>"
                 "<p>— gPawa Energy Wallet</p>"
             )
         else:

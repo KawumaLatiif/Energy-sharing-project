@@ -180,8 +180,8 @@ The web loan form may show a **2% processing fee** in the customer-facing breakd
 ```
 ┌─────────────┐     ┌──────────┐     ┌───────────┐     ┌───────────┐     ┌───────────┐
 │  APPLY      │────▶│ APPROVED │────▶│ DISBURSED │────▶│  REPAY    │────▶│ COMPLETED │
-│ (customer)  │     │ (system) │     │ (customer │     │ (partial/ │     │           │
-│             │     │          │     │  accepts) │     │  full)    │     │           │
+│ (customer)  │     │ (system) │     │ (system,  │     │ (partial/ │     │           │
+│             │     │          │     │ automatic)│     │  full)    │     │           │
 └─────────────┘     └──────────┘     └───────────┘     └───────────┘     └───────────┘
                            │                                    │
                            ▼                                    ▼
@@ -195,13 +195,13 @@ The web loan form may show a **2% processing fee** in the customer-facing breakd
 | Status | Meaning |
 |--------|---------|
 | `PENDING` | Legacy / rare; new applications auto-approve or reject |
-| `APPROVED` | Amount approved; **units not yet in wallet** — customer must **disburse / accept** |
+| `APPROVED` | Amount approved; transient — the platform disburses in the same request/session. Only lingers if auto-disbursement hit an error |
 | `DISBURSED` | Units credited; loan is **active** |
 | `COMPLETED` | Outstanding balance is zero |
 | `REJECTED` | Not approved (e.g. over limit, at risk) |
 | `DEFAULTED` | Serious delinquency (reduces Trust Ladder) |
 
-**Disburse** = customer action (“Accept loan”) that moves approved credit into the **unit wallet** (and may push to AMI meter). This is **not** the same as admin-only bookkeeping; customers disburse via web, mobile, or USSD.
+**Disburse** = automatic step that moves approved credit into the **unit wallet** (and may push to AMI meter), triggered immediately by `create_loan_application` / `LoanApplicationView.create` right after approval — no customer action required, on web, mobile, or USSD. If auto-disbursement fails (rare), the loan stays `APPROVED` and can only be retried by an admin/operator via the admin panel (`LoanDisburseView`); there is no customer-facing "accept loan" action.
 
 ---
 

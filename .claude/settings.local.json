@@ -13,7 +13,22 @@
       "Bash(python -m py_compile utils/transaction_pin.py ussd/views.py meter/api/views.py share/views.py share/serializers.py loan/api/views.py)",
       "Bash(python -m py_compile loan/services.py backend/settings.py)",
       "Bash(python manage.py check)",
-      "Bash(nslookup iot.energy-share.sun.ac.ug)"
+      "Bash(nslookup iot.energy-share.sun.ac.ug)",
+      "Bash(python -m py_compile loan/services.py loan/api/views.py ussd/views.py accounts/tasks.py)",
+      "Bash(npx tsc *)",
+      "Bash(echo \"EXIT:$?\")",
+      "Read(//tmp/**)",
+      "Bash(python -m py_compile ussd/views.py loan/services.py loan/api/views.py accounts/tasks.py)",
+      "Bash(python -m py_compile scripts/generate_ussd_report.py)",
+      "Bash(python -c \"import django; print\\(django.VERSION\\)\")",
+      "Bash(python -c ' *)",
+      "Bash(python manage.py shell -c \"from django.db import connection; connection.ensure_connection\\(\\); print\\('DB OK'\\)\")",
+      "Bash(python manage.py shell -c ' *)",
+      "Bash(curl *)",
+      "Bash(netstat -ano)",
+      "Bash(xargs grep -l \"ussd_entry\")",
+      "Bash(python -m py_compile loan/services.py)",
+      "Bash(python -m py_compile loan/services.py loan/api/views.py ussd/views.py)"
     ]
   }
 }

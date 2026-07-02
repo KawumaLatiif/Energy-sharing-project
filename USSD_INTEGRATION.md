@@ -315,9 +315,8 @@ Shortcut: enter **`0`** as transaction ID to reuse `last_buy_transaction_id` fro
 Loans
 1. Latest loan
 2. Apply for loan
-3. Disburse loan
-4. Repay loan
-5. Loan stats
+3. Repay loan
+4. Loan stats
 ```
 
 **`CON`**
@@ -339,30 +338,24 @@ Rules:
 - Amount must be **5000–200000 UGX**; tenure defaults to **6 months** (web model default)
 - Uses **`get_active_domestic_tariff()`** and weighted credit score / DB loan tiers
 
-**`END`**: approved (with loan id + ref + approved amount) or rejected (with reason).
+Loans within the account's credit limit are **disbursed automatically** in the same step —
+`create_loan_application` calls `loan.services.disburse_loan` right after approval, crediting the
+**unit wallet** immediately. There is no separate customer-facing disburse/accept step on any
+channel (web, mobile, or USSD). If auto-disbursement fails, the loan stays `APPROVED` and can only
+be retried by an admin/operator via the admin panel — not from USSD.
 
-### 3.3 Disburse loan — `3*3*<loan_id>`
+**`END`**: approved & disbursed (with loan id + ref + approved amount + units credited) or rejected
+(with reason).
 
-1. `3*3` → **Enter LoanID to disburse (or 0 for latest approved)** (`CON`)
-2. `3*3*<id>` or `3*3*0` → **`loan.services.disburse_loan`** (same as web `POST /loans/disburse/<id>/`)
-
-Effects:
-
-- Creates `LoanDisbursement`
-- Sets loan status to **DISBURSED**
-- Credits **unit wallet** with calculated units (tariff-based)
-
-**`END`** with loan ref and units added.
-
-### 3.4 Repay loan — `3*4*…`
+### 3.3 Repay loan — `3*3*…`
 
 The system **auto-detects** the active disbursed loan on the account (no Loan ID entry).
 
-1. `3*4` → shows outstanding balance + menu (`CON`):
+1. `3*3` → shows outstanding balance + menu (`CON`):
    - `1` Pay full amount
    - `2` Pay partial amount
-2. **Full:** `3*4*1` → **`loan.services.repay_loan`** for full outstanding
-3. **Partial:** `3*4*2` → enter amount UGX (`CON`) → `3*4*2*<amount>` → repay
+2. **Full:** `3*3*1` → **`loan.services.repay_loan`** for full outstanding
+3. **Partial:** `3*3*2` → enter amount UGX (`CON`) → `3*3*2*<amount>` → repay
 
 Rules:
 
@@ -372,7 +365,7 @@ Rules:
 
 **`END`** with payment summary and remaining outstanding.
 
-### 3.5 Loan stats — `3*5`
+### 3.4 Loan stats — `3*4`
 
 **`END`**: same fields as web **`GET /loans/stats/`** (pending, active, outstanding, blocking flag).
 
@@ -461,7 +454,7 @@ These exist on the web/API but **not** in the USSD menu:
 | Share units + PIN | Yes | Yes (menu **4**; STS token / AMI device on confirm) |
 | Share receiver preview | Yes | Yes (summary before PIN) |
 | STS token generate | Yes | Yes (`5*2`) |
-| Loans apply/disburse/repay | Yes | Yes |
+| Loans apply (auto-disburses)/repay | Yes | Yes |
 | Loan MoMo repay | Yes | No |
 | AMI check units | Yes | Yes (`1*2`) |
 | Energy Usage (weekly) | Yes | Yes (`9`) |
@@ -510,10 +503,9 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 | Check AMI units (ThingsBoard) | `1` → `2` (or `1` → `2` → `1` if multiple AMI meters) |
 | Buy 30000 UGX | `2` → `1` → `30000` → **`1234`** |
 | Check last buy status | `2` → `2` → `0` |
-| Apply loan | `3` → `2` → `60000` |
-| Disburse latest approved | `3` → `3` → `0` |
-| Repay loan (full) | `3` → `4` → `1` |
-| Repay loan (partial 15000) | `3` → `4` → `2` → `15000` |
+| Apply loan (auto-disburses if approved) | `3` → `2` → `60000` |
+| Repay loan (full) | `3` → `3` → `1` |
+| Repay loan (partial 15000) | `3` → `3` → `2` → `15000` |
 | Share 10 units | `4` → `<receiver_meter>` → `10` → **`1234`** |
 | List tokens | `5` → `1` |
 | List meters | `6` → `1` |

@@ -17,7 +17,6 @@ from loan.models import LoanApplication
 from loan.services import (
     LoanOperationError,
     create_loan_application,
-    disburse_loan,
     format_loan_apply_preview_ussd,
     format_loan_stats_ussd,
     format_repay_loan_menu_ussd,
@@ -182,8 +181,6 @@ MENU_PARENT: dict[str, str] = {
     "loan_apply_amount": "loans_menu",
     "loan_apply_tenure": "loans_menu",
     "loan_apply_result": "loans_menu",
-    "loan_disburse_pick": "loans_menu",
-    "loan_disburse_result": "loans_menu",
     "loan_repay_pick": "loans_menu",
     "loan_repay_partial": "loan_repay_pick",
     "loan_repay_result": "loans_menu",
@@ -296,9 +293,8 @@ def _loans_menu_message() -> str:
         "Loans\n"
         "1. Latest loan\n"
         "2. Apply for loan\n"
-        "3. Disburse loan\n"
-        "4. Repay loan\n"
-        "5. Loan stats"
+        "3. Repay loan\n"
+        "4. Loan stats"
     )
 
 
@@ -549,26 +545,23 @@ def _apply_loan(user, amount_raw: str, tenure_months: int):
     except LoanOperationError as exc:
         return False, exc.message
 
+    if loan.status == "DISBURSED":
+        disbursement = getattr(loan, "disbursement", None)
+        units = disbursement.units_disbursed if disbursement else "-"
+        return True, (
+            f"Loan approved & disbursed!\nID: {loan.id}\nLoanRef: {loan.loan_id}\n"
+            f"Approved UGX {loan.amount_approved}\n"
+            f"Units added: {units}\n"
+            f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)"
+        )
     if loan.status == "APPROVED":
         return True, (
             f"Loan approved.\nID: {loan.id}\nLoanRef: {loan.loan_id}\n"
             f"Approved UGX {loan.amount_approved}\n"
-            f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)"
+            f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)\n"
+            f"Units are being credited. If they don't arrive shortly, contact support."
         )
     return True, f"Loan rejected.\nReason: {loan.rejection_reason}"
-
-
-def _disburse_loan(user, loan_id_raw: str):
-    try:
-        result = disburse_loan(user, loan_id_raw, channel="USSD")
-    except LoanOperationError as exc:
-        return False, exc.message
-
-    return True, (
-        f"Loan disbursed.\nLoanRef: {result['loan_id']}\n"
-        f"Units added: {result['units_disbursed']}\n"
-        f"Meter push: {'OK' if result['meter_push_ok'] else 'FAILED'}"
-    )
 
 
 def _repay_loan(user, loan_id_raw: str | None, amount_raw: str):
@@ -1157,20 +1150,6 @@ def ussd_entry(request):
                 return _reply_done(ussd_session, "Invalid loan apply option.", menu="loan_apply_result")
 
             if steps[1] == "3":
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _reply_prompt(
-                        ussd_session,
-                        "Enter LoanID to disburse (or 0 for latest approved):",
-                        menu="loan_disburse_pick",
-                    )
-                ok, msg = _disburse_loan(user, steps[2])
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_disburse_result")
-
-            if steps[1] == "4":
                 repayable = get_repayable_loan(user)
                 if len(steps) == 2:
                     if not repayable:
@@ -1236,7 +1215,7 @@ def ussd_entry(request):
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _reply_done(ussd_session, "Invalid repayment option.", menu="loan_repay_result")
 
-            if steps[1] == "5":
+            if steps[1] == "4":
                 loan_stats = get_user_loan_stats(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])

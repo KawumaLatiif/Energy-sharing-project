@@ -4,7 +4,6 @@ import { useFocusEffect } from "expo-router";
 import { ApiError } from "@/lib/api";
 import {
   applyForLoan,
-  disburseLoan,
   getMyLoans,
   repayActiveLoan,
   repayActiveLoanMoMo,
@@ -116,7 +115,6 @@ export default function LoansScreen() {
 
   if (loading) return <LoadingScreen />;
 
-  const approved = loans.filter((l) => l.status === "APPROVED");
   const repayableLoan =
     stats.repayable_loan ??
     (() => {
@@ -138,7 +136,7 @@ export default function LoansScreen() {
     <ScrollView refreshControl={<RefreshControl refreshing={loading} onRefresh={load} />}>
       <Screen>
         <Title>Loans</Title>
-        <Subtitle>Apply, accept, and repay micro-electricity loans</Subtitle>
+        <Subtitle>Apply and repay micro-electricity loans</Subtitle>
         {error ? <ErrorText>{error}</ErrorText> : null}
         {message ? <Text style={{ color: "#16a34a", marginBottom: 8 }}>{message}</Text> : null}
 
@@ -241,36 +239,16 @@ export default function LoansScreen() {
                   }
                   setApplyPin("");
                   setMessage(
-                    res.status
-                      ? `Application ${res.status}${res.loan_id ? ` (#${res.loan_id})` : ""}`
-                      : "Application submitted."
+                    res.message ??
+                      (res.status
+                        ? `Application ${res.status}${res.loan_id ? ` (#${res.loan_id})` : ""}`
+                        : "Application submitted.")
                   );
                 })
               }
             />
           </Card>
         ) : null}
-
-        {approved.length > 0 && (
-          <Card>
-            <Text style={{ fontWeight: "700", marginBottom: 8 }}>Accept approved loan</Text>
-            {approved.map((loan) => (
-              <View key={loan.id} style={{ marginBottom: 12 }}>
-                <Text>#{loan.id} — UGX {loan.amount_approved ?? loan.amount_requested}</Text>
-                <Button
-                  label="Disburse to wallet"
-                  loading={submitting}
-                  onPress={() =>
-                    runAction(async () => {
-                      const res = await disburseLoan(loan.id);
-                      setMessage(res.message ?? "Loan disbursed.");
-                    })
-                  }
-                />
-              </View>
-            ))}
-          </Card>
-        )}
 
         {repayableLoan && repayOutstanding > 0 && (
           <Card>
