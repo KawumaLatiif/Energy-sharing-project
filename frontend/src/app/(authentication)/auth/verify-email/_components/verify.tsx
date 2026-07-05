@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useSearchParams } from 'next/navigation';
-import { verifyEmail } from '../../../../ck/verify/email/verify';
+import { clearAuthSession, verifyEmail } from '../../../../ck/verify/email/verify';
 import { resendVerificationEmail } from '../../resend';
 
 interface VerifyEmailProps {
@@ -50,11 +50,12 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: VerifyEm
       const result = await verifyEmail(uid, token);
       
       if (result.success) {
+        await clearAuthSession();
         setStatus('success');
         setMessage(result.message || 'Email verified successfully');
         // Redirect after a delay
         setTimeout(() => {
-          window.location.href = '/auth/login';
+          window.location.href = '/auth/login?verified=1';
         }, 3000);
       } else {
         setStatus('error');

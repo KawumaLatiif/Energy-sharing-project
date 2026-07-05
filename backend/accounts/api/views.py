@@ -1210,12 +1210,61 @@ class CreateUserAPIView(CreateAPIView):
         return Response(response_data, status=status.HTTP_201_CREATED)
 
 
+# class VerifyEmailAPIView(GenericAPIView):
+#     """
+#     API view for verifying a user's email account
+#     """
+
+#     permission_classes = (AllowAny,)
+
+#     @required_fields(["uid", "token"])
+#     def get(self, request):
+#         error_msg = "Invalid activation link"
+#         user_hash = request.query_params.get("uid")
+#         token = request.query_params.get("token")
+        
+#         logger.info(f"[EMAIL VERIFICATION] Starting verification with uid: {user_hash}, token: {token}")
+        
+#         try:
+#             _, user_id = b64decode_hash(user_hash)
+#             user = User.objects.get(pk=user_id)
+#             logger.info(f"[EMAIL VERIFICATION] Found user: {user.id}, email: {user.email}")
+#         except User.DoesNotExist:
+#             logger.error(f"[EMAIL VERIFICATION] User not found for hash: {user_hash}")
+#             raise CustomAPIException(message=error_msg)
+#         except Exception as e:
+#             logger.exception(
+#                 f"[EMAIL VERIFICATION] Error while decoding user_hash."
+#                 f" Error: {text_type(e)}"
+#             )
+#             raise CustomAPIException(message=error_msg)
+
+#         logger.info(f"[EMAIL VERIFICATION] Checking token for user {user.id}")
+#         if token_generator.check_token(user, token):
+#             profile = user.profile
+#             profile.email_verified = True
+#             profile.save()
+
+#             logger.info(
+#                 f"[EMAIL VERIFICATION] Email verified for user {user.id}"
+#             )
+
+#             handle_post_email_verification(user)
+
+#             response_data = {
+#                 "message": "User account verified successfully!",
+#             }
+#             return Response(response_data, status=status.HTTP_200_OK)
+#         else:
+#             logger.error(f"[EMAIL VERIFICATION] Invalid token for user {user.id}")
+#             raise CustomAPIException(message=error_msg)
+
 class VerifyEmailAPIView(GenericAPIView):
     """
     API view for verifying a user's email account
     """
-
     permission_classes = (AllowAny,)
+    authentication_classes = []  # Explicitly disable authentication
 
     @required_fields(["uid", "token"])
     def get(self, request):
@@ -1258,7 +1307,6 @@ class VerifyEmailAPIView(GenericAPIView):
         else:
             logger.error(f"[EMAIL VERIFICATION] Invalid token for user {user.id}")
             raise CustomAPIException(message=error_msg)
-
 
 @class_view_decorator(phone_verification_exempt)
 class UserConfigAPIView(GenericAPIView):

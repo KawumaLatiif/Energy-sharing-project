@@ -1,5 +1,5 @@
 'use client';
-import { useState, useTransition } from 'react';
+import { useEffect, useState, useTransition } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Form, FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form';
@@ -31,8 +31,16 @@ export default function LoginForm() {
     resolver: zodResolver(LoginSchema),
     defaultValues: { email: '', password: '' },
   });
+
+  useEffect(() => {
+    if (searchParams.get('verified') === '1') {
+      setSuccess('Email verified successfully. Please log in.');
+    }
+  }, [searchParams]);
+
   async function onSubmit(values: z.infer<typeof LoginSchema>) {
     setError('');
+    setSuccess('');
     setShowResend(false);
 
     const result = await login(values);

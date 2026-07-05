@@ -913,17 +913,11 @@ class LoanRepaymentView(APIView):
         return timezone.now() <= loan.due_date
 
 
-# loan/views.py - Add or update this view
-
 class CreditScoreView(APIView):
     permission_classes = (IsAuthenticated,)
     
     def get(self, request):
-        try:
-            from loan.models import CreditScoreHistory, CreditScoreFactors
-            from loan.credit_score_service import CreditScoreService
-            from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
-            
+        try:            
             user = request.user
             
             # Get or create credit signal (base score source)
