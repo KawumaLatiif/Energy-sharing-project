@@ -228,15 +228,27 @@ export default function BuyUnitsForm() {
     }
   }, []);
 
-  // Polling
+  // Polling — stops after 25 attempts (~75 s) and surfaces a timeout error
+  const MAX_POLL_ATTEMPTS = 25;
   useEffect(() => {
     if (paymentStatus === "pending" && transactionId) {
       let mounted = true;
       let timeoutId: NodeJS.Timeout;
+      let attempts = 0;
 
       const poll = async () => {
         if (!mounted) return;
+
+        if (attempts >= MAX_POLL_ATTEMPTS) {
+          setPaymentStatus("failed");
+          setError(
+            "Payment is taking longer than expected. If your phone received a MoMo prompt and you approved it, please contact support with your transaction reference."
+          );
+          return;
+        }
+
         const complete = await checkStatus(transactionId);
+        attempts += 1;
 
         if (!complete && mounted) {
           setPollingCount((prev) => prev + 1);

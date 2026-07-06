@@ -1547,6 +1547,8 @@ class CheckPaymentStatusView(GenericAPIView):
                             )
                         transaction.refresh_from_db()
                     elif momo_status.get("status") == "FAILED":
+                        # Only mark as definitively failed when MoMo itself says so,
+                        # not when we couldn't reach the API (UNKNOWN).
                         transaction.status = "FAILED"
                         transaction.message = momo_status.get("message", "Payment failed")
                         transaction.save(update_fields=["status", "message"])
@@ -1554,6 +1556,8 @@ class CheckPaymentStatusView(GenericAPIView):
                             "status": "FAILED",
                             "message": momo_status.get("message", "Payment failed"),
                         }, status=status.HTTP_400_BAD_REQUEST)
+                    # UNKNOWN means we couldn't reach MoMo — fall through so the
+                    # client keeps polling rather than seeing a false failure.
 
                 if transaction.status == 'COMPLETED':
                     unit_tx = UnitTransaction.objects.filter(
