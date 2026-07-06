@@ -240,7 +240,7 @@ export default function MyMetersScreen() {
                     <Text style={{ fontWeight: "700" }}>{m.label && m.label !== "Home" ? m.label : "Home"}</Text>
                     <Text style={{ fontFamily: "SpaceMono", color: colors.muted }}>{m.meter_no}</Text>
                     <StatRow label="Type" value={m.architecture} />
-                    <StatRow label="Ledger" value={`${Number(m.units).toFixed(2)} kWh`} />
+                    <StatRow label="Units" value={`${Number(m.units).toFixed(2)} kWh`} />
                   </View>
                 </Card>
               </Pressable>

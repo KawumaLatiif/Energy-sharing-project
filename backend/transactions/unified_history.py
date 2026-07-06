@@ -165,7 +165,7 @@ def collect_unified_history(user) -> list[dict[str, Any]]:
                     "destination": mt.destination,
                     "source": mt.source,
                     "sts_token": mt.sts_token or None,
-                    "ledger_type": mt.transaction_type,
+                    "meter_event_type": mt.transaction_type,
                 },
             )
         )
@@ -316,3 +316,44 @@ def paginate_history(entries: list[dict[str, Any]], page: int, page_size: int) -
     start = (page - 1) * page_size
     end = start + page_size
     return entries[start:end], total
+
+
+def summarize_history(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    """Compute statement-style totals for a filtered transaction set."""
+    money_in = Decimal("0")
+    money_out = Decimal("0")
+    units_in = Decimal("0")
+    units_out = Decimal("0")
+
+    for entry in entries:
+        tx_type = str(entry.get("transaction_type") or "")
+        direction = str((entry.get("details") or {}).get("direction") or "").upper()
+        amount = entry.get("amount")
+        units = entry.get("units")
+        amount_dec = Decimal(str(amount)) if amount is not None else Decimal("0")
+        units_dec = Decimal(str(units)) if units is not None else Decimal("0")
+
+        if tx_type in {"LOAN_DISBURSEMENT"}:
+            money_in += amount_dec
+        elif tx_type in {"UNIT_PURCHASE", "LOAN_REPAYMENT"}:
+            money_out += amount_dec
+
+        if tx_type == "UNIT_SHARE":
+            if direction == "IN":
+                units_in += units_dec
+            elif direction == "OUT":
+                units_out += units_dec
+        elif tx_type in {"UNIT_PURCHASE", "LOAN_DISBURSEMENT"}:
+            units_in += units_dec
+        elif tx_type in {"TOKEN_GENERATE", "WALLET_LOAD_AMI", "LOAN_REPAYMENT"}:
+            units_out += units_dec
+
+    return {
+        "transactions_count": len(entries),
+        "money_in_ugx": float(money_in),
+        "money_out_ugx": float(money_out),
+        "money_net_ugx": float(money_in - money_out),
+        "units_in_kwh": float(units_in),
+        "units_out_kwh": float(units_out),
+        "units_net_kwh": float(units_in - units_out),
+    }

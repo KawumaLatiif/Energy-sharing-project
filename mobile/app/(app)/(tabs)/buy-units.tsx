@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
+import { useFocusEffect } from "expo-router";
 import {
   buyUnits,
   checkPaymentStatus,
   estimateUnits,
 } from "@/lib/meter-api";
+import { getLoanStats } from "@/lib/dashboard-api";
 import { ApiError } from "@/lib/api";
 import {
   Button,
@@ -16,6 +18,7 @@ import {
   Subtitle,
   Title,
 } from "@/components/ui";
+import { PIN_LENGTH, PinField } from "@/components/pin-field";
 import type { UnitEstimate } from "@/types/api";
 
 function formatUGX(n: number) {
@@ -25,12 +28,41 @@ function formatUGX(n: number) {
 export default function BuyUnitsScreen() {
   const [amount, setAmount] = useState("5000");
   const [phone, setPhone] = useState("");
+  const [pin, setPin] = useState("");
   const [estimate, setEstimate] = useState<UnitEstimate | null>(null);
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [loading, setLoading] = useState(false);
   const [polling, setPolling] = useState(false);
+  const [loanBlocked, setLoanBlocked] = useState(false);
+  const [loanBlockMessage, setLoanBlockMessage] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      (async () => {
+        try {
+          const stats = await getLoanStats();
+          const hasBlocking =
+            stats.has_blocking_loan ??
+            (stats.pending_applications > 0 ||
+              stats.active_loans > 0 ||
+              Number(stats.outstanding_balance ?? 0) > 0);
+          if (hasBlocking) {
+            setLoanBlocked(true);
+            setLoanBlockMessage(
+              "You have a pending or unpaid loan. Please clear your loan before purchasing units."
+            );
+          } else {
+            setLoanBlocked(false);
+            setLoanBlockMessage(null);
+          }
+        } catch {
+          /* allow purchase if stats unavailable */
+        }
+      })();
+    }, [])
+  );
 
   const fetchEstimate = useCallback(async (value: number) => {
     if (value < 100) {
@@ -61,6 +93,10 @@ export default function BuyUnitsScreen() {
   async function handleBuy() {
     setError("");
     setStatus("");
+    if (loanBlocked) {
+      setError(loanBlockMessage ?? "Clear your loan before purchasing units.");
+      return;
+    }
     const n = parseInt(amount, 10);
     if (!n || n < 100) {
       setError("Enter at least UGX 100.");
@@ -70,10 +106,19 @@ export default function BuyUnitsScreen() {
       setError("Enter your MTN Mobile Money number.");
       return;
     }
+    if (pin.length !== PIN_LENGTH) {
+      setError("Enter your 4-digit transaction PIN to confirm.");
+      return;
+    }
 
     setLoading(true);
     try {
-      const res = await buyUnits(n, phone.startsWith("+") ? phone : `+256${phone.replace(/^0/, "")}`);
+      const res = await buyUnits(
+        n,
+        phone.startsWith("+") ? phone : `+256${phone.replace(/^0/, "")}`,
+        pin
+      );
+      setPin("");
       if (res.status === "PENDING" && res.transaction_id) {
         setStatus("Approve the payment on your phone…");
         setPolling(true);
@@ -113,6 +158,11 @@ export default function BuyUnitsScreen() {
       <Screen>
         <Title>TopUp Wallet</Title>
         <Subtitle>Pay with MTN Mobile Money (ERA tariff)</Subtitle>
+        {loanBlocked && loanBlockMessage ? (
+          <Card>
+            <Text style={{ color: "#b45309", lineHeight: 20 }}>{loanBlockMessage}</Text>
+          </Card>
+        ) : null}
         {error ? <ErrorText>{error}</ErrorText> : null}
         {status ? (
           <Text style={{ color: "#16a34a", marginBottom: 12 }}>{status}</Text>
@@ -154,10 +204,13 @@ export default function BuyUnitsScreen() {
           placeholder="+2567XXXXXXXX"
         />
 
+        <PinField value={pin} onChangeText={setPin} editable={!loading && !polling} />
+
         <Button
           label={polling ? "Waiting for payment…" : "Review & Pay"}
           onPress={handleBuy}
           loading={loading || polling}
+          disabled={loanBlocked}
         />
       </Screen>
     </ScrollView>

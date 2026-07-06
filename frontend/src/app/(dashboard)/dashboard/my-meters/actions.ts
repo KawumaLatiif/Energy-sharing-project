@@ -25,7 +25,7 @@ export type CheckUnitsResult = {
   meter_no?: string;
   units_kwh?: number;
   queried_at?: string;
-  ledger_balance_kwh?: number;
+  units_balance_kwh?: number;
   source?: string;
   message?: string;
   error?: string;

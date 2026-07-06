@@ -23,7 +23,7 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import LoadUnitsForm from "./load_units_form";
 import ShareForm from "./share_form";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 
 type Mode = "choose" | "load" | "share";
 
@@ -97,7 +97,7 @@ export default function LoadShareClient() {
             { icon: KeyRound, text: "STS receiver → keypad token by email" },
             { icon: Cpu, text: "AMI receiver → direct device top-up" },
           ]}
-          footerNote="Confirm with your account PIN (login password)"
+          footerNote="Confirm on the next screen to complete the transfer"
           buttonLabel="Share to another meter"
           buttonVariant="outline"
           onSelect={() => setMode("share")}
@@ -135,14 +135,14 @@ function OptionCard({
   const accentStyles =
     accent === "sky"
       ? {
-          ring: "hover:border-sky-300 hover:shadow-sky-100",
-          iconBg: "bg-sky-500/10 text-sky-600",
-          badge: "bg-sky-500/10 text-sky-700 border-sky-200",
+          ring: "hover:border-sky-300 hover:shadow-sky-100 dark:hover:border-sky-700 dark:hover:shadow-sky-900/20",
+          iconBg: "bg-sky-500/10 text-sky-600 dark:bg-sky-900/30 dark:text-sky-400",
+          badge: "bg-sky-500/10 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-700",
         }
       : {
-          ring: "hover:border-emerald-300 hover:shadow-emerald-100",
-          iconBg: "bg-emerald-500/10 text-emerald-600",
-          badge: "bg-emerald-500/10 text-emerald-700 border-emerald-200",
+          ring: "hover:border-emerald-300 hover:shadow-emerald-100 dark:hover:border-emerald-700 dark:hover:shadow-emerald-900/20",
+          iconBg: "bg-emerald-500/10 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400",
+          badge: "bg-emerald-500/10 text-emerald-700 border-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:border-emerald-700",
         };
 
   return (

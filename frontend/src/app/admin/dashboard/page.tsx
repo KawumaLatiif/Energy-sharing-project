@@ -58,10 +58,11 @@ function SystemStatusBadge({ status }: { status: "GREEN" | "AMBER" | "RED" }) {
 }
 
 function StatCard({
-  title, value, sub, icon, accent = "blue", alert = false,
+  title, value, sub, icon, accent = "blue", alert = false, onClick,
 }: {
   title: string; value: number; sub?: string;
   icon: React.ReactNode; accent?: string; alert?: boolean;
+  onClick?: () => void;
 }) {
   const accents: Record<string, string> = {
     blue:   "border-l-blue-500   bg-blue-500/5",
@@ -73,7 +74,22 @@ function StatCard({
   };
 
   return (
-    <Card className={`border-l-4 ${accents[accent] ?? accents.blue} shadow-none hover:shadow-sm transition-shadow`}>
+    <Card
+      className={`border-l-4 ${accents[accent] ?? accents.blue} shadow-none transition-shadow ${
+        onClick ? "cursor-pointer hover:shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" : ""
+      }`}
+      onClick={onClick}
+      onKeyDown={(event) => {
+        if (!onClick) return;
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onClick();
+        }
+      }}
+      tabIndex={onClick ? 0 : -1}
+      role={onClick ? "button" : undefined}
+      aria-label={onClick ? `${title} details` : undefined}
+    >
       <CardHeader className="flex flex-row items-center justify-between pb-1 pt-4 px-5">
         <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">{title}</span>
         <div className="h-8 w-8 rounded-lg bg-background flex items-center justify-center border border-border">
@@ -133,6 +149,7 @@ export default function AdminDashboard() {
           sub={`${data.active_users_30d} active last 30 days`}
           icon={<Users className="h-4 w-4 text-blue-600" />}
           accent="blue"
+          onClick={() => router.push('/admin/users')}
         />
         <StatCard
           title="Registered Meters"
@@ -140,6 +157,7 @@ export default function AdminDashboard() {
           sub={`${data.active_meters} active`}
           icon={<Zap className="h-4 w-4 text-emerald-600" />}
           accent="green"
+          onClick={() => router.push('/admin/meters')}
         />
         <StatCard
           title="Transactions Today"
@@ -149,6 +167,7 @@ export default function AdminDashboard() {
             : "No failures today"}
           icon={<Activity className="h-4 w-4 text-indigo-600" />}
           accent="indigo"
+          onClick={() => router.push('/admin/transactions')}
         />
         <StatCard
           title="Failed Transactions"
@@ -157,6 +176,7 @@ export default function AdminDashboard() {
           icon={<XCircle className="h-4 w-4 text-red-500" />}
           accent="red"
           alert
+          onClick={() => router.push('/admin/transactions?status=FAILED')}
         />
       </div>
 
@@ -168,6 +188,7 @@ export default function AdminDashboard() {
           sub="Currently disbursed"
           icon={<CreditCard className="h-4 w-4 text-amber-600" />}
           accent="amber"
+          onClick={() => router.push('/admin/loans')}
         />
         <StatCard
           title="Overdue Loans"
@@ -176,6 +197,7 @@ export default function AdminDashboard() {
           icon={<AlertCircle className="h-4 w-4 text-orange-600" />}
           accent="orange"
           alert
+          onClick={() => router.push('/admin/loans')}
         />
         <StatCard
           title="Flagged Accounts"
@@ -184,6 +206,7 @@ export default function AdminDashboard() {
           icon={<AlertTriangle className="h-4 w-4 text-amber-500" />}
           accent="amber"
           alert
+          onClick={() => router.push('/admin/users?status=flagged')}
         />
       </div>
 

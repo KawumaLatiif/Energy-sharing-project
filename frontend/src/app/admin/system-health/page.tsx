@@ -26,6 +26,8 @@ interface ComponentHealth {
   description: string;
   latency_ms?: number;
   error?: string;
+  celery_dispatch_ok?: boolean;
+  celery_mode?: string;
 }
 
 interface SystemHealth {
@@ -56,6 +58,7 @@ interface ErrorsApiResponse {
 
 const COMPONENT_LABELS: Record<string, string> = {
   api_gateway: "API Gateway",
+  celery_dispatch: "Celery Dispatch",
   postgresql: "PostgreSQL Database",
   redis: "Redis Cache",
   cvs_sts_api: "CVS / STS Token API",
@@ -120,7 +123,7 @@ export default function SystemHealthPage() {
 
       {loading ? (
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          {[...Array(8)].map((_, i) => <Skeleton key={i} className="h-28" />)}
+          {[...Array(9)].map((_, i) => <Skeleton key={i} className="h-28" />)}
         </div>
       ) : health ? (
         <>
@@ -170,6 +173,12 @@ export default function SystemHealthPage() {
                     <p className="font-medium text-sm">{COMPONENT_LABELS[key] ?? key}</p>
                     {comp.latency_ms !== undefined && (
                       <p className="text-xs text-muted-foreground mt-1">{comp.latency_ms}ms latency</p>
+                    )}
+                    {comp.celery_dispatch_ok !== undefined && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Celery dispatch: {comp.celery_dispatch_ok ? "OK" : "Unavailable"}
+                        {comp.celery_mode ? ` (${comp.celery_mode})` : ""}
+                      </p>
                     )}
                     {comp.error && (
                       <p className="text-xs text-red-600 mt-1 truncate" title={comp.error}>{comp.error}</p>

@@ -57,7 +57,7 @@ from django.db.models import Sum
 from meter.api.serializers import MeterSerializer
 from loan.models import LoanApplication
 from loan.api.serializers import LoanApplicationSerializer
-from loan.scoring import get_or_create_dummy_credit_signal
+from loan.scoring import get_or_create_credit_signal, profile_scoring_fields_complete, sync_credit_signal_from_profile
 
 logger = logging.getLogger(__name__)
 
@@ -878,13 +878,13 @@ class UserProfileAPIView(GenericAPIView):
             logger.info(f"Account details: {account_details}")
             
             # Get meter information
-            try:
-                meter = Meter.objects.get(user=user)
+            meter = Meter.objects.filter(user=user).order_by("-create_date").first()
+            if meter:
                 meter_serializer = MeterSerializer(meter)
                 meter_data = meter_serializer.data
                 meter_data['has_meter'] = True
                 logger.info(f"Meter found: {meter_data}")
-            except Meter.DoesNotExist:
+            else:
                 meter_data = {
                     'has_meter': False,
                     'meter_no': None,
@@ -1021,25 +1021,9 @@ class UserProfileAPIView(GenericAPIView):
                 logger.info(f"Missing basic fields for user {user.id}")
                 return False
 
-            # Check if user has provided profile assessment data
-            profile_fields = [
-                'monthly_expenditure',
-                'purchase_frequency',
-                'payment_consistency',
-                'disconnection_history',
-                'meter_sharing',
-                'monthly_income',
-                'income_stability',
-                'consumption_level'
-            ]
-
-            has_profile_data = True
-            for field in profile_fields:
-                value = getattr(user, field, None)
-                if not value:
-                    has_profile_data = False
-                    logger.info(f"Missing profile field: {field}")
-                    break
+            has_profile_data = profile_scoring_fields_complete(user)
+            if not has_profile_data:
+                logger.info(f"Loan assessment fields incomplete for user {user.id}")
 
             logger.info(f"Profile completion check: basic={all(required_fields)}, profile={has_profile_data}")
 
@@ -1080,6 +1064,7 @@ class UserProfileAPIView(GenericAPIView):
             if updated_fields:
                 user.save()
                 logger.info(f"User {user.id} updated profile fields: {updated_fields}")
+                sync_credit_signal_from_profile(user)
             
             # Check completion status
             user_serializer = UserConfigSerializer(user)
@@ -1117,7 +1102,7 @@ class LoginAPIView(TokenObtainPairView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         user = serializer.user
-        get_or_create_dummy_credit_signal(user)
+        get_or_create_credit_signal(user)
 
         # Staff members with 2FA enabled → issue a challenge token instead of full JWT
         if (user.is_staff_member or user.is_superuser) and user.totp_enabled:
@@ -1526,9 +1511,9 @@ class AccountDetailsAPIView(GenericAPIView):
     def get(self, request):
         try:
             # Get or create account details for the user
-            account_details, created = UserAccountDetails.objects.get_or_create(
-                user=request.user
-            )
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details is None:
+                account_details = UserAccountDetails.objects.create(user=request.user)
             serializer = self.serializer_class(account_details)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
@@ -1550,10 +1535,10 @@ class UpdateAccountDetailsAPIView(GenericAPIView):
             logger.info(f"Request data: {request.data}")
             
             # Get or create account details for the user
-            try:
-                account_details = UserAccountDetails.objects.get(user=request.user)
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details:
                 logger.info(f"Found existing account details: {account_details.id}")
-            except UserAccountDetails.DoesNotExist:
+            else:
                 logger.info("Account details don't exist, creating new ones")
                 account_details = UserAccountDetails.objects.create(user=request.user)
                 logger.info(f"Created new account details: {account_details.id}")

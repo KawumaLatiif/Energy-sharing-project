@@ -415,12 +415,15 @@ export default function BuyUnitsForm() {
         {/* --- CONFIRM BOTTOM SHEET --- */}
         <BottomSheet
           open={showConfirm}
-          onClose={() => setShowConfirm(false)}
+          onClose={() => {
+            setShowConfirm(false);
+          }}
           title="Confirm Purchase"
           primaryAction={{
             label: "Pay Now",
             onClick: form.handleSubmit(onSubmit),
             loading: isPending || paymentStatus === "pending",
+            disabled: isPending || paymentStatus === "pending",
           }}
         >
           <BreakdownCard

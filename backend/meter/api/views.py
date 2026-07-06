@@ -229,7 +229,7 @@ def check_meter_units(request):
                 "success": False,
                 "meter_no": meter.meter_no,
                 "message": msg,
-                "ledger_balance_kwh": float(meter.units),
+                "units_balance_kwh": float(meter.units),
                 "thingsboard_host": _thingsboard_base_url(),
             },
             status=status.HTTP_502_BAD_GATEWAY,
@@ -247,7 +247,7 @@ def check_meter_units(request):
             "meter_no": meter.meter_no,
             "units_kwh": data["units_kwh"],
             "queried_at": data["queried_at"],
-            "ledger_balance_kwh": float(meter.units),
+            "units_balance_kwh": float(meter.units),
             "pending_delivery_kwh": float(meter.pending_units),
             "pending_retry": retry_result,
             "source": data.get("source", "thingsboard"),
@@ -1317,7 +1317,7 @@ class BuyUnitsView(GenericAPIView):
     def post(self, request, *args, **kwargs):
         amount = request.data.get("amount")
         phone_number = request.data.get("phone_number")
-        
+
         if not amount or not phone_number:
             return Response({
                 "error": "Amount and phone number are required"

@@ -61,9 +61,9 @@ CON gPawa
 - **Inactivity timeout**: **90 seconds** by default (`USSD_SESSION_TIMEOUT_SECONDS` in `backend/.env`). This matches the common USSD industry limit for time between user inputs (aligned with typical mobile network USSD session behaviour).
 - The timer **resets on every `CON` response** (each menu prompt). If the user does not enter anything within the timeout window, the stored session is considered expired.
 - **On expiry**:
-  - If the user sends a **new dial** with empty `text` (fresh open), the session is reset and the **main menu** is shown.
-  - If the user **continues** with a non-empty `text` path after expiry, the backend returns **`END`** with:  
+  - If the session had prior activity and the user tries again (including pressing **Dial** in the simulator), the backend returns **`END`** with:  
     `Session expired (90s with no input). Dial the service code again to start a new session.`
+  - A brand-new session with no prior activity opens the main menu normally.
 - **`END` responses** (completed flows, Exit, errors) close the session immediately (`is_active=False`); they do not extend the inactivity timer.
 - **Dedupe**: If the same `text` is sent again (provider retry), the cached `last_response` is returned without re-running side effects.
 - **Context** stored in JSON, including:
@@ -80,6 +80,44 @@ USSD_SESSION_TIMEOUT_SECONDS=90
 ```
 
 Restart Django after changing this value.
+
+### Navigation shortcuts
+
+On submenus, prompts, and result screens (not the root main menu):
+
+```text
+#: Back
+*: Main Menu
+```
+
+Africa's Talking sends cumulative `text`; after `#` or `*`, only new choices count toward the next step.
+
+### USSD confirmation PIN (development)
+
+For **local testing and early deployments**, USSD flows that require confirmation use a **single default PIN for every user**, not the web login password.
+
+| Setting | Value |
+|---------|--------|
+| Default PIN | **`1234`** |
+| Defined in | `backend/ussd/views.py` → `DEFAULT_USSD_PIN` |
+| Wrong attempts | 3 per flow, then session **`END`** |
+
+**Where PIN is required:**
+
+| Flow | When |
+|------|------|
+| **Buy Units** (`2*1*…`) | After amount, before MoMo payment is initiated |
+| **Share Units** (`4*…`) | After share summary, before transfer completes |
+
+**Buy units sequence with PIN:**
+
+1. `2` → `1` → `<amount>` → **`1234`** → payment initiated (`END` / result screen)
+
+**Share units sequence with PIN:**
+
+1. `4` → `<receiver_meter>` → `<units>` → **`1234`** → share completes
+
+> **Production note:** Replace `DEFAULT_USSD_PIN` with per-user PIN storage (or MoMo-only confirmation) before go-live. Web/mobile login passwords are **not** used for USSD confirmation in the current build.
 
 ### Simulator note
 
@@ -237,17 +275,19 @@ Buy Units
 
 **`CON`**
 
-### 2.1 Start purchase — `2*1*<amount>`
+### 2.1 Start purchase — `2*1*<amount>*<pin>`
 
 Flow:
 
 1. `2*1` → prompt: **Enter amount in UGX** (`CON`)
-2. `2*1*30000` → creates payment transaction, starts processing
+2. `2*1*30000` → summary + **Enter PIN to confirm** (`CON`) — see [USSD confirmation PIN](#ussd-confirmation-pin-development)
+3. `2*1*30000*1234` → creates payment transaction, starts processing
 
 Requirements:
 
 - User must have a **registered meter**
 - User must **not** have any incomplete loan (`loan.services.user_can_purchase_units` — same as web buy-units API and `has_blocking_loan` on stats)
+- **PIN** must match the development default (**`1234`**) before payment starts
 
 Sandbox (`MTN_MOMO_CONFIG.ENVIRONMENT=sandbox`):
 
@@ -274,10 +314,9 @@ Shortcut: enter **`0`** as transaction ID to reuse `last_buy_transaction_id` fro
 ```text
 Loans
 1. Latest loan
-2. Apply loan
-3. Disburse loan
-4. Repay loan
-5. Loan stats
+2. Apply for loan
+3. Repay loan
+4. Loan stats
 ```
 
 **`CON`**
@@ -299,36 +338,34 @@ Rules:
 - Amount must be **5000–200000 UGX**; tenure defaults to **6 months** (web model default)
 - Uses **`get_active_domestic_tariff()`** and weighted credit score / DB loan tiers
 
-**`END`**: approved (with loan id + ref + approved amount) or rejected (with reason).
+Loans within the account's credit limit are **disbursed automatically** in the same step —
+`create_loan_application` calls `loan.services.disburse_loan` right after approval, crediting the
+**unit wallet** immediately. There is no separate customer-facing disburse/accept step on any
+channel (web, mobile, or USSD). If auto-disbursement fails, the loan stays `APPROVED` and can only
+be retried by an admin/operator via the admin panel — not from USSD.
 
-### 3.3 Disburse loan — `3*3*<loan_id>`
+**`END`**: approved & disbursed (with loan id + ref + approved amount + units credited) or rejected
+(with reason).
 
-1. `3*3` → **Enter LoanID to disburse (or 0 for latest approved)** (`CON`)
-2. `3*3*<id>` or `3*3*0` → **`loan.services.disburse_loan`** (same as web `POST /loans/disburse/<id>/`)
+### 3.3 Repay loan — `3*3*…`
 
-Effects:
+The system **auto-detects** the active disbursed loan on the account (no Loan ID entry).
 
-- Creates `LoanDisbursement`
-- Sets loan status to **DISBURSED**
-- Credits **unit wallet** with calculated units (tariff-based)
-
-**`END`** with loan ref and units added.
-
-### 3.4 Repay loan — `3*4*<loan_id>*<amount>`
-
-1. `3*4` → Enter LoanID (`CON`)
-2. `3*4*5` → Enter repayment amount UGX (`CON`)
-3. `3*4*5*15000` → **`loan.services.repay_loan`** (same as web `POST /loans/repay/<id>/`)
+1. `3*3` → shows outstanding balance + menu (`CON`):
+   - `1` Pay full amount
+   - `2` Pay partial amount
+2. **Full:** `3*3*1` → **`loan.services.repay_loan`** for full outstanding
+3. **Partial:** `3*3*2` → enter amount UGX (`CON`) → `3*3*2*<amount>` → repay
 
 Rules:
 
-- Loan must be **DISBURSED**
-- Amount ≤ outstanding balance
+- Loan must be **DISBURSED** with outstanding balance > 0
+- Partial amount ≤ outstanding balance
 - Credits equivalent units to **meter** (same as web repayment); may set loan to **COMPLETED** if fully paid
 
 **`END`** with payment summary and remaining outstanding.
 
-### 3.5 Loan stats — `3*5`
+### 3.4 Loan stats — `3*4`
 
 **`END`**: same fields as web **`GET /loans/stats/`** (pending, active, outstanding, blocking flag).
 
@@ -336,12 +373,12 @@ Rules:
 
 ## 4) Share Units — `text`: `4`
 
-Linear flow (same as web/mobile): meter → units → summary → **account PIN** (login password). No email OTP.
+Linear flow: meter → units → summary → **PIN** (development default **`1234`**, not web password). No email OTP.
 
 1. `4` → Enter receiver meter number (`CON`)
 2. `4*<meter>` → Enter units to share, min **2** (`CON`)
-3. `4*<meter>*<units>` → Summary (recipient name, meter, type) + enter account PIN (`CON`)
-4. `4*<meter>*<units>*<pin>` → completes share (`END`)
+3. `4*<meter>*<units>` → Summary (recipient name, meter, type) + **Enter PIN to confirm** (`CON`)
+4. `4*<meter>*<units>*1234` → completes share (`END`)
 
 Rules:
 
@@ -349,7 +386,7 @@ Rules:
 - Receiver meter must exist and be active
 - **Cannot share to your own meter** — use Manage → Apply wallet (AMI) or Tokens → Generate (STS)
 - Minimum **2** units
-- PIN = the password for the gPAWA account linked to the dialing phone number
+- PIN = **`1234`** for all users in development (see [USSD confirmation PIN](#ussd-confirmation-pin-development))
 
 On success (aligned with web `POST /share/share-units/`):
 
@@ -417,7 +454,7 @@ These exist on the web/API but **not** in the USSD menu:
 | Share units + PIN | Yes | Yes (menu **4**; STS token / AMI device on confirm) |
 | Share receiver preview | Yes | Yes (summary before PIN) |
 | STS token generate | Yes | Yes (`5*2`) |
-| Loans apply/disburse/repay | Yes | Yes |
+| Loans apply (auto-disburses)/repay | Yes | Yes |
 | Loan MoMo repay | Yes | No |
 | AMI check units | Yes | Yes (`1*2`) |
 | Energy Usage (weekly) | Yes | Yes (`9`) |
@@ -451,7 +488,8 @@ The page builds the same `text` path as a real provider:
 | Action | Effect |
 |--------|--------|
 | **Open Menu** | Sends `text=""` |
-| **Send Reply** | Appends input to path (e.g. `2`, then `1`, then `30000` → `2*1*30000`) |
+| **Send Reply** | Appends input to path (e.g. `2`, then `1`, then `30000`, then `1234` → `2*1*30000*1234`) |
+| **Back (#)** / **Main Menu (*)** | Shortcut buttons for navigation keys |
 | **Clear Path** | Resets path only (same session id) |
 | **New Session** | New `sessionId` and cleared history |
 
@@ -463,12 +501,13 @@ Proxy: `POST /api/ussd/simulate` (Next.js) → `POST http://localhost:8000/api/v
 |------|----------------------------|
 | Wallet summary | `1` → `1` |
 | Check AMI units (ThingsBoard) | `1` → `2` (or `1` → `2` → `1` if multiple AMI meters) |
-| Buy 30000 UGX | `2` → `1` → `30000` |
+| Buy 30000 UGX | `2` → `1` → `30000` → **`1234`** |
 | Check last buy status | `2` → `2` → `0` |
-| Apply loan | `3` → `2` → `60000` |
-| Disburse latest approved | `3` → `3` → `0` |
-| Share 10 units | `4` → `<receiver_meter>` → `10` → `<login_password>` |
-| List tokens | `5` |
+| Apply loan (auto-disburses if approved) | `3` → `2` → `60000` |
+| Repay loan (full) | `3` → `3` → `1` |
+| Repay loan (partial 15000) | `3` → `3` → `2` → `15000` |
+| Share 10 units | `4` → `<receiver_meter>` → `10` → **`1234`** |
+| List tokens | `5` → `1` |
 | List meters | `6` → `1` |
 | Apply wallet to AMI meter | `6` → `3` → `<kWh>` |
 | View low-units alerts | `7` or `6` → `2` |
@@ -485,7 +524,7 @@ After loading `database/sample_full_dump_heavy.sql`:
 | `+256703333333` | peter@powercred.local |
 | `+256704444444` | amina@powercred.local |
 
-Web login password (seed comment): **`Pass1234!`**
+Web login password (seed comment): **`Pass1234!`** — used for **web/mobile only**. USSD PIN confirmation uses **`1234`** (see above).
 
 ---
 
@@ -577,7 +616,7 @@ ngrok http 8000
 | Account not found | Phone not in `accounts_user` |
 | Cannot buy units | Active loan not completed/rejected |
 | Payment stays PENDING | Sandbox still processing; wait ~10s and check status again |
-| Share fails | Wrong PIN; insufficient balance; invalid meter |
+| Share fails | Wrong PIN (use **`1234`** in dev); insufficient balance; invalid meter |
 | Session expired message | No input for 90s (configurable); dial service code again or use simulator **New Session** |
 | Duplicate charges on retry | Should not happen if `sessionId` + `text` unchanged (dedupe) |
 

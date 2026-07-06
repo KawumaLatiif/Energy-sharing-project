@@ -5,7 +5,7 @@ import TokenList from "./tokenslist";
 import GenerateTokenCard from "./generate-token-card";
 import AmiStatusCard from "../../_components/ami-status-card";
 import MeterSelector from "../../_components/meter-selector";
-import { useSelectedMeter } from "../../_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import { get } from "@/lib/fetch-client";
 import { Token } from "@/interface/token.interface";
 

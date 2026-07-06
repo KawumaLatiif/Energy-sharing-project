@@ -235,12 +235,16 @@ export default function LoanApplicationForm() {
         try {
             const result = await submitLoanApplication(values);
 
+            if (result.error) {
+                setError(result.error);
+                return;
+            }
+
             if (result.data) {
                 setLoanResult(result.data);
 
                 if (result.data.status === 'APPROVED') {
-                    setSuccess(result.data.message || "Loan approved! Go to 'My Loans' to disburse and receive your electricity units.");
-                    // Don't show token popup - wait for manual disbursement
+                    setSuccess(result.data.message || "Loan approved! We're crediting your units now - if they don't arrive shortly, contact support.");
                     setTimeout(() => {
                         router.push('/dashboard/myloans');
                     }, 3000);
@@ -356,11 +360,13 @@ export default function LoanApplicationForm() {
                                     name="tenure_months"
                                     render={({ field }) => (
                                         <FormItem>
-                                            <FormLabel>Tenure (Months)</FormLabel>
+                                            <FormLabel>Tenure (months)</FormLabel>
                                             <FormControl>
                                                 <Input
                                                     type="number"
-                                                    placeholder="Enter months (1-12)"
+                                                    min={1}
+                                                    max={12}
+                                                    placeholder="1–12 (each month = 30 days from disbursement)"
                                                     {...field}
                                                     onChange={(e) => field.onChange(parseInt(e.target.value) || 0)}
                                                 />

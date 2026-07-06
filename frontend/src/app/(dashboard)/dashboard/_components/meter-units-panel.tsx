@@ -1,6 +1,6 @@
 "use client";
 
-import { useSelectedMeter } from "./selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import MeterSelector from "./meter-selector";
 import GenerateTokenCard from "../tokens/_components/generate-token-card";
 import AmiStatusCard from "./ami-status-card";

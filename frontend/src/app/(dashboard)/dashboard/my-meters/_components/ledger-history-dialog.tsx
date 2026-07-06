@@ -29,7 +29,7 @@ export type MeterLedgerEvent = {
 export type MeterLedgerHistory = {
   success?: boolean;
   meter_no?: string;
-  ledger_balance_kwh?: number;
+  units_balance_kwh?: number;
   pending_delivery_kwh?: number;
   events_total_kwh?: number;
   events?: MeterLedgerEvent[];
@@ -117,7 +117,7 @@ export default function LedgerHistoryDialog({
               <div>
                 <p className="text-xs text-muted-foreground">Ledger balance</p>
                 <p className="font-semibold tabular-nums mt-0.5">
-                  {(history.ledger_balance_kwh ?? meter.units).toFixed(2)} kWh
+                  {(history.units_balance_kwh ?? meter.units).toFixed(2)} kWh
                 </p>
               </div>
               <div>

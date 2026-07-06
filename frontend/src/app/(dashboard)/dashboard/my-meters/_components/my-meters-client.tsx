@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   Activity,
   Gauge,
@@ -24,10 +24,9 @@ import {
 import { cn } from "@/lib/utils";
 import { getApiErrorMessage } from "@/lib/api-response";
 import { get } from "@/lib/fetch-client";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import { deleteMeter } from "../actions";
 import AddMeterDialog from "./add-meter-dialog";
-import LedgerHistoryDialog, { LedgerLink } from "./ledger-history-dialog";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import {
   AlertDialog,
@@ -55,14 +54,6 @@ export default function MyMetersClient() {
   const [liveQueriedAt, setLiveQueriedAt] = useState<string | null>(null);
   const [checkError, setCheckError] = useState("");
   const [actionMessage, setActionMessage] = useState("");
-  const [ledgerOpen, setLedgerOpen] = useState(false);
-  const [ledgerMeter, setLedgerMeter] = useState<UserMeter | null>(null);
-
-  const openLedgerHistory = (meter: UserMeter, e?: MouseEvent) => {
-    e?.stopPropagation();
-    setLedgerMeter(meter);
-    setLedgerOpen(true);
-  };
 
   const selected = meters.find((m) => m.meter_number === selectedNo) ?? meters[0] ?? null;
 
@@ -232,14 +223,13 @@ export default function MyMetersClient() {
                       {meter.meter_number}
                     </p>
                   </div>
-                  <Badge variant="outline" className={meter.architecture === "AMI" ? "border-sky-200 text-sky-700" : ""}>
+                  <Badge variant="outline" className={meter.architecture === "AMI" ? "border-sky-300 text-sky-700 dark:border-sky-700 dark:text-sky-400" : "dark:border-muted"}>
                     {meter.architecture}
                   </Badge>
                 </div>
                 <p className="mt-3 text-sm">
                   <span className="font-semibold tabular-nums">{meter.units.toFixed(2)}</span>
-                  <span className="text-muted-foreground ml-1">kWh </span>
-                  <LedgerLink onClick={(e) => openLedgerHistory(meter, e)} />
+                  <span className="text-muted-foreground ml-1">kWh</span>
                 </p>
               </button>
             ))}
@@ -258,8 +248,8 @@ export default function MyMetersClient() {
                   <Badge
                     className={
                       selected.architecture === "AMI"
-                        ? "bg-sky-500/10 text-sky-700 border-sky-200"
-                        : "bg-amber-500/10 text-amber-800 border-amber-200"
+                        ? "bg-sky-500/10 text-sky-700 border-sky-200 dark:bg-sky-900/30 dark:text-sky-400 dark:border-sky-700"
+                        : "bg-amber-500/10 text-amber-800 border-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:border-amber-700"
                     }
                   >
                     {selected.architecture === "AMI" ? (
@@ -277,18 +267,7 @@ export default function MyMetersClient() {
               <CardContent className="space-y-6">
                 <div className="grid gap-3 sm:grid-cols-2">
                   <InfoTile
-                    label={
-                      <span>
-                        <LedgerLink
-                          className="text-muted-foreground underline-offset-2 hover:underline hover:text-primary"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            openLedgerHistory(selected);
-                          }}
-                        />{" "}
-                        balance
-                      </span>
-                    }
+                    label="Units"
                     value={`${selected.units.toFixed(2)} kWh`}
                   />
                   <InfoTile
@@ -326,7 +305,7 @@ export default function MyMetersClient() {
                 </div>
 
                 {selected.architecture === "AMI" && selected.pending_units > 0 && (
-                  <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900">
+                  <div className="rounded-lg border border-sky-200 bg-sky-50/80 px-4 py-3 text-sm text-sky-900 dark:border-sky-800 dark:bg-sky-900/20 dark:text-sky-200">
                     {selected.pending_units.toFixed(2)} kWh are queued for your meter. Delivery
                     retries automatically every few minutes and when you tap Check Units.
                   </div>
@@ -335,18 +314,11 @@ export default function MyMetersClient() {
                 {liveQueriedAt && (
                   <p className="text-xs text-muted-foreground">
                     Last checked: {new Date(liveQueriedAt).toLocaleString()}
-                    {liveUnits != null &&
-                      Math.abs(liveUnits - selected.units) > 0.01 && (
-                        <span className="block mt-1 text-amber-800/90">
-                          Ledger ({selected.units.toFixed(2)} kWh) and live device balance can differ
-                          until ThingsBoard updates <code className="text-xs">remaining_units</code>.
-                        </span>
-                      )}
                   </p>
                 )}
 
                 {selected.architecture === "STS" && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+                  <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
                     STS meters do not support remote balance checks. Read your remaining units
                     directly from the Customer Interface Unit (CIU) on your wall.
                   </div>
@@ -356,7 +328,7 @@ export default function MyMetersClient() {
                   <p className="text-sm text-destructive">{checkError}</p>
                 )}
                 {actionMessage && (
-                  <p className="text-sm text-green-700">{actionMessage}</p>
+                  <p className="text-sm text-green-700 dark:text-green-400">{actionMessage}</p>
                 )}
 
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -417,12 +389,6 @@ export default function MyMetersClient() {
           )}
         </div>
       )}
-
-      <LedgerHistoryDialog
-        meter={ledgerMeter}
-        open={ledgerOpen}
-        onOpenChange={setLedgerOpen}
-      />
 
       <AddMeterDialog
         open={addOpen}
@@ -488,8 +454,8 @@ function InfoTile({
   return (
     <div
       className={cn(
-        "rounded-lg border px-4 py-3",
-        highlight && "border-sky-200 bg-sky-50/50"
+        "rounded-lg border px-4 py-3 dark:border-white/10",
+        highlight && "border-sky-200 bg-sky-50/50 dark:border-sky-800 dark:bg-sky-900/20"
       )}
     >
       <p className="text-xs text-muted-foreground">{label}</p>

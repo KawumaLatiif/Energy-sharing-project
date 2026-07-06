@@ -82,8 +82,9 @@ from mtn_momo.config import MTN_MOMO_CONFIG, should_simulate_payments  # noqa: E
 MTN_USE_SIMULATED_PAYMENTS = should_simulate_payments()
 
 THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
-# Server-to-server URL when TB runs on the same host (bypasses public DNS/firewall hairpin).
-THINGSBOARD_INTERNAL_BASE_URL = get_env_variable("THINGSBOARD_INTERNAL_BASE_URL", "")
+# Server-to-server URL when TB runs on the same production host (bypasses public DNS/firewall hairpin).
+_THINGSBOARD_INTERNAL_BASE_URL = get_env_variable("THINGSBOARD_INTERNAL_BASE_URL", "")
+THINGSBOARD_INTERNAL_BASE_URL = "" if DEBUG else _THINGSBOARD_INTERNAL_BASE_URL
 THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 15, cast=int)
 THINGSBOARD_VERIFY_SSL = str(
     get_env_variable("THINGSBOARD_VERIFY_SSL", "true")
@@ -93,7 +94,7 @@ THINGSBOARD_TENANT_USERNAME = get_env_variable("THINGSBOARD_TENANT_USERNAME", ""
 THINGSBOARD_TENANT_PASSWORD = get_env_variable("THINGSBOARD_TENANT_PASSWORD", "")
 THINGSBOARD_USAGE_TELEMETRY_KEY = get_env_variable("THINGSBOARD_USAGE_TELEMETRY_KEY", "daily_kwh")
 AMI_LOW_UNITS_THRESHOLD_KWH = get_env_variable("AMI_LOW_UNITS_THRESHOLD_KWH", 5, cast=float)
-AMI_LOW_UNITS_POLL_SECONDS = get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 2, cast=int)
+AMI_LOW_UNITS_POLL_SECONDS = get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 1, cast=int)
 AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS = get_env_variable("AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS", 6, cast=int)
 
 # USSD: inactivity timeout between user inputs (seconds). Industry default is 90s.

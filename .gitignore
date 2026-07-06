@@ -1,0 +1,24 @@
+# Monorepo-wide dependency/build artifacts
+**/node_modules/
+**/.next/
+**/dist/
+**/build/
+**/coverage/
+
+# Logs and caches
+*.log
+*.tsbuildinfo
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+.claude/
+.idea/

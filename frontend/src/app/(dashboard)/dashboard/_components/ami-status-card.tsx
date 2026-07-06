@@ -174,7 +174,7 @@ export default function AmiStatusCard({
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             <Wifi className="h-5 w-5 text-blue-600" />
-            <CardTitle className="text-base">AMI Meter — Apply Wallet Units</CardTitle>
+            <CardTitle className="text-base">AMI Meter - Load Units from Wallet</CardTitle>
           </div>
           <Button
             variant="ghost"
@@ -225,7 +225,7 @@ export default function AmiStatusCard({
 
         {localWalletBalance > 0 ? (
           <div className="space-y-2">
-            <Label htmlFor="ami-apply-amount">kWh to apply from wallet</Label>
+            <Label htmlFor="ami-apply-amount">kWh to load from wallet</Label>
             <div className="flex gap-2">
               <Input
                 id="ami-apply-amount"

@@ -164,7 +164,6 @@ CELERY_RESULT_BACKEND=redis://127.0.0.1:6379/0
 THINGSBOARD_BASE_URL=https://iot.energy-share.sun.ac.ug
 THINGSBOARD_TIMEOUT_SECONDS=15
 THINGSBOARD_WEBHOOK_SECRET=choose-a-long-random-string
-# THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090   # if TB on same machine
 # Real AMI push/read (default is mock simulation):
 # AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
@@ -326,7 +325,7 @@ THINGSBOARD_WEBHOOK_SECRET=local-dev-secret
 AMI_GATEWAY=utils.ami_gateway.ThingsBoardAMIGateway
 ```
 
-**Same machine as TB (or SSH tunnel):** add `THINGSBOARD_INTERNAL_BASE_URL=http://127.0.0.1:9090`.
+`THINGSBOARD_INTERNAL_BASE_URL` is reserved for same-host production deployments and is ignored while `DEBUG=True`.
 
 Use `dev-` prefix on `iot_device_token` to stub push/read without HTTP.
 

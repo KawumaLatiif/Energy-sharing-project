@@ -1,6 +1,7 @@
 import logging
 import threading
 import uuid
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 
 from django.conf import settings
@@ -16,14 +17,17 @@ from loan.models import LoanApplication
 from loan.services import (
     LoanOperationError,
     create_loan_application,
-    disburse_loan,
+    format_loan_apply_preview_ussd,
     format_loan_stats_ussd,
+    format_repay_loan_menu_ussd,
     format_wallet_loan_summary,
     get_disbursed_loan_balances,
+    get_repayable_loan,
     get_user_loan_stats,
     repay_loan,
     user_can_purchase_units,
 )
+from loan.tenure import TENURE_PROMPT, validate_tenure_months
 from meter.api.views import BuyUnitsView
 from meter.models import Meter, MeterToken
 from meter.models import Transaction as MeterLedgerTransaction
@@ -33,7 +37,9 @@ from share.flow import ShareFlowError, build_share_summary, execute_share_units
 from transactions.models import Transaction, TransactionLog, TransactionType, UnitTransaction
 from transactions.services import record_transaction_log
 from transactions.api.generate_token import generate_numeric_token
+from transactions.tasks import handle_send_transaction_statement_email
 from ussd.models import UssdSession, ussd_session_timeout_seconds
+from utils.general import dispatch_task
 from wallet.models import Wallet as UnitWallet
 
 logger = logging.getLogger(__name__)
@@ -108,10 +114,35 @@ def _find_user_by_phone(phone_number: str):
     return candidates[0] if len(candidates) == 1 else None
 
 
+# USSD navigation keys (shown on every submenu / prompt / result screen).
+NAV_MAIN = "*"
+NAV_BACK = "#"
+MAIN_MENU_OPTION = "*: Main Menu"
+BACK_OPTION = "#: Back"
+
+
 def _menu(text: str) -> list[str]:
+    """
+    Parse Africa's Talking cumulative USSD text into steps.
+
+    `*` separates levels; a trailing `*` is the main-menu shortcut (otherwise lost
+    on split). `#` is the back shortcut (usually its own final segment).
+    """
     if not text:
         return []
-    return [segment.strip() for segment in text.split("*") if segment.strip() != ""]
+    raw = str(text).strip()
+    steps = [segment.strip() for segment in raw.split("*") if segment.strip() != ""]
+    if raw == NAV_MAIN or raw.endswith(NAV_MAIN):
+        if not steps or steps[-1] != NAV_MAIN:
+            steps.append(NAV_MAIN)
+    if steps and steps[-1] != NAV_BACK and steps[-1].endswith(NAV_BACK):
+        base = steps[-1][:-1].strip()
+        if base:
+            steps[-1] = base
+        else:
+            steps.pop()
+        steps.append(NAV_BACK)
+    return steps
 
 
 def _resp(prefix: str, message: str):
@@ -126,6 +157,68 @@ def _ussd_timeout_message() -> str:
     )
 
 
+def _parse_statement_date(raw: str):
+    try:
+        return datetime.strptime(str(raw).strip(), "%Y-%m-%d").date()
+    except (TypeError, ValueError):
+        return None
+
+
+# Parent menu for "#: Back" from result / submenu screens.
+MENU_PARENT: dict[str, str] = {
+    "wallet_menu": "root",
+    "wallet_overview": "wallet_menu",
+    "check_units": "wallet_menu",
+    "check_units_pick": "wallet_menu",
+    "buy_menu": "root",
+    "buy_amount": "buy_menu",
+    "buy_result": "buy_menu",
+    "buy_status": "buy_menu",
+    "buy_status_result": "buy_menu",
+    "loans_menu": "root",
+    "loan_latest": "loans_menu",
+    "loan_apply_ineligible": "loans_menu",
+    "loan_apply_amount": "loans_menu",
+    "loan_apply_tenure": "loans_menu",
+    "loan_apply_result": "loans_menu",
+    "loan_repay_pick": "loans_menu",
+    "loan_repay_partial": "loan_repay_pick",
+    "loan_repay_result": "loans_menu",
+    "loan_stats": "loans_menu",
+    "share_meter": "root",
+    "share_units": "root",
+    "share_preview_error": "root",
+    "share_result": "root",
+    "tokens_menu": "root",
+    "tokens": "tokens_menu",
+    "token_generate_amount": "tokens_menu",
+    "token_generate": "tokens_menu",
+    "manage_menu": "root",
+    "manage_meters": "manage_menu",
+    "manage_alerts": "manage_menu",
+    "apply_ami": "manage_menu",
+    "apply_ami_pick": "manage_menu",
+    "apply_ami_amount": "manage_menu",
+    "statement_start_date": "manage_menu",
+    "statement_end_date": "manage_menu",
+    "statement_email_requested": "manage_menu",
+    "alerts": "root",
+    "power_usage": "root",
+    "power_usage_pick": "root",
+    "error": "root",
+}
+
+# USSD path prefix when returning to a parent menu (for cumulative text replay).
+MENU_PATH: dict[str, str] = {
+    "root": "",
+    "wallet_menu": "1",
+    "buy_menu": "2",
+    "loans_menu": "3",
+    "tokens_menu": "5",
+    "manage_menu": "6",
+}
+
+
 def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = "", context: dict | None = None):
     merged_context = dict(session.context or {})
     if context:
@@ -134,7 +227,17 @@ def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = 
     session.current_menu = menu or session.current_menu
     session.context = merged_context
     if prefix.strip().upper() == "CON":
-        session.touch()
+        session.expires_at = UssdSession.default_expiry()
+        session.is_active = True
+        session.save(
+            update_fields=[
+                "current_menu",
+                "context",
+                "expires_at",
+                "is_active",
+                "updated_at",
+            ]
+        )
     else:
         session.is_active = False
         session.save(
@@ -143,7 +246,102 @@ def _session_reply(session: UssdSession, prefix: str, message: str, menu: str = 
     return _resp(prefix, message)
 
 
-MAIN_MENU_OPTION = "0: Main Menu"
+def _nav_footer(menu: str) -> str:
+    """Back + main menu shortcuts on submenus and result screens."""
+    lines: list[str] = []
+    if menu and menu != "root":
+        lines.append(BACK_OPTION)
+    lines.append(MAIN_MENU_OPTION)
+    return "\n".join(lines)
+
+
+def _effective_steps(text: str, session: UssdSession) -> list[str]:
+    """
+    Africa's Talking sends cumulative dial strings. After Back (#) or Main Menu (*),
+    replay only choices made since that navigation point.
+    """
+    steps = _menu(text)
+    if not steps:
+        return []
+    ctx = session.context or {}
+    nav_reset_at = ctx.get("nav_reset_at")
+    if nav_reset_at is None:
+        return steps
+    nav_prefix = str(ctx.get("nav_prefix", "") or "")
+    prefix_steps = _menu(nav_prefix) if nav_prefix else []
+    tail = steps[nav_reset_at:]
+    return prefix_steps + tail
+
+
+def _wants_back(steps: list[str], session: UssdSession) -> bool:
+    if not steps or steps[-1] != NAV_BACK:
+        return False
+    menu = (session.current_menu or "root").strip()
+    return menu != "root"
+
+
+def _wallet_menu_message() -> str:
+    return (
+        "Wallet & Meter\n"
+        "1. Summary\n"
+        "2. Check units (AMI)"
+    )
+
+
+def _loans_menu_message() -> str:
+    return (
+        "Loans\n"
+        "1. Latest loan\n"
+        "2. Apply for loan\n"
+        "3. Repay loan\n"
+        "4. Loan stats"
+    )
+
+
+def _render_menu_by_key(session: UssdSession, user, menu_key: str):
+    if menu_key == "root":
+        return _reply_main_menu(session, nav_reset_at=len(_menu(session.last_text or "")))
+    if menu_key == "wallet_menu":
+        return _reply_submenu(session, _wallet_menu_message(), menu="wallet_menu")
+    if menu_key == "buy_menu":
+        return _reply_submenu(
+            session,
+            "Buy Units\n1. Start purchase\n2. Check payment status",
+            menu="buy_menu",
+        )
+    if menu_key == "loans_menu":
+        return _reply_submenu(session, _loans_menu_message(), menu="loans_menu")
+    if menu_key == "tokens_menu":
+        return _reply_submenu(
+            session,
+            "My Tokens\n1. List unused\n2. Generate STS token",
+            menu="tokens_menu",
+        )
+    if menu_key == "manage_menu":
+        return _reply_submenu(
+            session,
+            (
+                "Manage\n"
+                "1. My meters\n"
+                "2. Alerts\n"
+                "3. Apply wallet (AMI)\n"
+                "4. Email statement (PDF)"
+            ),
+            menu="manage_menu",
+        )
+    return _reply_main_menu(session, nav_reset_at=len(_menu(session.last_text or "")))
+
+
+def _reply_parent_menu(session: UssdSession, user, raw_steps: list[str]):
+    parent = MENU_PARENT.get(session.current_menu or "", "root")
+    nav_reset_at = len(raw_steps)
+    nav_prefix = MENU_PATH.get(parent, "")
+    ctx = dict(session.context or {})
+    ctx["nav_reset_at"] = nav_reset_at
+    ctx["nav_prefix"] = nav_prefix
+    ctx["awaiting_main_menu"] = False
+    session.context = ctx
+    return _render_menu_by_key(session, user, parent)
 
 
 def _main_menu_text() -> str:
@@ -161,40 +359,58 @@ def _main_menu_text() -> str:
     )
 
 
-def _reply_main_menu(session: UssdSession):
+def _reply_main_menu(session: UssdSession, nav_reset_at: int | None = None):
+    ctx: dict = {
+        "awaiting_main_menu": False,
+        "nav_prefix": "",
+    }
+    if nav_reset_at is not None:
+        ctx["nav_reset_at"] = nav_reset_at
     return _session_reply(
         session,
         "CON",
         _main_menu_text(),
         menu="root",
-        context={"awaiting_main_menu": False},
+        context=ctx,
     )
 
 
 def _reply_submenu(session: UssdSession, message: str, menu: str = "", context: dict | None = None):
-    merged = context or {}
-    return _session_reply(session, "CON", f"{message}\n{MAIN_MENU_OPTION}", menu=menu, context=merged)
+    merged = dict(context or {})
+    footer = _nav_footer(menu)
+    return _session_reply(session, "CON", f"{message}\n{footer}", menu=menu, context=merged)
 
 
 def _reply_done(session: UssdSession, message: str, menu: str = "", context: dict | None = None):
-    merged = {"awaiting_main_menu": True}
+    merged: dict = {"awaiting_main_menu": True}
     if context:
         merged.update(context)
+    footer = _nav_footer(menu)
     return _session_reply(
         session,
         "CON",
-        f"{message}\n\n{MAIN_MENU_OPTION}",
+        f"{message}\n\n{footer}",
         menu=menu,
         context=merged,
     )
 
 
+def _reply_prompt(session: UssdSession, message: str, menu: str, context: dict | None = None):
+    """Single-field CON prompt with Back / Main Menu shortcuts."""
+    merged = dict(context or {})
+    footer = _nav_footer(menu)
+    return _session_reply(session, "CON", f"{message}\n{footer}", menu=menu, context=merged)
+
+
 def _wants_main_menu(steps: list[str], session: UssdSession) -> bool:
-    if not steps or steps[-1] != "0":
+    if not steps or steps[-1] != NAV_MAIN:
         return False
+    if len(steps) == 1:
+        return True
     ctx = session.context or {}
     if ctx.get("awaiting_main_menu"):
         return True
+    # e.g. 3* -> main menu from a first-level submenu
     return len(steps) == 2
 
 
@@ -317,44 +533,43 @@ def _check_buy_status(user, tx_id_raw: str):
     return True, f"PENDING\nTxID: {transaction.id}"
 
 
-def _apply_loan(user, amount_raw: str):
+def _apply_loan(user, amount_raw: str, tenure_months: int):
     try:
         loan = create_loan_application(
             user,
             amount_requested=amount_raw,
             purpose="USSD application",
-            tenure_months=6,
+            tenure_months=tenure_months,
             channel="USSD",
         )
     except LoanOperationError as exc:
         return False, exc.message
 
+    if loan.status == "DISBURSED":
+        disbursement = getattr(loan, "disbursement", None)
+        units = disbursement.units_disbursed if disbursement else "-"
+        return True, (
+            f"Loan approved & disbursed!\nID: {loan.id}\nLoanRef: {loan.loan_id}\n"
+            f"Approved UGX {loan.amount_approved}\n"
+            f"Units added: {units}\n"
+            f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)"
+        )
     if loan.status == "APPROVED":
         return True, (
             f"Loan approved.\nID: {loan.id}\nLoanRef: {loan.loan_id}\n"
-            f"Approved UGX {loan.amount_approved}"
+            f"Approved UGX {loan.amount_approved}\n"
+            f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)\n"
+            f"Units are being credited. If they don't arrive shortly, contact support."
         )
     return True, f"Loan rejected.\nReason: {loan.rejection_reason}"
 
 
-def _disburse_loan(user, loan_id_raw: str):
+def _repay_loan(user, loan_id_raw: str | None, amount_raw: str):
     try:
-        result = disburse_loan(user, loan_id_raw, channel="USSD")
-    except LoanOperationError as exc:
-        return False, exc.message
-
-    return True, (
-        f"Loan disbursed.\nLoanRef: {result['loan_id']}\n"
-        f"Units added: {result['units_disbursed']}\n"
-        f"Meter push: {'OK' if result['meter_push_ok'] else 'FAILED'}"
-    )
-
-
-def _repay_loan(user, loan_id_raw: str, amount_raw: str):
-    try:
+        loan_key = None if loan_id_raw in (None, "", "0") else loan_id_raw
         result = repay_loan(
             user,
-            loan_id_raw,
+            loan_key,
             amount_raw,
             channel="USSD",
             payment_method="MOBILE_MONEY",
@@ -366,40 +581,6 @@ def _repay_loan(user, loan_id_raw: str, amount_raw: str):
         f"{result['message']}\nLoanRef: {result['loan_id']}\n"
         f"Outstanding: UGX {result['outstanding_balance']}\n"
         f"Units added: {result['units_added']}"
-    )
-
-
-def _share_with_password(user, receiver_meter_no: str, units_raw: str, password: str):
-    try:
-        units = Decimal(str(units_raw))
-    except (InvalidOperation, ValueError):
-        return False, "Invalid units."
-
-    if not user.check_password(password):
-        return False, "Incorrect PIN. Use your gPAWA login password."
-
-    try:
-        result = execute_share_units(
-            sender=user,
-            receiver_meter_no=receiver_meter_no,
-            units=units,
-            channel="USSD",
-        )
-    except ShareFlowError as exc:
-        return False, exc.message
-
-    msg_suffix = ""
-    if result.get("share_token"):
-        msg_suffix = f"\nToken: {result['share_token']}"
-    elif result.get("receiver_architecture") == Meter.ARCH_AMI:
-        msg_suffix = "\nAMI meter topped up."
-
-    return True, (
-        f"Share completed.\nRef: {result['transaction_id']}\n"
-        f"To: {result['receiver_meter']} ({result.get('receiver_name', '')})\n"
-        f"Units: {result['units_shared']}\n"
-        f"Wallet: {result['new_sender_wallet_balance']} kWh"
-        f"{msg_suffix}"
     )
 
 
@@ -591,8 +772,7 @@ def _check_units_for_meter(user, meter_no: str):
 
     return True, (
         f"Meter {meter.meter_no}\n"
-        f"Live (TB): {data['units_kwh']:.2f} kWh\n"
-        f"Ledger: {float(meter.units):.2f} kWh"
+        f"Units: {data['units_kwh']:.2f} kWh"
     )
 
 
@@ -654,6 +834,7 @@ def _reply_ussd_check_units(user, ussd_session, text, steps):
 def _notifications_summary(user):
     from meter.models import MeterNotification
 
+    low_threshold = float(getattr(settings, "AMI_LOW_UNITS_THRESHOLD_KWH", 5))
     unread = MeterNotification.objects.filter(user=user, is_read=False).count()
     recent = list(
         MeterNotification.objects.filter(user=user)
@@ -666,9 +847,15 @@ def _notifications_summary(user):
     lines = [f"Alerts (unread: {unread}):"]
     for n in recent:
         mark = "*" if not n.is_read else ""
-        mno = n.meter.meter_no if n.meter else "?"
-        lines.append(f"{mark}{mno}: {float(n.units_kwh):.2f} kWh")
-    lines.append("Top up via Buy Units (menu 2).")
+        if n.notification_type == MeterNotification.TYPE_LOW_UNITS:
+            mno = n.meter.meter_no if n.meter else "?"
+            lines.append(
+                f"{mark}LOW BALANCE <= {low_threshold:.0f} kWh | Meter {mno}: "
+                f"{float(n.units_kwh):.2f} kWh remaining"
+            )
+        else:
+            lines.append(f"{mark}{(n.message or 'Alert update')[:120]}")
+    lines.append("Use menu 7 or Manage->2 to review alerts.")
     return True, "\n".join(lines)
 
 
@@ -723,8 +910,11 @@ def ussd_entry(request):
     ussd_session.user = user
 
     if session_timed_out:
+        had_prior_activity = bool((ussd_session.last_text or "").strip()) or bool(
+            (ussd_session.context or {}).get("last_response")
+        )
         ussd_session.reset()
-        if text_str:
+        if had_prior_activity or text_str:
             ussd_session.user = user
             ussd_session.phone_number = str(phone_number)
             ussd_session.service_code = service_code or ussd_session.service_code
@@ -753,16 +943,23 @@ def ussd_entry(request):
 
     meter = Meter.objects.filter(user=user).first()
     wallet, _ = UnitWallet.objects.get_or_create(user=user)
-    steps = _menu(text)
+    raw_steps = _menu(text_str)
 
     try:
-        if _wants_main_menu(steps, ussd_session):
-            ussd_session.last_text = text
+        if _wants_main_menu(raw_steps, ussd_session):
+            ussd_session.last_text = text_str
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _reply_main_menu(ussd_session)
+            return _reply_main_menu(ussd_session, nav_reset_at=len(raw_steps))
+
+        if _wants_back(raw_steps, ussd_session):
+            ussd_session.last_text = text_str
+            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+            return _reply_parent_menu(ussd_session, user, raw_steps)
+
+        steps = _effective_steps(text_str, ussd_session)
 
         if len(steps) == 0:
-            ussd_session.last_text = text or ""
+            ussd_session.last_text = text_str or ""
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])
             return _reply_main_menu(ussd_session)
 
@@ -773,11 +970,7 @@ def ussd_entry(request):
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _reply_submenu(
                     ussd_session,
-                    (
-                        "Wallet & Meter\n"
-                        "1. Summary\n"
-                        "2. Check units (AMI)"
-                    ),
+                    _wallet_menu_message(),
                     menu="wallet_menu",
                 )
 
@@ -818,24 +1011,40 @@ def ussd_entry(request):
                 if len(steps) == 2:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter amount in UGX:", menu="buy_amount")
-                ok, msg = _start_buy_units(user, phone_number, steps[2])
-                ctx = {}
-                if ok:
-                    tx_line = [line for line in msg.split("\n") if line.startswith("TxID:")]
-                    if tx_line:
-                        try:
-                            ctx["last_buy_transaction_id"] = int(tx_line[0].split(":")[1].strip())
-                        except Exception:
-                            pass
+                    return _reply_prompt(ussd_session, "Enter amount in UGX:", menu="buy_amount")
+                if len(steps) == 3:
+                    try:
+                        purchase_amount = Decimal(str(steps[2]))
+                        if purchase_amount <= 0:
+                            raise ValueError("invalid")
+                    except (InvalidOperation, TypeError, ValueError):
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "Error: Invalid amount.",
+                            menu="buy_result",
+                        )
+                    ok, msg = _start_buy_units(user, phone_number, str(purchase_amount))
+                    ctx = {}
+                    if ok:
+                        tx_line = [line for line in msg.split("\n") if line.startswith("TxID:")]
+                        if tx_line:
+                            try:
+                                ctx["last_buy_transaction_id"] = int(tx_line[0].split(":")[1].strip())
+                            except Exception:
+                                pass
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        msg if ok else f"Error: {msg}",
+                        menu="buy_result",
+                        context=ctx,
+                    )
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(
-                    ussd_session,
-                    msg if ok else f"Error: {msg}",
-                    menu="buy_result",
-                    context=ctx,
-                )
+                return _reply_done(ussd_session, "Invalid buy-units option.", menu="buy_result")
 
             if steps[1] == "2":
                 if len(steps) == 2:
@@ -845,7 +1054,7 @@ def ussd_entry(request):
                     last_tx = (ussd_session.context or {}).get("last_buy_transaction_id")
                     if last_tx:
                         hint = f"\nTip: use {last_tx}"
-                    return _session_reply(ussd_session, "CON", f"Enter transaction ID:{hint}", menu="buy_status")
+                    return _reply_prompt(ussd_session, f"Enter transaction ID:{hint}", menu="buy_status")
                 tx_input = steps[2]
                 if tx_input == "0":
                     tx_input = str((ussd_session.context or {}).get("last_buy_transaction_id", ""))
@@ -869,14 +1078,7 @@ def ussd_entry(request):
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _reply_submenu(
                     ussd_session,
-                    (
-                        "Loans\n"
-                        "1. Latest loan\n"
-                        "2. Apply loan\n"
-                        "3. Disburse loan\n"
-                        "4. Repay loan\n"
-                        "5. Loan stats"
-                    ),
+                    _loans_menu_message(),
                     menu="loans_menu",
                 )
 
@@ -893,46 +1095,127 @@ def ussd_entry(request):
                     (
                         f"LoanID: {loan.id}\nRef: {loan.loan_id}\nStatus: {loan.status}\n"
                         f"Requested: UGX {loan.amount_requested}\nApproved: UGX {loan.amount_approved or 0}\n"
+                        f"Tenure: {loan.tenure_months} mo ({loan.tenure_months * 30} days)\n"
                         f"Outstanding: UGX {loan.outstanding_balance}"
                     ),
                     menu="loan_latest",
                 )
 
             if steps[1] == "2":
+                loan_stats = get_user_loan_stats(user)
                 if len(steps) == 2:
+                    preview = format_loan_apply_preview_ussd(loan_stats)
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter amount in UGX (5000-200000):", menu="loan_apply_amount")
-                ok, msg = _apply_loan(user, steps[2])
+                    if not loan_stats.get("is_loan_eligible"):
+                        return _reply_done(ussd_session, preview, menu="loan_apply_ineligible")
+                    return _reply_prompt(ussd_session, preview, menu="loan_apply_amount")
+                if len(steps) == 3:
+                    try:
+                        purchase_amount = Decimal(str(steps[2]))
+                        if purchase_amount <= 0:
+                            raise ValueError("invalid")
+                    except (InvalidOperation, TypeError, ValueError):
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "Error: Invalid amount.",
+                            menu="loan_apply_result",
+                        )
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_prompt(
+                        ussd_session,
+                        TENURE_PROMPT,
+                        menu="loan_apply_tenure",
+                    )
+                if len(steps) == 4:
+                    try:
+                        tenure = validate_tenure_months(steps[3])
+                    except ValueError as exc:
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            f"Error: {exc}",
+                            menu="loan_apply_result",
+                        )
+                    ok, msg = _apply_loan(user, steps[2], tenure)
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_apply_result")
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_apply_result")
+                return _reply_done(ussd_session, "Invalid loan apply option.", menu="loan_apply_result")
 
             if steps[1] == "3":
+                repayable = get_repayable_loan(user)
                 if len(steps) == 2:
+                    if not repayable:
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "No active loan to repay.",
+                            menu="loan_repay_result",
+                        )
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter LoanID to disburse (or 0 for latest approved):", menu="loan_disburse_pick")
-                ok, msg = _disburse_loan(user, steps[2])
+                    return _reply_submenu(
+                        ussd_session,
+                        format_repay_loan_menu_ussd(repayable),
+                        menu="loan_repay_pick",
+                        context={
+                            "repay_loan_pk": repayable.id,
+                            "repay_outstanding": str(repayable.outstanding_balance),
+                        },
+                    )
+                if len(steps) == 3:
+                    if steps[2] == "1":
+                        active = repayable or get_repayable_loan(user)
+                        if not active:
+                            ussd_session.last_text = text
+                            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                            return _reply_done(
+                                ussd_session,
+                                "No active loan to repay.",
+                                menu="loan_repay_result",
+                            )
+                        outstanding = float(active.outstanding_balance)
+                        ok, msg = _repay_loan(user, None, outstanding)
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            msg if ok else f"Error: {msg}",
+                            menu="loan_repay_result",
+                        )
+                    if steps[2] == "2":
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_prompt(
+                            ussd_session,
+                            "Enter partial repayment amount UGX:",
+                            menu="loan_repay_partial",
+                        )
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(ussd_session, "Invalid repayment option.", menu="loan_repay_result")
+                if len(steps) == 4 and steps[2] == "2":
+                    ok, msg = _repay_loan(user, None, steps[3])
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        msg if ok else f"Error: {msg}",
+                        menu="loan_repay_result",
+                    )
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_disburse_result")
+                return _reply_done(ussd_session, "Invalid repayment option.", menu="loan_repay_result")
 
             if steps[1] == "4":
-                if len(steps) == 2:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter LoanID:", menu="loan_repay_loan")
-                if len(steps) == 3:
-                    ussd_session.last_text = text
-                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(ussd_session, "CON", "Enter repayment amount UGX:", menu="loan_repay_amount")
-                ok, msg = _repay_loan(user, steps[2], steps[3])
-                ussd_session.last_text = text
-                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="loan_repay_result")
-
-            if steps[1] == "5":
                 loan_stats = get_user_loan_stats(user)
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
@@ -951,9 +1234,8 @@ def ussd_entry(request):
             if len(steps) == 1:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_prompt(
                     ussd_session,
-                    "CON",
                     "Enter receiver meter number:",
                     menu="share_meter",
                 )
@@ -961,32 +1243,45 @@ def ussd_entry(request):
             if len(steps) == 2:
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
+                return _reply_prompt(
                     ussd_session,
-                    "CON",
                     "Enter units to share (min 2):",
                     menu="share_units",
                 )
 
             if len(steps) == 3:
-                ok, msg = _share_preview_for_ussd(user, steps[1], steps[2])
-                if not ok:
+                preview_ok, preview_msg = _share_preview_for_ussd(user, steps[1], steps[2])
+                if not preview_ok:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _reply_done(ussd_session, f"Error: {msg}", menu="share_preview_error")
+                    return _reply_done(ussd_session, f"Error: {preview_msg}", menu="share_preview_error")
+                try:
+                    units = Decimal(str(steps[2]))
+                    result = execute_share_units(
+                        sender=user,
+                        receiver_meter_no=steps[1],
+                        units=units,
+                        channel="USSD",
+                    )
+                    msg_suffix = ""
+                    if result.get("share_token"):
+                        msg_suffix = f"\nToken: {result['share_token']}"
+                    elif result.get("receiver_architecture") == Meter.ARCH_AMI:
+                        msg_suffix = "\nAMI meter topped up."
+                    share_msg = (
+                        f"Share completed.\nRef: {result['transaction_id']}\n"
+                        f"To: {result['receiver_meter']} ({result.get('receiver_name', '')})\n"
+                        f"Units: {result['units_shared']}\n"
+                        f"Wallet: {result['new_sender_wallet_balance']} kWh"
+                        f"{msg_suffix}"
+                    )
+                    share_ok = True
+                except ShareFlowError as exc:
+                    share_msg = exc.message
+                    share_ok = False
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                return _session_reply(
-                    ussd_session,
-                    "CON",
-                    f"{msg}\nEnter your account PIN to confirm:",
-                    menu="share_pin",
-                )
-
-            ok, msg = _share_with_password(user, steps[1], steps[2], steps[3])
-            ussd_session.last_text = text
-            ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-            return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="share_result")
+                return _reply_done(ussd_session, share_msg if share_ok else f"Error: {share_msg}", menu="share_result")
 
         # 5) Tokens — list or generate STS
         if steps[0] == "5":
@@ -1016,9 +1311,8 @@ def ussd_entry(request):
                 if len(steps) == 2:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
+                    return _reply_prompt(
                         ussd_session,
-                        "CON",
                         f"Enter kWh from wallet (max {float(wallet.balance):.2f}):",
                         menu="token_generate_amount",
                     )
@@ -1042,7 +1336,8 @@ def ussd_entry(request):
                         "Manage\n"
                         "1. My meters\n"
                         "2. Alerts\n"
-                        "3. Apply wallet (AMI)"
+                        "3. Apply wallet (AMI)\n"
+                        "4. Email statement (PDF)"
                     ),
                     menu="manage_menu",
                 )
@@ -1073,9 +1368,8 @@ def ussd_entry(request):
                 if len(ami_meters) == 1 and len(steps) == 2:
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
+                    return _reply_prompt(
                         ussd_session,
-                        "CON",
                         f"Apply kWh to {ami_meters[0].meter_no}\nEnter amount:",
                         menu="apply_ami_amount",
                         context={"apply_ami_meter": ami_meters[0].meter_no},
@@ -1105,9 +1399,8 @@ def ussd_entry(request):
                         return _reply_done(ussd_session, "Invalid meter selection.", menu="apply_ami")
                     ussd_session.last_text = text
                     ussd_session.save(update_fields=["user", "last_text", "updated_at"])
-                    return _session_reply(
+                    return _reply_prompt(
                         ussd_session,
-                        "CON",
                         f"Enter kWh to apply to {meter_no}:",
                         menu="apply_ami_amount",
                         context={"apply_ami_meter": meter_no},
@@ -1119,6 +1412,67 @@ def ussd_entry(request):
                 ussd_session.last_text = text
                 ussd_session.save(update_fields=["user", "last_text", "updated_at"])
                 return _reply_done(ussd_session, msg if ok else f"Error: {msg}", menu="apply_ami")
+
+            if steps[1] == "4":
+                if len(steps) == 2:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_prompt(
+                        ussd_session,
+                        "Statement start date (YYYY-MM-DD):",
+                        menu="statement_start_date",
+                    )
+                if len(steps) == 3:
+                    start_date = _parse_statement_date(steps[2])
+                    if not start_date:
+                        ussd_session.last_text = text
+                        ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                        return _reply_done(
+                            ussd_session,
+                            "Error: Invalid start date format. Use YYYY-MM-DD.",
+                            menu="statement_start_date",
+                        )
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_prompt(
+                        ussd_session,
+                        "Statement end date (YYYY-MM-DD):",
+                        menu="statement_end_date",
+                        context={"statement_start_date": start_date.isoformat()},
+                    )
+
+                start_date_raw = (ussd_session.context or {}).get("statement_start_date") or steps[2]
+                start_date = _parse_statement_date(start_date_raw)
+                end_date = _parse_statement_date(steps[3])
+                if not start_date or not end_date:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        "Error: Invalid date format. Use YYYY-MM-DD.",
+                        menu="statement_end_date",
+                    )
+                if end_date < start_date:
+                    ussd_session.last_text = text
+                    ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                    return _reply_done(
+                        ussd_session,
+                        "Error: End date cannot be before start date.",
+                        menu="statement_end_date",
+                    )
+                dispatch_task(
+                    handle_send_transaction_statement_email,
+                    user.id,
+                    start_date.isoformat(),
+                    end_date.isoformat(),
+                )
+                ussd_session.last_text = text
+                ussd_session.save(update_fields=["user", "last_text", "updated_at"])
+                return _reply_done(
+                    ussd_session,
+                    f"Statement requested. PDF will be sent to {user.email}.",
+                    menu="statement_email_requested",
+                )
 
             ussd_session.last_text = text
             ussd_session.save(update_fields=["user", "last_text", "updated_at"])

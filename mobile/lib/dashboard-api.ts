@@ -1,8 +1,27 @@
 import { apiRequest } from "@/lib/api";
 import type { LoanStats, TransactionItem, WalletBalance } from "@/types/api";
 
+function parseWalletBalance(data: Record<string, unknown>): WalletBalance {
+  const wallet = data.wallet as { balance?: string | number } | undefined;
+  const raw =
+    wallet?.balance ??
+    data.wallet_balance ??
+    data.unit_wallet_balance ??
+    data.balance ??
+    0;
+  const balance = parseFloat(String(raw));
+  return {
+    balance: Number.isFinite(balance) ? balance : 0,
+    currency: "kWh",
+  };
+}
+
 export async function getWalletBalance(): Promise<WalletBalance> {
-  return apiRequest<WalletBalance>("wallet/balance/");
+  const data = await apiRequest<Record<string, unknown>>("wallet/balance/");
+  if (data.success === false) {
+    return { balance: 0, currency: "kWh" };
+  }
+  return parseWalletBalance(data);
 }
 
 export async function getLoanStats(): Promise<LoanStats> {

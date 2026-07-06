@@ -26,7 +26,7 @@ import NotificationBell from "./notification-bell";
 import { IconMoneybag } from "@tabler/icons-react";
 import DashboardNavLinks from "@/components/dashboard/dashboard-nav-links";
 import { Zap, Settings, LogOut, Menu } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAccount } from "@/hooks/use-account";
 
 interface RightHeaderProps {
@@ -38,6 +38,22 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
   const pathname = usePathname();
   const [isProfileMenuOpen, setIsProfileMenuOpen] = useState(false);
   const { user } = useAccount();
+  const [cachedEmail, setCachedEmail] = useState("");
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const key = "gpawa:user_email";
+    const liveEmail = user?.email?.trim();
+    if (liveEmail) {
+      window.localStorage.setItem(key, liveEmail);
+      setCachedEmail(liveEmail);
+      return;
+    }
+    const saved = window.localStorage.getItem(key) || "";
+    setCachedEmail(saved);
+  }, [user?.email]);
+
+  const displayEmail = useMemo(() => user?.email?.trim() || cachedEmail, [user?.email, cachedEmail]);
 
   const handleProfileClick = () => {
     if (onProfileClick) {
@@ -88,9 +104,9 @@ export default function RightHeader({ onProfileClick, onMeterClick }: RightHeade
       <div className="flex items-center gap-3">
         <span
           className="hidden text-sm text-muted-foreground md:inline-block max-w-[260px] truncate"
-          title={user?.email || ""}
+          title={displayEmail}
         >
-          {user?.email || ""}
+          {displayEmail}
         </span>
         <NotificationBell />
         <ModeToggle />

@@ -24,7 +24,7 @@ import { InfoBanner } from "@/components/ui/info-banner";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { useSelectedMeter } from "@/app/(dashboard)/dashboard/_components/selected-meter-context";
+import { useSelectedMeter } from "@/contexts/selected-meter-context";
 import MeterLoadDialog from "@/app/(dashboard)/dashboard/_components/meter-load-dialog";
 import type { UserMeter } from "@/interface/meter.interface";
 import Link from "next/link";

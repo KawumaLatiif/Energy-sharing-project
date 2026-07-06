@@ -154,7 +154,10 @@ export default function NotificationBell() {
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground">
-                  {n.units_kwh.toFixed(2)} kWh remaining · {formatWhen(n.occurred_at)}
+                  {n.notification_type === "LOW_UNITS"
+                    ? `${n.units_kwh.toFixed(2)} kWh remaining`
+                    : "Account update"}{" "}
+                  · {formatWhen(n.occurred_at)}
                 </span>
                 {n.message && (
                   <span className="text-xs text-muted-foreground line-clamp-2">{n.message}</span>

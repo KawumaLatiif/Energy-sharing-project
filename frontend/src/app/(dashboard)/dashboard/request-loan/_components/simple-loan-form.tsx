@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { Loader2, AlertTriangle, CheckCircle2, Info } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,13 +30,32 @@ const PURPOSE_OPTIONS = [
   { label: "Personal", value: "PERSONAL" },
 ];
 
-// Statutory compliant rates (Uganda Tier 4 MFI Act: ≤2.8%/month = ≤33.6%/year)
-// These are annual rates stored in the backend; the backend enforces the cap.
-const PROCESSING_FEE_PCT = 0.02;   // 2% of principal
+const PLATFORM_MAX_LOAN = 200_000;
+const MIN_LOAN_AMOUNT = 5_000;
+const LOAN_MONTH_DAYS = 30;
+const LOAN_TENURE_MIN = 1;
+const LOAN_TENURE_MAX = 12;
+
+interface LoanEligibility {
+  creditScore: number;
+  maxEligible: number;
+  platformMax: number;
+  minCreditScore: number;
+  loanTier: string | null;
+  isEligible: boolean;
+  profileComplete: boolean;
+  interestRate: number | null;
+  trustLevel: string;
+  starterMax: number;
+  loansCompletedOnTime: number;
+}
 
 function formatUGX(n: number) {
   return `UGX ${Math.round(n).toLocaleString()}`;
 }
+
+// Statutory compliant rates (Uganda Tier 4 MFI Act: ≤2.8%/month = ≤33.6%/year)
+const PROCESSING_FEE_PCT = 0.02;   // 2% of principal
 
 interface LoanBreakdown {
   principal: number;
@@ -53,7 +72,7 @@ function computeBreakdown(amount: number, tenure: number, annualRate: number): L
   const processingFee = amount * PROCESSING_FEE_PCT;
   const total = amount + interest + processingFee;
   const due = new Date();
-  due.setMonth(due.getMonth() + tenure);
+  due.setDate(due.getDate() + tenure * LOAN_MONTH_DAYS);
   return {
     principal: amount,
     interestRate: annualRate,
@@ -84,32 +103,71 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
   const [purpose, setPurpose] = useState("ENERGY_RECHARGE");
   const [purposeNote, setPurposeNote] = useState("");
   const [termsAccepted, setTermsAccepted] = useState(false);
-  const [annualRate, setAnnualRate] = useState(12); // fetched from backend tier
+  const [annualRate, setAnnualRate] = useState(12);
+  const [eligibility, setEligibility] = useState<LoanEligibility>({
+    creditScore: 0,
+    maxEligible: 0,
+    platformMax: PLATFORM_MAX_LOAN,
+    minCreditScore: 75,
+    loanTier: null,
+    isEligible: false,
+    profileComplete: false,
+    interestRate: null,
+    trustLevel: "starter",
+    starterMax: 30_000,
+    loansCompletedOnTime: 0,
+  });
 
-  // Fetch active loan status and current tier rate
-  useEffect(() => {
-    (async () => {
-      try {
-        const statsRes = await get<any>("loans/stats/");
-        if (statsRes.data) {
-          const stats = statsRes.data;
-          const hasBlocking =
-            stats.has_blocking_loan ??
-            ((stats.active_loans ?? 0) > 0 ||
-              (stats.pending_applications ?? 0) > 0 ||
-              Number(stats.outstanding_balance ?? 0) > 0);
-          setHasActiveLoan(hasBlocking);
-          if (stats.interest_rate) {
-            setAnnualRate(stats.interest_rate);
-          }
+  const loadEligibility = useCallback(async () => {
+    try {
+      const statsRes = await get<any>("loans/stats/");
+      if (statsRes.data) {
+        const stats = statsRes.data;
+        const hasBlocking =
+          stats.has_blocking_loan ??
+          ((stats.active_loans ?? 0) > 0 ||
+            (stats.pending_applications ?? 0) > 0 ||
+            Number(stats.outstanding_balance ?? 0) > 0);
+        setHasActiveLoan(hasBlocking);
+        setEligibility({
+          creditScore: Number(stats.credit_score ?? 0),
+          maxEligible: Number(stats.max_eligible_amount ?? 0),
+          platformMax: Number(stats.platform_max_loan ?? PLATFORM_MAX_LOAN),
+          minCreditScore: Number(stats.min_credit_score ?? 75),
+          loanTier: stats.loan_tier ?? null,
+          isEligible: Boolean(stats.is_loan_eligible),
+          profileComplete: Boolean(stats.profile_complete_for_scoring),
+          interestRate: stats.interest_rate != null ? Number(stats.interest_rate) : null,
+          trustLevel: String(stats.trust_level ?? "starter"),
+          starterMax: Number(stats.starter_max_loan ?? 30_000),
+          loansCompletedOnTime: Number(stats.loans_completed_on_time ?? 0),
+        });
+        if (stats.interest_rate) {
+          setAnnualRate(Number(stats.interest_rate));
         }
-      } catch {
-        /* ignore */
-      } finally {
-        setIsChecking(false);
       }
-    })();
+    } catch {
+      /* ignore */
+    } finally {
+      setIsChecking(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadEligibility();
+  }, [loadEligibility]);
+
+  useEffect(() => {
+    const onFocus = () => {
+      loadEligibility();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [loadEligibility]);
+
+  const amountCap = eligibility.isEligible
+    ? Math.min(eligibility.maxEligible, eligibility.platformMax)
+    : eligibility.platformMax;
 
   const breakdown = amount
     ? computeBreakdown(Number(amount), tenure, annualRate)
@@ -119,16 +177,33 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
 
   // ── Step validation ───────────────────────────────────────────────
   const canProceed = useCallback(() => {
-    if (step === 0) return Number(amount) >= 5000 && Number(amount) <= 200000 && tenure >= 1 && tenure <= 12;
+    if (step === 0) {
+      const value = Number(amount);
+      return (
+        value >= MIN_LOAN_AMOUNT &&
+        value <= amountCap &&
+        tenure >= LOAN_TENURE_MIN &&
+        tenure <= LOAN_TENURE_MAX &&
+        eligibility.isEligible
+      );
+    }
     if (step === 1) return !!purpose;
     if (step === 2) return termsAccepted;
     return true;
-  }, [step, amount, tenure, purpose, termsAccepted]);
+  }, [step, amount, tenure, purpose, termsAccepted, amountCap, eligibility.isEligible]);
 
   const handleNext = () => {
     setError("");
     if (!canProceed()) {
-      if (step === 0) setError("Enter an amount between UGX 5,000 and 200,000 and a tenure of 1–12 months.");
+      if (step === 0) {
+        if (!eligibility.isEligible) {
+          setError(
+            `Your credit score is ${eligibility.creditScore}/100 (minimum ${eligibility.minCreditScore}). Complete your profile or improve your score before applying.`
+          );
+        } else {
+          setError(`Enter an amount between ${formatUGX(MIN_LOAN_AMOUNT)} and ${formatUGX(amountCap)} with tenure ${LOAN_TENURE_MIN}–${LOAN_TENURE_MAX} months.`);
+        }
+      }
       if (step === 2) setError("You must accept the terms to continue.");
       return;
     }
@@ -183,6 +258,28 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
     );
   }
 
+  if (!eligibility.isEligible) {
+    return (
+      <div className="space-y-4">
+        <Alert variant="destructive">
+          <AlertTriangle className="h-4 w-4" />
+          <AlertTitle>Borrowing temporarily limited</AlertTitle>
+          <AlertDescription>
+            Your limit is <strong>{formatUGX(eligibility.maxEligible)}</strong> (score{" "}
+            {eligibility.creditScore}/100). Repay any overdue loan to restore your full starter access of{" "}
+            {formatUGX(eligibility.starterMax)}.
+          </AlertDescription>
+        </Alert>
+        <Button onClick={() => router.push("/dashboard/myloans")} className="w-full">
+          Repay loan
+        </Button>
+        <Button variant="outline" onClick={() => router.push("/dashboard")} className="w-full">
+          Back to Dashboard
+        </Button>
+      </div>
+    );
+  }
+
   // ── Wizard ────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
@@ -193,7 +290,37 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
         <div className="space-y-4">
           <div>
             <h2 className="text-xl font-bold">How much do you need?</h2>
-            <p className="text-muted-foreground text-sm mt-0.5">Your current limit is UGX 200,000</p>
+            <p className="text-muted-foreground text-sm mt-0.5">
+              Your eligible limit: <strong>{formatUGX(eligibility.maxEligible)}</strong>
+              {eligibility.loanTier && <> ({eligibility.loanTier} tier)</>}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              Credit score: {eligibility.creditScore}/100 · Platform maximum: {formatUGX(eligibility.platformMax)}
+            </p>
+          </div>
+
+          <div className="rounded-xl border border-primary/20 bg-primary/5 p-3 text-sm flex gap-2">
+            <Info className="h-4 w-4 shrink-0 text-primary mt-0.5" />
+            <p>
+              {eligibility.trustLevel === "starter" ? (
+                <>
+                  <strong>Starter access:</strong> every customer can borrow up to{" "}
+                  {formatUGX(eligibility.starterMax)}. Repay on time to unlock higher limits (+UGX 15,000
+                  per loan).
+                </>
+              ) : eligibility.trustLevel === "building" ? (
+                <>
+                  <strong>Trust building:</strong> you have repaid {eligibility.loansCompletedOnTime}{" "}
+                  loan{eligibility.loansCompletedOnTime === 1 ? "" : "s"} on time. Keep it up to grow your
+                  limit toward {formatUGX(eligibility.platformMax)}.
+                </>
+              ) : (
+                <>
+                  You can borrow up to <strong>{formatUGX(amountCap)}</strong>. Platform maximum is{" "}
+                  {formatUGX(eligibility.platformMax)} for top-tier customers.
+                </>
+              )}
+            </p>
           </div>
 
           <div className="space-y-2">
@@ -201,26 +328,31 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
             <Input
               id="amount"
               type="number"
-              min={5000}
-              max={200000}
+              min={MIN_LOAN_AMOUNT}
+              max={amountCap}
               placeholder="e.g. 50,000"
               value={amount}
               onChange={(e) => setAmount(e.target.value ? Number(e.target.value) : "")}
               className="text-base"
             />
-            <p className="text-xs text-muted-foreground">Min: UGX 5,000 · Max: UGX 200,000</p>
+            <p className="text-xs text-muted-foreground">
+              Min: {formatUGX(MIN_LOAN_AMOUNT)} · Your max: {formatUGX(amountCap)}
+            </p>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="tenure">Repayment Period (months)</Label>
+            <Label htmlFor="tenure">Repayment period (months)</Label>
             <Input
               id="tenure"
               type="number"
-              min={1}
-              max={12}
+              min={LOAN_TENURE_MIN}
+              max={LOAN_TENURE_MAX}
               value={tenure}
               onChange={(e) => setTenure(Number(e.target.value) || 1)}
             />
+            <p className="text-xs text-muted-foreground">
+              Choose {LOAN_TENURE_MIN}–{LOAN_TENURE_MAX} months. Each month = {LOAN_MONTH_DAYS} days from when the loan is disbursed.
+            </p>
           </div>
 
           {breakdown && (
@@ -277,7 +409,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
           </div>
 
           <div className="rounded-xl border border-border p-4 space-y-2 text-sm text-muted-foreground bg-muted/30">
-            <p>1. <strong>Interest:</strong> {monthlyRate}% per month ({annualRate}% per annum) on the principal sum, applied pro-rata over {tenure} month{tenure > 1 ? "s" : ""}.</p>
+            <p>1. <strong>Interest:</strong> {monthlyRate}% per month ({annualRate}% per annum) on the principal sum, applied pro-rata over {tenure} month{tenure > 1 ? "s" : ""} ({tenure * LOAN_MONTH_DAYS} days).</p>
             <p>2. <strong>Fees:</strong> {(PROCESSING_FEE_PCT * 100).toFixed(0)}% processing fee on principal, charged once at disbursement.</p>
             <p>3. <strong>Arrears:</strong> Electricity Utility arrears are prioritised during disbursement (if purpose selected).</p>
             <p>4. <strong>Late payments:</strong> A 0.1% per day penalty applies on overdue principal. Total charges (interest + penalties + fees) will never exceed 100% of the principal — as required by Uganda&apos;s Tier 4 Microfinance Institutions Act.</p>
@@ -319,7 +451,7 @@ export default function SimpleLoanForm({ onSuccess, onCancel }: Props) {
             rows={[
               { label: "Loan Amount", value: formatUGX(breakdown.principal) },
               { label: "Purpose", value: PURPOSE_OPTIONS.find(o => o.value === purpose)?.label ?? purpose },
-              { label: "Tenure", value: `${tenure} month${tenure > 1 ? "s" : ""}` },
+              { label: "Tenure", value: `${tenure} month${tenure > 1 ? "s" : ""} (${tenure * LOAN_MONTH_DAYS} days)` },
               { label: `Interest (${monthlyRate}%/month)`, value: formatUGX(breakdown.interest) },
               { label: "Processing Fee", value: formatUGX(breakdown.processingFee) },
               { label: "Due Date", value: breakdown.dueDate, muted: true },

@@ -118,13 +118,6 @@ class ShareUnitsView(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
-        password = serializer.validated_data["password"]
-        if not request.user.check_password(password):
-            return Response(
-                {"error": "Incorrect PIN. Use the password for your gPAWA account."},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
         try:
             result = execute_share_units(
                 sender=request.user,

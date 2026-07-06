@@ -20,7 +20,9 @@ import uuid
 from rest_framework.views import APIView
 from django.db.models import Q
 from datetime import datetime
-from transactions.unified_history import collect_unified_history, filter_history, paginate_history
+from transactions.unified_history import collect_unified_history, filter_history, paginate_history, summarize_history
+from transactions.tasks import handle_send_transaction_statement_email
+from utils.general import dispatch_task
 
 logger = logging.getLogger(__name__)
 class TransactionHistoryView(APIView):
@@ -42,6 +44,7 @@ class TransactionHistoryView(APIView):
                 start_date=start_date,
                 end_date=end_date,
             )
+            summary = summarize_history(entries)
             page_entries, total = paginate_history(entries, page, page_size)
 
             return Response({
@@ -50,6 +53,7 @@ class TransactionHistoryView(APIView):
                 'page': page,
                 'page_size': page_size,
                 'transactions': page_entries,
+                'summary': summary,
             }, status=status.HTTP_200_OK)
 
         except ValueError as ve:
@@ -58,6 +62,33 @@ class TransactionHistoryView(APIView):
         except Exception as e:
             logger.error(f"Error fetching history: {str(e)}")
             return Response({'error': 'Failed to fetch transaction history'}, status=500)
+
+
+class TransactionStatementEmailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        start_date = str(request.data.get("start_date") or "").strip()
+        end_date = str(request.data.get("end_date") or "").strip()
+        if not start_date or not end_date:
+            return Response({"error": "start_date and end_date are required (YYYY-MM-DD)."}, status=400)
+        try:
+            datetime.strptime(start_date, "%Y-%m-%d")
+            datetime.strptime(end_date, "%Y-%m-%d")
+        except ValueError:
+            return Response({"error": "Invalid date format. Use YYYY-MM-DD."}, status=400)
+        if end_date < start_date:
+            return Response({"error": "end_date cannot be before start_date."}, status=400)
+
+        dispatch_task(handle_send_transaction_statement_email, user.id, start_date, end_date)
+        return Response(
+            {
+                "success": True,
+                "message": f"Statement request received. PDF will be sent to {user.email}.",
+            },
+            status=status.HTTP_200_OK,
+        )
 
 def is_start_of_new_month():
     today = now().date()

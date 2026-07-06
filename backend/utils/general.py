@@ -20,7 +20,24 @@ def dispatch_task(task, *args, **kwargs):
         except Exception as exc:
             _task_logger.warning("Background task %s failed: %s", task.__name__, exc)
     else:
-        task.delay(*args, **kwargs)
+        try:
+            task.delay(*args, **kwargs)
+        except Exception as exc:
+            # Production resilience: if broker/worker is unavailable, execute now
+            # so critical notifications (verification/reset/share alerts) are not lost.
+            _task_logger.exception(
+                "Celery dispatch failed for %s; falling back to sync execution: %s",
+                getattr(task, "__name__", str(task)),
+                exc,
+            )
+            try:
+                task(*args, **kwargs)
+            except Exception as sync_exc:
+                _task_logger.warning(
+                    "Synchronous fallback also failed for %s: %s",
+                    getattr(task, "__name__", str(task)),
+                    sync_exc,
+                )
 
 def format_currency(value: Decimal, currency_symbol="") -> str:
     """Format decimal value as currency string (e.g., '100.00 units')."""
