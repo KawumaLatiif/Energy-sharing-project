@@ -22,7 +22,8 @@ import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
-import { get } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch-client';
+import { getApiErrorMessage } from '@/lib/api-response';
 import {
     ArrowLeft,
     DollarSign,
@@ -183,6 +184,7 @@ export default function LoanDetailPage() {
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('overview');
     const [showTokenDialog, setShowTokenDialog] = useState(false);
+    const [disbursing, setDisbursing] = useState(false);
 
     const loanId = params.id;
 
@@ -199,11 +201,6 @@ export default function LoanDetailPage() {
             const res = await get<any>(`admin/loans/${loanId}/`);
 
             console.log('API Response:', res);
-
-            if (res.status === 403 || res.status === 401) {
-                router.push('/dashboard');
-                return;
-            }
 
             if (res.error) throw new Error('Failed to fetch loan details');
 
@@ -229,6 +226,42 @@ export default function LoanDetailPage() {
         }
     };
 
+
+    const handleDisburse = async () => {
+        if (!loan) return;
+        setDisbursing(true);
+        try {
+            const res = await post<{ success?: boolean; message?: string; units_disbursed?: number }>(
+                `admin/loans/${loan.id}/disburse/`,
+                {}
+            );
+            if (res.error || !res.data?.success) {
+                toast({
+                    title: "Error",
+                    description: getApiErrorMessage(res.error, "Failed to disburse loan"),
+                    variant: "destructive",
+                });
+                return;
+            }
+            toast({
+                title: "Success",
+                description:
+                    res.data.message +
+                    (res.data.units_disbursed != null
+                        ? ` (${res.data.units_disbursed} kWh)`
+                        : ""),
+            });
+            await fetchLoanDetails();
+        } catch {
+            toast({
+                title: "Error",
+                description: "Failed to disburse loan",
+                variant: "destructive",
+            });
+        } finally {
+            setDisbursing(false);
+        }
+    };
 
     const getStatusBadge = (status: LoanDetail['status']) => {
         const variants = {
@@ -353,9 +386,9 @@ export default function LoanDetailPage() {
                         </>
                     )}
                     {loan.status === 'APPROVED' && (
-                        <Button variant="default">
+                        <Button variant="default" onClick={() => void handleDisburse()} disabled={disbursing}>
                             <CreditCard className="mr-2 h-4 w-4" />
-                            Disburse Loan
+                            {disbursing ? "Disbursing…" : "Disburse Loan"}
                         </Button>
                     )}
                     {loan.status === 'DISBURSED' && loan.disbursement && (

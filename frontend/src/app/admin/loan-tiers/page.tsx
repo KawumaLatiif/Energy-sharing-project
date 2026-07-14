@@ -25,7 +25,7 @@ import { Pencil, Save, Trash2, Plus, X, ArrowLeft } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get, put, del, post } from '@/lib/fetch';   // ← using your plain fetch helpers
+import { get, put, del, post } from '@/lib/fetch-client';
 import { getApiErrorMessage } from '@/lib/api-response';
 import Link from 'next/link';
 
@@ -69,10 +69,6 @@ export default function LoanTiersManagementPage() {
       const response = await get<LoanTier[]>('admin/loan-tiers/');
 
       if (response.error) {
-        if (response.status === 401 || response.status === 403) {
-          router.push('/login'); // or '/dashboard'
-          return;
-        }
         throw new Error(getApiErrorMessage(response.error, 'Failed to load tiers'));
       }
 

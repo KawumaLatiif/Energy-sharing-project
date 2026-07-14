@@ -1,4 +1,7 @@
 from django.utils import timezone
+from django.utils.dateparse import parse_datetime
+from datetime import date
+from decimal import Decimal, InvalidOperation
 import logging
 from utils.models import TokenValidator
 from rest_framework.response import Response
@@ -8,6 +11,7 @@ from rest_framework.views import APIView
 from meter.models import MeterToken, Meter
 from loan.models import LoanDisbursement
 from django.db import transaction
+from django.conf import settings
 
 logger = logging.getLogger(__name__)
 
@@ -180,4 +184,225 @@ class LoanTokenVerificationView(APIView):
                 "success": False,
                 "message": "Internal server error"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                       
+
+
+class ThingsBoardLowUnitsWebhookView(APIView):
+    """
+    POST /webhooks/thingsboard/low-units
+
+    Inbound webhook from ThingsBoard when an AMI meter's remaining_units <= threshold.
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        configured_secret = (getattr(settings, "THINGSBOARD_WEBHOOK_SECRET", "") or "").strip()
+        if configured_secret:
+            header_secret = (request.headers.get("X-ThingsBoard-Webhook-Secret") or "").strip()
+            if header_secret != configured_secret:
+                return Response(
+                    {"success": False, "message": "Invalid webhook secret."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        device_token = str(request.data.get("device_token", "")).strip()
+        units_raw = request.data.get("units_kwh")
+        occurred_raw = request.data.get("occurred_at")
+
+        if not device_token or units_raw is None or not occurred_raw:
+            return Response(
+                {"success": False, "message": "device_token, units_kwh, and occurred_at are required."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            units_kwh = Decimal(str(units_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "units_kwh must be a number."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        occurred_at = parse_datetime(str(occurred_raw))
+        if occurred_at is None:
+            return Response(
+                {"success": False, "message": "occurred_at must be a valid ISO-8601 datetime."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        if timezone.is_naive(occurred_at):
+            occurred_at = timezone.make_aware(occurred_at, timezone.get_current_timezone())
+
+        meter = (
+            Meter.objects.filter(
+                iot_device_token=device_token,
+                architecture=Meter.ARCH_AMI,
+                status=Meter.STATUS_ACTIVE,
+            )
+            .select_related("user")
+            .first()
+        )
+        if not meter:
+            return Response(
+                {"success": False, "message": "No active AMI meter found for this device token."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        from meter.low_units_alerts import (
+            create_low_units_notification,
+            low_units_threshold_kwh,
+            should_send_low_units_alert,
+        )
+        from meter.models import MeterBalanceSnapshot
+        from meter.services import record_balance_snapshot
+
+        previous_snap = (
+            MeterBalanceSnapshot.objects.filter(meter=meter)
+            .order_by("-recorded_at")
+            .first()
+        )
+        previous = (
+            Decimal(str(previous_snap.remaining_kwh)) if previous_snap is not None else None
+        )
+
+        record_balance_snapshot(meter, units_kwh, source="thingsboard_webhook")
+
+        if units_kwh > low_units_threshold_kwh():
+            return Response(
+                {
+                    "success": True,
+                    "skipped": "above_threshold",
+                    "units_kwh": float(units_kwh),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        if not should_send_low_units_alert(meter, units_kwh, previous):
+            return Response(
+                {
+                    "success": True,
+                    "skipped": "cooldown",
+                    "units_kwh": float(units_kwh),
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        user = meter.user
+        owner_name = user.first_name or user.email
+        notification = create_low_units_notification(
+            meter,
+            units_kwh,
+            source="webhook",
+            occurred_at=occurred_at,
+        )
+        if not notification:
+            return Response(
+                {"success": False, "message": "Meter has no assigned user."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        email_queued = bool(user.email)
+
+        logger.info(
+            "ThingsBoard low-units webhook: user=%s meter=%s units=%s notification=%s",
+            user.id,
+            meter.meter_no,
+            units_kwh,
+            notification.id,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "notification_id": notification.id,
+                "user_id": user.id,
+                "owner_name": owner_name,
+                "email_queued": email_queued,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ThingsBoardDailyUsageWebhookView(APIView):
+    """
+    POST /webhooks/thingsboard/daily-usage
+
+    Inbound webhook from ThingsBoard rule chain with daily kWh consumption.
+    Body: { device_token, usage_date (YYYY-MM-DD), kwh_used }
+    """
+    permission_classes = [permissions.AllowAny]
+    authentication_classes = []
+
+    def post(self, request, *args, **kwargs):
+        from meter.models import MeterUsageDaily
+        from meter.usage_service import upsert_daily_usage
+
+        configured_secret = (getattr(settings, "THINGSBOARD_WEBHOOK_SECRET", "") or "").strip()
+        if configured_secret:
+            header_secret = (request.headers.get("X-ThingsBoard-Webhook-Secret") or "").strip()
+            if header_secret != configured_secret:
+                return Response(
+                    {"success": False, "message": "Invalid webhook secret."},
+                    status=status.HTTP_401_UNAUTHORIZED,
+                )
+
+        device_token = str(request.data.get("device_token", "")).strip()
+        usage_date_raw = request.data.get("usage_date")
+        kwh_raw = request.data.get("kwh_used")
+
+        if not device_token or not usage_date_raw or kwh_raw is None:
+            return Response(
+                {
+                    "success": False,
+                    "message": "device_token, usage_date, and kwh_used are required.",
+                },
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        try:
+            usage_date = date.fromisoformat(str(usage_date_raw)[:10])
+            kwh_used = Decimal(str(kwh_raw))
+            if kwh_used < 0:
+                raise ValueError
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {"success": False, "message": "Invalid usage_date or kwh_used."},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+
+        meter = (
+            Meter.objects.filter(
+                iot_device_token=device_token,
+                architecture=Meter.ARCH_AMI,
+                status=Meter.STATUS_ACTIVE,
+            )
+            .first()
+        )
+        if not meter:
+            return Response(
+                {"success": False, "message": "No active AMI meter found for this device token."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        row = upsert_daily_usage(
+            meter,
+            usage_date,
+            kwh_used,
+            MeterUsageDaily.SOURCE_WEBHOOK,
+        )
+
+        logger.info(
+            "ThingsBoard daily-usage webhook: meter=%s date=%s kwh=%s",
+            meter.meter_no,
+            usage_date,
+            kwh_used,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "meter_no": meter.meter_no,
+                "usage_date": usage_date.isoformat(),
+                "kwh_used": float(row.kwh_used),
+            },
+            status=status.HTTP_201_CREATED,
+        )

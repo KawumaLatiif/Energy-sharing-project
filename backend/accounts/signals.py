@@ -4,6 +4,7 @@ from django.dispatch import receiver
 from django.conf import settings
 from accounts.models import Profile, UserAccountDetails
 from accounts.tasks import handle_send_email_verification
+from utils.general import dispatch_task
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ def create_user_profile(sender, instance, created, **kwargs):
     if created:
         Profile.objects.create(
             user=instance,
-            email_verified=instance.is_superuser  # auto-verify superusers
+            email_verified=instance.is_superuser  # auto-verify superusers only
         )
 
 
@@ -29,4 +30,4 @@ def create_user_account_details(sender, instance, created, **kwargs):
 @receiver(post_save, sender=Profile)
 def send_email_verification(sender, instance, created, **kwargs):
     if created and not instance.email_verified:
-        handle_send_email_verification.delay(instance.user.pk)
+        dispatch_task(handle_send_email_verification, instance.user.pk)

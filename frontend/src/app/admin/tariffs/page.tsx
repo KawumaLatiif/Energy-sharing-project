@@ -21,13 +21,12 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Pencil, Trash2, Plus, X, ArrowLeft, Save } from 'lucide-react';
+import { Pencil, Trash2, Plus, X, Save, Download, Zap } from 'lucide-react';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
-import { useRouter } from 'next/navigation';
-import { get, put, del, post } from '@/lib/fetch';
+import { get, put, del, post } from '@/lib/fetch-client';
 import { getApiErrorMessage } from '@/lib/api-response';
-import Link from 'next/link';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 
 interface TariffBlock {
   id?: number;
@@ -36,6 +35,8 @@ interface TariffBlock {
   max_units?: number | null;
   rate_per_unit: number;
   block_order: number;
+  is_lifeline_block?: boolean;
+  non_lifeline_rate?: number | null;
 }
 
 interface Tariff {
@@ -48,16 +49,56 @@ interface Tariff {
   service_charge: number;
   is_active: boolean;
   effective_date: string;
+  effective_from?: string | null;
+  effective_to?: string | null;
   blocks: TariffBlock[];
 }
 
+const ERA_TEMPLATE_BLOCKS: TariffBlock[] = [
+  {
+    block_name: 'Lifeline (first 15 units)',
+    min_units: 0,
+    max_units: 15,
+    rate_per_unit: 250,
+    block_order: 1,
+    is_lifeline_block: true,
+    non_lifeline_rate: 756.2,
+  },
+  {
+    block_name: 'Normal (16-80 units)',
+    min_units: 16,
+    max_units: 80,
+    rate_per_unit: 756.2,
+    block_order: 2,
+    is_lifeline_block: false,
+  },
+  {
+    block_name: 'Cooking tariff (81-150 units)',
+    min_units: 81,
+    max_units: 150,
+    rate_per_unit: 412,
+    block_order: 3,
+    is_lifeline_block: false,
+  },
+  {
+    block_name: 'Super normal (above 150 units)',
+    min_units: 151,
+    max_units: null,
+    rate_per_unit: 756,
+    block_order: 4,
+    is_lifeline_block: false,
+  },
+];
+
 export default function TariffsManagementPage() {
-  const router = useRouter();
   const { toast } = useToast();
   const [tariffs, setTariffs] = useState<Tariff[]>([]);
   const [loading, setLoading] = useState(true);
+  const [seeding, setSeeding] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedTariff, setSelectedTariff] = useState<Tariff | null>(null);
+
+  const activeTariff = tariffs.find(t => t.is_active);
 
   // Form state for create/edit
   const [form, setForm] = useState<Tariff>({
@@ -79,10 +120,6 @@ export default function TariffsManagementPage() {
       const response = await get<Tariff[]>('admin/tariffs/');
 
       if (response.error) {
-        if (response.status === 401 || response.status === 403) {
-          router.push('/login');
-          return;
-        }
         throw new Error(getApiErrorMessage(response.error, 'Failed to load tariffs'));
       }
 
@@ -102,21 +139,61 @@ export default function TariffsManagementPage() {
     fetchTariffs();
   }, []);
 
-  const openCreateModal = () => {
+  const openCreateModal = (useEraTemplate = false) => {
+    const today = new Date().toISOString().split('T')[0];
+    const hasActive = tariffs.some(t => t.is_active);
     setSelectedTariff(null);
     setForm({
       id: 0,
-      tariff_code: '',
-      tariff_name: '',
+      tariff_code: useEraTemplate ? 'DOM-10.1-2026Q1' : '',
+      tariff_name: useEraTemplate ? 'ERA Domestic Code 10.1 (Q1 2026)' : '',
       tariff_type: 'DOMESTIC',
-      voltage_level: '',
-      voltage_value: '',
-      service_charge: 0,
-      is_active: true,
-      effective_date: new Date().toISOString().split('T')[0],
-      blocks: [],
+      voltage_level: useEraTemplate ? 'Low Voltage Single Phase' : '',
+      voltage_value: useEraTemplate ? '240V' : '',
+      service_charge: useEraTemplate ? 3360 : 0,
+      is_active: !hasActive,
+      effective_date: today,
+      effective_from: useEraTemplate ? '2026-01-01' : today,
+      effective_to: null,
+      blocks: useEraTemplate ? ERA_TEMPLATE_BLOCKS.map(b => ({ ...b })) : [],
     });
     setModalOpen(true);
+  };
+
+  const handleImportEra = async () => {
+    if (!confirm('Import ERA domestic Code 10.1 rates and set as the active system tariff?')) return;
+    try {
+      setSeeding(true);
+      const response = await post<{ message?: string }>('admin/tariffs/seed-era/', {});
+      if (response.error) {
+        throw new Error(getApiErrorMessage(response.error, 'Import failed'));
+      }
+      toast({
+        title: 'ERA tariff imported',
+        description: response.data?.message || 'Default ERA domestic tariff is now active.',
+      });
+      fetchTariffs();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    } finally {
+      setSeeding(false);
+    }
+  };
+
+  const handleActivate = async (id: number) => {
+    try {
+      const response = await post<{ message?: string }>(`admin/tariffs/${id}/activate/`, {});
+      if (response.error) {
+        throw new Error(getApiErrorMessage(response.error, 'Activation failed'));
+      }
+      toast({
+        title: 'Tariff activated',
+        description: response.data?.message || 'This tariff is now used system-wide.',
+      });
+      fetchTariffs();
+    } catch (err: any) {
+      toast({ title: 'Error', description: err.message, variant: 'destructive' });
+    }
   };
 
   const openEditModal = (tariff: Tariff) => {
@@ -222,24 +299,22 @@ export default function TariffsManagementPage() {
         service_charge: Number(form.service_charge),
         is_active: form.is_active,
         effective_date: form.effective_date,
+        effective_from: form.effective_from || form.effective_date,
+        effective_to: form.effective_to || null,
         blocks: blocks.map((block, index) => {
-          const blockPayload: any = {
+          const blockPayload: Record<string, unknown> = {
             block_name: block.block_name,
             min_units: Number(block.min_units),
-            max_units: block.max_units ? Number(block.max_units) : null,
+            max_units: block.max_units != null ? Number(block.max_units) : null,
             rate_per_unit: Number(block.rate_per_unit),
             block_order: block.block_order || index + 1,
+            is_lifeline_block: Boolean(block.is_lifeline_block),
+            non_lifeline_rate: block.non_lifeline_rate != null ? Number(block.non_lifeline_rate) : null,
           };
-          
-          if (block.id) {
-            blockPayload.id = block.id;
-          }
-          
+          if (block.id) blockPayload.id = block.id;
           return blockPayload;
-        })
+        }),
       };
-
-      console.log('Saving tariff:', payload);
 
       let response;
       if (selectedTariff?.id) {
@@ -249,8 +324,6 @@ export default function TariffsManagementPage() {
         // Create new
         response = await post<Tariff>('admin/tariffs/', payload);
       }
-
-      console.log('Save response:', response);
 
       if (response.error) {
         throw new Error(getApiErrorMessage(response.error, 'Failed to save tariff'));
@@ -306,30 +379,49 @@ export default function TariffsManagementPage() {
 
   return (
     <div className="container mx-auto py-10">
-      {/* Back button */}
-      <div className="mb-6">
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          asChild
-          className="gap-2 text-muted-foreground hover:text-foreground"
-        >
-          <Link href="/admin/loans">
-            <ArrowLeft className="h-4 w-4" />
-            Back to Loans Management
-          </Link>
-        </Button>
-      </div>
+      <Alert className="mb-6">
+        <AlertTitle>ERA billing — one active tariff</AlertTitle>
+        <AlertDescription>
+          Buy Units, loan disbursement, and unit estimates use the single <strong>Active</strong> domestic
+          tariff (tiered blocks + service charge + 18% VAT). Adding or editing tariffs here takes effect
+          system-wide once marked Active; all other schedules are set Inactive automatically.
+          {activeTariff ? (
+            <> Current active: <strong>{activeTariff.tariff_code}</strong> — {activeTariff.tariff_name}.</>
+          ) : (
+            <> No active tariff — import ERA defaults or create one and set it Active.</>
+          )}
+        </AlertDescription>
+      </Alert>
 
       <Card>
         <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <CardTitle>Tariffs Management</CardTitle>
-            <CardDescription>Create and manage electricity tariff rates</CardDescription>
+            <CardDescription>
+              ERA/UEDCL electricity rates used for wallet top-ups, STS tokens, and loan unit calculations
+            </CardDescription>
           </div>
-          <Button onClick={openCreateModal} className="w-full sm:w-auto">
-            <Plus className="h-4 w-4 mr-2" /> New Tariff
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <Button
+              variant="outline"
+              onClick={handleImportEra}
+              disabled={seeding}
+              className="w-full sm:w-auto"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              {seeding ? 'Importing…' : 'Import ERA defaults'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => openCreateModal(true)}
+              className="w-full sm:w-auto"
+            >
+              <Plus className="h-4 w-4 mr-2" /> New from ERA template
+            </Button>
+            <Button onClick={() => openCreateModal(false)} className="w-full sm:w-auto">
+              <Plus className="h-4 w-4 mr-2" /> New Tariff
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           <div className="rounded-md border overflow-x-auto">
@@ -367,7 +459,17 @@ export default function TariffsManagementPage() {
                       {tariff.is_active ? 'Active' : 'Inactive'}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right space-x-2">
+                  <TableCell className="text-right space-x-1">
+                    {!tariff.is_active && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleActivate(tariff.id)}
+                        title="Set as active system-wide tariff"
+                      >
+                        <Zap className="h-4 w-4 mr-1" /> Activate
+                      </Button>
+                    )}
                     <Button variant="ghost" size="sm" onClick={() => openEditModal(tariff)}>
                       <Pencil className="h-4 w-4" />
                     </Button>
@@ -376,6 +478,8 @@ export default function TariffsManagementPage() {
                       size="sm"
                       className="text-destructive hover:text-destructive/90"
                       onClick={() => handleDelete(tariff.id)}
+                      disabled={tariff.is_active}
+                      title={tariff.is_active ? 'Activate another tariff before deleting this one' : 'Delete tariff'}
                     >
                       <Trash2 className="h-4 w-4" />
                     </Button>
@@ -386,7 +490,8 @@ export default function TariffsManagementPage() {
               {tariffs.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={7} className="h-48 text-center text-muted-foreground">
-                    No tariffs found. Click "New Tariff" to create one.
+                    No tariffs yet. Click <strong>Import ERA defaults</strong> to load Code 10.1 domestic
+                    rates, or create a custom schedule.
                   </TableCell>
                 </TableRow>
               )}
@@ -465,14 +570,22 @@ export default function TariffsManagementPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-1.5">Effective Date</label>
+                  <label className="block text-sm font-medium mb-1.5">Effective from</label>
                   <Input
                     type="date"
-                    value={form.effective_date}
-                    onChange={e => setForm({ ...form, effective_date: e.target.value })}
+                    value={form.effective_from ?? form.effective_date}
+                    onChange={e => setForm({ ...form, effective_from: e.target.value })}
                   />
                 </div>
-                <div className="flex items-center">
+                <div>
+                  <label className="block text-sm font-medium mb-1.5">Effective to (optional)</label>
+                  <Input
+                    type="date"
+                    value={form.effective_to ?? ''}
+                    onChange={e => setForm({ ...form, effective_to: e.target.value || null })}
+                  />
+                </div>
+                <div className="col-span-2 flex items-center">
                   <label className="flex items-center gap-2 text-sm font-medium">
                     <input
                       type="checkbox"
@@ -480,7 +593,7 @@ export default function TariffsManagementPage() {
                       onChange={e => setForm({ ...form, is_active: e.target.checked })}
                       className="w-4 h-4 rounded border-gray-300"
                     />
-                    Active
+                    Set as Active (deactivates all other tariffs)
                   </label>
                 </div>
               </div>
@@ -549,6 +662,35 @@ export default function TariffsManagementPage() {
                               <X className="h-4 w-4 mr-1" /> Remove
                             </Button>
                           </div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center gap-4 text-sm">
+                          <label className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              checked={Boolean(block.is_lifeline_block)}
+                              onChange={e => updateBlock(idx, 'is_lifeline_block', e.target.checked)}
+                              className="w-4 h-4 rounded border-gray-300"
+                            />
+                            Lifeline block
+                          </label>
+                          {block.is_lifeline_block && (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-muted-foreground">Non-lifeline rate:</span>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                className="h-8 w-28"
+                                value={block.non_lifeline_rate ?? ''}
+                                onChange={e =>
+                                  updateBlock(
+                                    idx,
+                                    'non_lifeline_rate',
+                                    e.target.value ? Number(e.target.value) : null
+                                  )
+                                }
+                              />
+                            </div>
+                          )}
                         </div>
                         {block.id && (
                           <div className="mt-2 text-xs text-muted-foreground">

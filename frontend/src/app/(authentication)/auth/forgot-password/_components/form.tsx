@@ -1,7 +1,7 @@
 "use client"
 import type { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import {  useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import 'react-phone-number-input/style.css'   
 import {
   Form,
@@ -12,17 +12,17 @@ import {
   FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/anim/input";
-import { createAccountSchema, LoginSchema, ForgotPasswordSchema } from "@/lib/schema";
+import { ForgotPasswordSchema } from "@/lib/schema";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
-import { useSearchParams } from "next/navigation";
 import CardWrapper from "@/components/common/card-wrapper";
-
-import { cn } from "@/lib/utils";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Info } from "lucide-react";
 import forgotPassword from "../forgot-password";
 import { getApiErrorMessage } from "@/lib/api-response";
+import { cn } from "@/lib/utils";
 
 const getFieldError = (error: unknown, field: string): string | undefined => {
   if (typeof error !== "object" || error === null) {
@@ -59,42 +59,45 @@ export default function ForgotPasswordForm() {
       async function onSubmit(values: z.infer<typeof ForgotPasswordSchema>) {
         setError("");
         setSuccess("");
-        console.log("posting form data: ", values)
         startTransition(async () => {
-
-        
-
-            forgotPassword(values).then((data) => {
-              console.log("Responded with: ", data)
-            if (data?.error) {
-              console.log("Errorrunning")
-              if(typeof data.error === "object"){
-                const emailError = getFieldError(data.error, "email");
-                if(emailError){
-                  form.setError("email", { type: 'custom', message: emailError })
-                }
-              } else {
-                setError(getApiErrorMessage(data.error, "Failed to send reset email"));
+          const data = await forgotPassword(values);
+          if (data?.error) {
+            if (typeof data.error === "object") {
+              const emailError = getFieldError(data.error, "email");
+              if (emailError) {
+                form.setError("email", { type: "custom", message: emailError });
               }
+            } else {
+              setError(getApiErrorMessage(data.error, "Failed to send reset email"));
             }
-  
-            // if (data?.success) {
-            //   form.reset();
-            //   setSuccess(data.success);
-            // }
-  
-          }).catch(() => setError(""));
+            return;
+          }
 
-        })
+          form.reset();
+          setSuccess(
+            `Password reset link sent to ${values.email}. If you don't see it within a few minutes, check your spam or junk folder.`
+          );
+        });
       }
 
    
     return (
       <>
-          <CardWrapper title="Forgot password" variant="auth">
-          
+          <CardWrapper
+            title="Forgot password"
+            subtitle="We'll email you a link to reset your password."
+            variant="auth"
+          >
+            <Alert className="mb-4 border-blue-200 bg-blue-50 dark:border-blue-900 dark:bg-blue-950/40">
+              <Info className="h-4 w-4 text-blue-600" />
+              <AlertDescription className="text-sm text-blue-900 dark:text-blue-100">
+                The reset email may land in your <strong>spam or junk folder</strong>. If it
+                doesn't arrive in your inbox, check there before requesting another link.
+              </AlertDescription>
+            </Alert>
+
             <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 sm:space-y-6">
 
                   <div className="mt-1">
                     <FormField

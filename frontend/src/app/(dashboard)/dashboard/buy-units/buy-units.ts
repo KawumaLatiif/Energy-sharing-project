@@ -13,7 +13,9 @@ import {
   AUTHENTICATION_REFRESH_COOKIE,
 } from "@/common/constants/auth-cookie";
 
-export const buyUnits = async (data: z.infer<typeof BuyUnitSchema>) => {
+export const buyUnits = async (
+  data: z.infer<typeof BuyUnitSchema>
+) => {
   const res = await post<BuyUnitsResponse>("meter/buy-units/", data);
 
   console.log("Buy units: ", res.data);
@@ -42,6 +44,7 @@ type BuyUnitsPendingResponse = {
   estimated_units?: number;
   tariff_applied?: string;
   loan_outstanding_deduction?: number;
+  payment_mode?: "simulated" | "momo";
 };
 
 type BuyUnitsCompletedResponse = {

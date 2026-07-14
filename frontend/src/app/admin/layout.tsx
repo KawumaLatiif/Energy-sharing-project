@@ -1,11 +1,15 @@
 import { redirect } from "next/navigation";
 import { getUserConfig } from "@/lib/account";
+import { isStaffUser } from "@/lib/staff";
 import AdminDesktopSidebar from "./_components/desktop_dashboard";
 import AdminRightHeader from "./_components/admin_header";
+import AdminBodyShell from "./_components/admin-body-shell";
 
 interface UserConfig {
   user_role: string;
   is_admin: boolean;
+  is_staff_member?: boolean;
+  is_superuser?: boolean;
 }
 
 export default async function AdminLayout({
@@ -19,19 +23,34 @@ export default async function AdminLayout({
     redirect("/auth/login");
   }
 
-  if (userData.user_role !== "ADMIN" && !userData.is_admin) {
-    redirect("/dashboard"); 
+  if (!isStaffUser(userData)) {
+    redirect("/dashboard");
   }
 
+  const displayRole =
+    userData.is_superuser && userData.user_role !== "ADMIN"
+      ? "ADMIN"
+      : userData.user_role;
+
   return (
-    <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
-      <AdminDesktopSidebar />
-      <div className="flex min-w-0 flex-col">
-        <AdminRightHeader />
-        <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
-          {children}
-        </main>
+    <AdminBodyShell>
+      <div className="flex min-h-screen w-full bg-background">
+        <div className="hidden md:flex md:w-[220px] lg:w-[260px] shrink-0 flex-col sticky top-0 h-screen overflow-hidden">
+          <AdminDesktopSidebar
+            userRole={displayRole}
+            isSuperuser={!!userData.is_superuser}
+          />
+        </div>
+        <div className="flex min-w-0 flex-1 flex-col">
+          <AdminRightHeader
+            userRole={displayRole}
+            isSuperuser={!!userData.is_superuser}
+          />
+          <main className="flex min-w-0 flex-1 flex-col gap-4 bg-background p-4 lg:gap-6 lg:p-6">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </AdminBodyShell>
   );
 }

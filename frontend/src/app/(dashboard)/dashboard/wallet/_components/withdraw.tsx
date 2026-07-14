@@ -141,7 +141,7 @@ export default function Withdraw() {
         {transaction && (
           <div className="p-3 rounded-md bg-blue-50">
             <p className="text-sm font-medium text-blue-800 mb-2">Transaction Details:</p>
-            <div className="space-y-1 text-sm">
+            <div className="space-y-1 text-sm text-gray-900">
               <p>Amount: <strong>UGX {parseFloat(transaction.amount).toLocaleString()}</strong></p>
               <p>Phone: <strong>{transaction.phone}</strong></p>
               <p>Reference: <strong>{transaction.reference}</strong></p>

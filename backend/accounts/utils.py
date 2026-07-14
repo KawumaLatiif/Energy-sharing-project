@@ -10,6 +10,7 @@ from six import text_type
 from accounts.models import (
     User,
     Wallet,
+    Profile,
     generate_random_string
 )
 from utils.general import bytes2str
@@ -122,6 +123,50 @@ def handle_post_email_verification(user):
     )
     if created:
         logger.info(f"[ACCOUNT_ACTIVATION] Created wallet {wallet.id}")
+
+
+ADMIN_PROVISIONED_DEFAULT_PASSWORD = "1234"
+
+
+def create_admin_provisioned_user(*, owner_name, email, phone_number):
+    """
+    Create a client account from the admin meter registration flow.
+    User logs in with email + default password and must change password on first login.
+    """
+    email = (email or "").strip().lower()
+    phone_number = (phone_number or "").strip()
+    owner_name = (owner_name or "").strip()
+
+    if not owner_name or not email or not phone_number:
+        raise ValueError("owner_name, owner_email, and owner_phone are required")
+
+    if User.objects.filter(email=email).exists():
+        raise ValueError("A user with this email already exists")
+
+    if User.objects.filter(phone_number=phone_number).exists():
+        raise ValueError("A user with this phone number already exists")
+
+    parts = owner_name.split(None, 1)
+    first_name = parts[0]
+    last_name = parts[1] if len(parts) > 1 else first_name
+
+    user = User(
+        email=email,
+        first_name=first_name,
+        last_name=last_name,
+        phone_number=phone_number,
+        user_role=User.CLIENT,
+        account_is_active=True,
+        must_change_password=True,
+    )
+    user.set_password(ADMIN_PROVISIONED_DEFAULT_PASSWORD)
+    user.save()
+
+    Profile.objects.filter(user=user).update(email_verified=True)
+    handle_post_email_verification(user)
+
+    logger.info(f"[ADMIN] Provisioned client user {user.id} ({email}) with meter onboarding")
+    return user
 
 
 def check_if_in_team(upline, origin):

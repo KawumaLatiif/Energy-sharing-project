@@ -2,7 +2,7 @@ from rest_framework.views import APIView
 import logging
 from accounts.tasks import handle_send_email_code, handle_send_email_verification
 from utils.email import send_email
-from utils.general import generate_numeric_id, get_base_url
+from utils.general import generate_numeric_id, get_base_url, dispatch_task
 from six import text_type
 from django.utils.encoding import force_str as force_text
 from django.conf import settings
@@ -43,6 +43,8 @@ from utils.decorators import (
     phone_verification_exempt,
 )
 from utils.exceptions import CustomAPIException
+from django.contrib.auth.password_validation import validate_password
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connections
 from django.db.utils import OperationalError
 from django.db.models import Q
@@ -54,11 +56,11 @@ from django.db.models import Sum
 from meter.api.serializers import MeterSerializer
 from loan.models import LoanApplication
 from loan.api.serializers import LoanApplicationSerializer
-from loan.scoring import get_or_create_dummy_credit_signal
+from loan.scoring import get_or_create_credit_signal, profile_scoring_fields_complete, sync_credit_signal_from_profile
 
 logger = logging.getLogger(__name__)
 
-PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
+PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
  
 # import logging
 # from accounts.tasks import handle_send_email_code, handle_send_email_verification
@@ -118,7 +120,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 
 # logger = logging.getLogger(__name__)
 
-# PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
+# PASSWORD_RESET_SUBJECT = "gPawa: Reset Your Password"
  
 # @api_view(['GET', 'POST'])
 # @permission_classes([IsAuthenticated])
@@ -472,7 +474,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #             handle_send_email_verification(user.id)  # Call synchronously
 #         else:
 #             # Production: Use Celery
-#             handle_send_email_verification.delay(user.id)
+#             dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "success": True,
@@ -572,7 +574,8 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 
 #         token = reset_password_token_generator.make_token(user)
 #         user_hash = b64encode_user(force_text(user.pk))
-#         url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+#         frontend_url = settings.FRONTEND_URL.rstrip('/')
+#         url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
 #         message = (
 #             f"You requested for a password reset for your account. "
 #             f"Please click the link below to continue"
@@ -719,7 +722,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #                 code=code
 #             )
 
-#         handle_send_email_code.delay(user.id, code)
+#         dispatch_task(handle_send_email_code, user.id, code)
 
 #         response_data = {
 #             "success": True,
@@ -759,7 +762,7 @@ PASSWORD_RESET_SUBJECT = "Energy Share: Reset Your Password"
 #             raise CustomAPIException(message=error_msg)
 
 #         # send the email now
-#         handle_send_email_verification.delay(user.id)
+#         dispatch_task(handle_send_email_verification, user.id)
 
 #         response_data = {
 #             "message": "Verification email sent successfully!",
@@ -874,13 +877,13 @@ class UserProfileAPIView(GenericAPIView):
             logger.info(f"Account details: {account_details}")
             
             # Get meter information
-            try:
-                meter = Meter.objects.get(user=user)
+            meter = Meter.objects.filter(user=user).order_by("-create_date").first()
+            if meter:
                 meter_serializer = MeterSerializer(meter)
                 meter_data = meter_serializer.data
                 meter_data['has_meter'] = True
                 logger.info(f"Meter found: {meter_data}")
-            except Meter.DoesNotExist:
+            else:
                 meter_data = {
                     'has_meter': False,
                     'meter_no': None,
@@ -1017,25 +1020,9 @@ class UserProfileAPIView(GenericAPIView):
                 logger.info(f"Missing basic fields for user {user.id}")
                 return False
 
-            # Check if user has provided profile assessment data
-            profile_fields = [
-                'monthly_expenditure',
-                'purchase_frequency',
-                'payment_consistency',
-                'disconnection_history',
-                'meter_sharing',
-                'monthly_income',
-                'income_stability',
-                'consumption_level'
-            ]
-
-            has_profile_data = True
-            for field in profile_fields:
-                value = getattr(user, field, None)
-                if not value:
-                    has_profile_data = False
-                    logger.info(f"Missing profile field: {field}")
-                    break
+            has_profile_data = profile_scoring_fields_complete(user)
+            if not has_profile_data:
+                logger.info(f"Loan assessment fields incomplete for user {user.id}")
 
             logger.info(f"Profile completion check: basic={all(required_fields)}, profile={has_profile_data}")
 
@@ -1076,6 +1063,7 @@ class UserProfileAPIView(GenericAPIView):
             if updated_fields:
                 user.save()
                 logger.info(f"User {user.id} updated profile fields: {updated_fields}")
+                sync_credit_signal_from_profile(user)
             
             # Check completion status
             user_serializer = UserConfigSerializer(user)
@@ -1101,26 +1089,47 @@ class UserProfileAPIView(GenericAPIView):
 
 class LoginAPIView(TokenObtainPairView):
     """
-    Login API. Expects an email and password
-    :returns: access and refresh token + user info
+    Login API. Expects an email and password.
+    For staff with 2FA enabled, returns requires_2fa=true + challenge_token instead of tokens.
     """
 
     serializer_class = LoginSerializer
 
     @swagger_auto_schema(responses={200: LoginResponseSerializer()})
     def post(self, request, *args, **kwargs):
-        # Call the parent to get the normal token response
+        # Validate credentials via parent serializer first
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.user
+        get_or_create_credit_signal(user)
+
+        # Staff members with 2FA enabled → issue a challenge token instead of full JWT
+        if (user.is_staff_member or user.is_superuser) and user.totp_enabled:
+            from django.core import signing
+            remember_me = bool(request.data.get("remember_me"))
+            challenge_token = signing.dumps(
+                {'user_id': user.id, 'remember_me': remember_me},
+                salt='2fa_login_challenge',
+            )
+            return Response({
+                'requires_2fa': True,
+                'challenge_token': challenge_token,
+                'user': {
+                    'email': user.email,
+                    'user_role': user.user_role,
+                    'is_admin': user.user_role == User.ADMIN or user.is_superuser,
+                    'is_staff_member': user.is_staff_member or user.is_superuser,
+                    'is_superuser': user.is_superuser,
+                },
+            }, status=status.HTTP_200_OK)
+
+        # Normal flow — call parent to issue tokens
         response = super().post(request, *args, **kwargs)
 
-        # Only modify if login was successful
         if response.status_code == 200:
-            # Get the authenticated user
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)  # This will raise if invalid
-            user = serializer.user
-            get_or_create_dummy_credit_signal(user)
-
-            # Add custom user data to the response
+            redirect = '/admin/dashboard' if (user.is_staff_member or user.is_superuser) else '/dashboard'
+            if getattr(user, 'must_change_password', False) and not (user.is_staff_member or user.is_superuser):
+                redirect = '/change-password'
             response.data.update({
                 'user': {
                     'id': user.id,
@@ -1128,8 +1137,11 @@ class LoginAPIView(TokenObtainPairView):
                     'first_name': user.first_name,
                     'last_name': user.last_name,
                     'user_role': user.user_role,
-                    'is_admin': user.user_role == User.ADMIN,
-                    'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+                    'is_admin': user.user_role == User.ADMIN or user.is_superuser,
+                    'is_staff_member': user.is_staff_member or user.is_superuser,
+                    'totp_enabled': user.totp_enabled,
+                    'must_change_password': user.must_change_password,
+                    'redirect_to': redirect,
                 }
             })
 
@@ -1192,15 +1204,6 @@ class CreateUserAPIView(CreateAPIView):
             logger.info(f"[REGISTRATION] Created credit signal for user {user.id}: {credit_signal.payment_history}, {credit_signal.energy_consumption}, {credit_signal.financial_capacity}")
         except Exception as e:
             logger.error(f"[REGISTRATION] Failed to create credit signal: {str(e)}")
-
-        # For development: Send email synchronously instead of using Celery
-        if settings.DEBUG:
-            logger.info(f"[REGISTRATION] DEBUG mode: Sending email synchronously")
-            from accounts.tasks import handle_send_email_verification
-            handle_send_email_verification(user.id)  # Call synchronously
-        else:
-            # Production: Use Celery
-            handle_send_email_verification.delay(user.id)
 
         response_data = {
             "success": True,
@@ -1323,6 +1326,59 @@ class UserConfigAPIView(GenericAPIView):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
+class RequiredPasswordChangeAPIView(GenericAPIView):
+    """
+    First-login password change for admin-provisioned client accounts.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        if not getattr(user, "must_change_password", False):
+            return Response(
+                {"error": "Password change is not required for this account."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        new_password = (request.data.get("new_password") or "").strip()
+        confirm_password = (request.data.get("confirm_password") or "").strip()
+
+        if not new_password or not confirm_password:
+            return Response(
+                {"error": "new_password and confirm_password are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_password != confirm_password:
+            return Response(
+                {"error": "Passwords do not match."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if new_password == "1234":
+            return Response(
+                {"error": "Choose a password other than the temporary default."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            validate_password(new_password, user=user)
+        except DjangoValidationError as exc:
+            return Response(
+                {"error": " ".join(exc.messages)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        user.set_password(new_password)
+        user.must_change_password = False
+        user.save(update_fields=["password", "must_change_password", "modify_date"])
+
+        return Response(
+            {"success": True, "message": "Password updated. You can now use gPawa."},
+            status=status.HTTP_200_OK,
+        )
+
+
 class ForgotPasswordAPIView(GenericAPIView):
     permission_classes = [AllowAny]
     serializer_class = ForgotPasswordSerializer
@@ -1348,7 +1404,8 @@ class ForgotPasswordAPIView(GenericAPIView):
 
         token = reset_password_token_generator.make_token(user)
         user_hash = b64encode_user(force_text(user.pk))
-        url = f"{get_base_url()}/auth/reset-password/?uid={user_hash}&token={token}"
+        frontend_url = settings.FRONTEND_URL.rstrip('/')
+        url = f"{frontend_url}/auth/reset-password/?uid={user_hash}&token={token}"
         message = (
             f"You requested for a password reset for your account. "
             f"Please click the link below to continue"
@@ -1427,8 +1484,15 @@ class ResetPasswordAPIView(GenericAPIView):
         serializer = self.serializer_class(data=data)
         serializer.is_valid(raise_exception=True)
 
-        user.set_password(data.get("password"))
+        user.set_password(serializer.validated_data["password"])
         user.save()
+
+        profile = user.profile
+        if not profile.email_verified:
+            profile.email_verified = True
+            profile.save()
+            handle_post_email_verification(user)
+
         logger.info(
             f"[RESET PASSWORD] User {user.id} password reset successfully!"
         )
@@ -1480,7 +1544,7 @@ class SettingsAPIView(CreateAPIView):
                 code=code
             )
 
-        handle_send_email_code.delay(user.id, code)
+        dispatch_task(handle_send_email_code, user.id, code)
 
         response_data = {
             "success": True,
@@ -1520,7 +1584,7 @@ class ResendVerificationEmailAPIView(GenericAPIView):
             raise CustomAPIException(message=error_msg)
 
         # send the email now
-        handle_send_email_verification.delay(user.id)
+        dispatch_task(handle_send_email_verification, user.id)
 
         response_data = {
             "message": "Verification email sent successfully!",
@@ -1535,9 +1599,9 @@ class AccountDetailsAPIView(GenericAPIView):
     def get(self, request):
         try:
             # Get or create account details for the user
-            account_details, created = UserAccountDetails.objects.get_or_create(
-                user=request.user
-            )
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details is None:
+                account_details = UserAccountDetails.objects.create(user=request.user)
             serializer = self.serializer_class(account_details)
             return Response(serializer.data, status=status.HTTP_200_OK)
         except Exception as e:
@@ -1559,10 +1623,10 @@ class UpdateAccountDetailsAPIView(GenericAPIView):
             logger.info(f"Request data: {request.data}")
             
             # Get or create account details for the user
-            try:
-                account_details = UserAccountDetails.objects.get(user=request.user)
+            account_details = UserAccountDetails.objects.filter(user=request.user).order_by("-create_date").first()
+            if account_details:
                 logger.info(f"Found existing account details: {account_details.id}")
-            except UserAccountDetails.DoesNotExist:
+            else:
                 logger.info("Account details don't exist, creating new ones")
                 account_details = UserAccountDetails.objects.create(user=request.user)
                 logger.info(f"Created new account details: {account_details.id}")

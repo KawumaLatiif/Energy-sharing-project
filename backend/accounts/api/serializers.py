@@ -1,11 +1,13 @@
 import logging
+from datetime import timedelta
+
+from django.conf import settings
 from rest_framework import serializers
 from cities_light.models import Country
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from rest_framework.validators import UniqueValidator
-from django.conf import settings
-from accounts.models import (    
+from accounts.models import (
     Profile,
     SettingsConfirmationEmailCode,
     User,
@@ -594,6 +596,7 @@ class EmailTokenObtainSerializer(TokenObtainPairSerializer):
 
 class LoginSerializer(EmailTokenObtainSerializer):
     tokens = serializers.CharField(read_only=True)
+    remember_me = serializers.BooleanField(required=False, default=False, write_only=True)
     email = serializers.EmailField(required=True,
         error_messages={
             'required': 'Email address is required',
@@ -614,34 +617,46 @@ class LoginSerializer(EmailTokenObtainSerializer):
     }
 
     @classmethod
-    def get_token(cls, user):
-        return RefreshToken.for_user(user)
+    def get_token(cls, user, *, remember_me=False):
+        refresh = RefreshToken.for_user(user)
+        if remember_me:
+            days = getattr(settings, "REMEMBER_ME_REFRESH_DAYS", 30)
+            refresh.set_exp(lifetime=timedelta(days=days))
+        return refresh
 
     def validate(self, attrs):
+        remember_me = bool(attrs.pop("remember_me", False))
         try:
             data = super().validate(attrs)
-            user = self.user
-            if not user.profile.email_verified:
-                error_msg = "Please verify your email address"
-                raise serializers.ValidationError({"email": error_msg})
-
-            # Add user info to response
-            data['user'] = {
-                'id': user.id,
-                'email': user.email,
-                'first_name': user.first_name,
-                'last_name': user.last_name,
-                'user_role': user.user_role,
-                'is_admin': user.user_role == User.ADMIN,
-                'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
-            }
-            return data
-            
+        except serializers.ValidationError:
+            raise
         except Exception as e:
-            logger.error(f"Login error: {str(e)}")
+            logger.error(f"Login authentication error: {str(e)}")
             raise serializers.ValidationError({
-                'non_field_errors': ['Invalid credentials or server error. Please try again.']
+                'non_field_errors': ['Invalid email or password. Please try again.']
             })
+
+        if remember_me:
+            refresh = self.get_token(self.user, remember_me=True)
+            data["refresh"] = str(refresh)
+            data["access"] = str(refresh.access_token)
+
+        user = self.user
+        if not user.profile.email_verified:
+            raise serializers.ValidationError({
+                "email": ["Please verify your email address before logging in."]
+            })
+
+        data['user'] = {
+            'id': user.id,
+            'email': user.email,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'user_role': user.user_role,
+            'is_admin': user.user_role == User.ADMIN,
+            'redirect_to': '/admin/dashboard' if user.user_role == User.ADMIN else '/dashboard'
+        }
+        return data
 
 
 class LoginResponseSerializer(serializers.Serializer):
@@ -666,13 +681,17 @@ class UserConfigSerializer(serializers.ModelSerializer):
     account_details = UserAccountDetailsSerializer(read_only=True)
     
     is_admin = serializers.SerializerMethodField()
+    is_staff_member = serializers.SerializerMethodField()
     is_staff = serializers.SerializerMethodField()
     is_superuser = serializers.SerializerMethodField()
     phone_number = serializers.SerializerMethodField()  # Convert PhoneNumber to string
     wallet = serializers.SerializerMethodField()
 
     def get_is_admin(self, obj):
-        return obj.user_role == User.ADMIN
+        return obj.user_role == User.ADMIN or getattr(obj, "is_superuser", False)
+
+    def get_is_staff_member(self, obj):
+        return obj.is_staff_member or getattr(obj, "is_superuser", False)
     
     def get_is_staff(self, obj):
         return hasattr(obj, 'is_staff') and obj.is_staff
@@ -698,7 +717,7 @@ class UserConfigSerializer(serializers.ModelSerializer):
             'id', 'email', 'first_name', 'last_name', 
             'phone_number', 'profile', 'account_is_active',
             'account_details', 'is_admin', 'is_staff', 'is_superuser',
-            'user_role', 'wallet'
+            'user_role', 'wallet', 'is_staff_member', 'must_change_password'
         ]
 
     def to_representation(self, instance):

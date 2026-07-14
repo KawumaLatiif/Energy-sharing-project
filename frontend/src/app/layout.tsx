@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Manrope, Sora } from "next/font/google";
 import "@/styles/globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
+import { Toaster } from "@/components/ui/toaster";
 
 const manrope = Manrope({
   subsets: ["latin"],
@@ -25,14 +26,18 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${manrope.variable} ${sora.variable} antialiased`}>
+      <body
+        className={`${manrope.variable} ${sora.variable} antialiased`}
+        suppressHydrationWarning
+      >
         <ThemeProvider
           attribute="class"
-          defaultTheme="system"
+          defaultTheme="light"
           enableSystem
           disableTransitionOnChange
         >
           {children}
+          <Toaster />
         </ThemeProvider>
       </body>
     </html>

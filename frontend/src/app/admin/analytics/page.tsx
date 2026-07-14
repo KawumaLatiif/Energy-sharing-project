@@ -46,7 +46,7 @@ import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
 import { Badge } from '@/components/ui/badge';
-import {get} from '@/lib/fetch';
+import {get} from '@/lib/fetch-client';
 
 interface StatsData {
   user_registrations: {
@@ -71,6 +71,36 @@ interface StatsData {
   };
 }
 
+function normalizeStats(raw: Record<string, unknown> | null | undefined): StatsData {
+  const userReg = (raw?.user_registrations ?? {}) as StatsData["user_registrations"];
+  const meterReg = (raw?.meter_registrations ?? {}) as StatsData["meter_registrations"];
+  const userStatus = (raw?.user_status ?? {}) as StatsData["user_status"];
+  const meterStatus = (raw?.meter_status ?? {}) as StatsData["meter_status"];
+
+  return {
+    user_registrations: {
+      daily: userReg.daily ?? [],
+      weekly_total: userReg.weekly_total ?? 0,
+      monthly_total: userReg.monthly_total ?? 0,
+    },
+    meter_registrations: {
+      daily: meterReg.daily ?? [],
+      total: meterReg.total ?? 0,
+    },
+    user_status: {
+      active: userStatus.active ?? 0,
+      inactive: userStatus.inactive ?? 0,
+      verified: userStatus.verified ?? 0,
+      unverified: userStatus.unverified ?? 0,
+    },
+    meter_status: {
+      with_units: meterStatus.with_units ?? 0,
+      without_units: meterStatus.without_units ?? 0,
+      active_ratio: meterStatus.active_ratio ?? 0,
+    },
+  };
+}
+
 export default function AnalyticsPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -83,19 +113,14 @@ export default function AnalyticsPage() {
   const fetchStats = async () => {
     try {
       setLoading(true);
-      const res = await get<any>(`admin/stats/`);
-
-      // if (res.status === 403 || res.status === 401) {
-      //   router.push('/dashboard');
-      //   return;
-      // }
+      const res = await get<{ stats?: Record<string, unknown> }>(`admin/stats/`);
 
       if (res.error) throw new Error('Failed to fetch statistics');
 
-      // const data = await res.json();
-      if(res.data && res.data.stats){
-      setStats(res.data.stats);
-    }
+      const raw = res.data?.stats ?? res.data;
+      if (raw) {
+        setStats(normalizeStats(raw as Record<string, unknown>));
+      }
     } catch (error) {
       console.error('Error fetching stats:', error);
       toast({

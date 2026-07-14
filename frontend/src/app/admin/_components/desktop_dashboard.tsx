@@ -1,112 +1,45 @@
 'use client';
-import {
-  ActivityIcon,
-  ArrowUpRight,
-  Bell,
-  FileTextIcon,
-  Forward,
-  Home,
-  LineChart,
-  Package,
-  Package2,
-  PlusCircleIcon,
-  ShoppingCart,
-  Users,
-  Zap,
-} from "lucide-react";
-import Link from "next/link";
-import Image from "next/image";
 
-import logo from "@/assets/images/logo.jpg";
-import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { Skeleton } from "@/components/ui/skeleton";
-import { IconMoneybag } from "@tabler/icons-react";
-import { ActivityLogIcon, PersonIcon } from "@radix-ui/react-icons";
+import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
+import AdminNavLinks from "./admin-nav-links";
+import { Badge } from "@/components/ui/badge";
 
-export default function AdminDesktopSidebar() {
-  const pathname = usePathname();
+interface AdminDesktopSidebarProps {
+  userRole?: string | null;
+  isSuperuser?: boolean;
+}
 
+export default function AdminDesktopSidebar({ userRole, isSuperuser }: AdminDesktopSidebarProps) {
   return (
-    <div className="hidden border-r bg-muted/40 md:block">
-      <div className="flex h-full max-h-screen flex-col gap-2">
-        <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <Image
-              src={logo}
-              width={40}
-              height={400}
-              className="w-18 auto"
-              alt="Energy Share Logo"
-            />
-            <span className="">Energy Share Administrator</span>
-          </Link>
-        </div>
-        <div className="flex-1">
-          <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
-            <Link
-              href="/admin/dashboard"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/admin/dashboard" }
-              )}
-            >
-              <Home className="h-4 w-4" />
-              Dashboard
-            </Link>
-            <Link
-              href="/admin/users"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/users") }
-              )}
-            >
-              <Users className="h-4 w-4" />
-              Manage Users
-            </Link>
-            <Link
-              href="/admin/meters"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/meters") }
-              )}
-            >
-              <Zap className="h-4 w-4" />
-              Manage Meters
-            </Link>
-            <Link
-              href="/admin/loans"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname.startsWith("/admin/loans") }
-              )}
-            >
-              <IconMoneybag className="h-4 w-4" />
-              Manage Loans
-            </Link>
-            <Link
-              href="/admin/myaccount"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/admin/myaccount" }
-              )}
-            >
-              <PersonIcon className="h-4 w-4" />
-              My Account
-            </Link>
-            <Link
-              href="/admin/analytics"
-              className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
-                { "bg-muted text-primary": pathname === "/admin/analytics" }
-              )}
-            >
-              <ActivityIcon className="h-4 w-4" />
-             Analytics info
-            </Link>
-          </nav>
-        </div>
+    <div className="gpawa-sidebar hidden h-full border-r md:flex md:flex-col">
+      <div className="flex h-14 flex-col justify-center border-b border-[hsl(var(--sidebar-border))] px-4 lg:h-[60px] lg:px-6">
+        <GpawaLogo
+          href="/admin/dashboard"
+          showText={false}
+          suffix="Admin Panel"
+          suffixVariant="sidebar"
+          textSize={LOGO_SIZES.sidebar.textSize}
+          logoSize={LOGO_SIZES.sidebar.logoSize}
+        />
+        {userRole && (
+          <Badge
+            variant="outline"
+            className="mt-2 w-fit border-[hsl(var(--sidebar-border))] bg-[hsl(var(--sidebar-hover-bg))] text-[hsl(var(--sidebar-text-active))] text-[10px] uppercase tracking-wide"
+          >
+            {userRole.replace("_", " ")}
+          </Badge>
+        )}
       </div>
+      <div className="flex-1 overflow-y-auto py-3">
+        <AdminNavLinks
+          userRole={userRole}
+          isSuperuser={isSuperuser}
+          className="px-2 lg:px-3"
+        />
+      </div>
+      <p className="gpawa-sidebar-footer border-t border-[hsl(var(--sidebar-border))] px-4 py-3 text-[11px]">
+        Management console — not the customer portal.
+      </p>
     </div>
   );
 }

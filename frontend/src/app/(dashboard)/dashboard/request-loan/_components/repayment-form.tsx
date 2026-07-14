@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import {
   Card,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -52,7 +51,16 @@ export default function RepaymentForm({
   const [pollingCount, setPollingCount] = useState(0);
 
   const outstandingBalance = loan.outstanding_balance || 0;
+  const [paymentMode, setPaymentMode] = useState<"full" | "partial">("full");
   const quickAmounts = [5000, 10000, 20000, 50000];
+
+  useEffect(() => {
+    if (paymentMode === "full") {
+      setAmount(String(Math.round(outstandingBalance)));
+    } else if (paymentMode === "partial" && amount === String(Math.round(outstandingBalance))) {
+      setAmount("");
+    }
+  }, [paymentMode, outstandingBalance]);
 
   // Format phone number for Uganda
   const formatPhoneNumber = (input: string): string => {
@@ -223,7 +231,7 @@ export default function RepaymentForm({
               {paymentSource === "PHONE" ? <Smartphone className="h-5 w-5" /> : <Wallet className="h-5 w-5" />}
               Loan Payment - {loan.loan_id}
             </CardTitle>
-            <CardDescription className="space-y-2">
+            <div className="space-y-2 text-sm text-muted-foreground">
               <div className="grid grid-cols-2 gap-2 text-sm">
                 <div className="space-y-1">
                   <div className="flex justify-between">
@@ -234,7 +242,7 @@ export default function RepaymentForm({
                   </div>
                 </div>
               </div>
-            </CardDescription>
+            </div>
           </CardHeader>
 
           <CardContent className="space-y-4">
@@ -290,7 +298,10 @@ export default function RepaymentForm({
                 value={amount}
                 onChange={(e) => handleAmountChange(e.target.value)}
                 className="text-lg font-medium"
-                disabled={isProcessing && momoStatus === "pending"}
+                disabled={
+                  (isProcessing && momoStatus === "pending") ||
+                  paymentMode === "full"
+                }
               />
               <p className="text-xs text-muted-foreground">
                 Minimum: 1,000 UGX • Maximum:{" "}
@@ -305,7 +316,10 @@ export default function RepaymentForm({
                     type="button"
                     variant="outline"
                     size="sm"
-                    onClick={() => setAmount(quickAmount.toString())}
+                    onClick={() => {
+                      setPaymentMode("partial");
+                      setAmount(quickAmount.toString());
+                    }}
                     disabled={
                       (isProcessing && momoStatus === "pending") ||
                       quickAmount > outstandingBalance

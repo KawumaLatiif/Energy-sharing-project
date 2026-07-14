@@ -8,6 +8,13 @@ import traceback
 from django.conf import settings
 from django.http import JsonResponse
 from meter.models import Meter, MeterToken
+from meter.models import Transaction as MeterLedgerTransaction
+from meter.services import (
+    push_units_to_thingsboard,
+    query_latest_units_from_thingsboard,
+    record_balance_snapshot,
+    _thingsboard_base_url,
+)
 from accounts.models import User
 from mtn_momo.services import MTNMoMoService
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
@@ -32,13 +39,17 @@ from rest_framework.response import Response
 from rest_framework import status
 import time
 import threading
-from transactions.models import Transaction, UnitTransaction
+from transactions.models import Transaction, UnitTransaction, TransactionType
+from transactions.services import record_transaction_log
 from accounts.models import Wallet as AccountWallet
 from wallet.models import Wallet as MoneyWallet
+from wallet.models import Wallet as UnitWallet
 import time
 import threading
 from django.db import transaction as db_transaction
 from loan.models import ElectricityTariff, LoanApplication, LoanRepayment
+from utils.ami_gateway import apply_units_to_meter
+# from transactions.api.generate_token import generate_numeric_token
 import traceback
 from wallet.models import UnitBalance 
 
@@ -49,26 +60,326 @@ logger = logging.getLogger(__name__)
 
 @api_view(['GET'])
 @permission_classes([IsAuthenticated])
+def ami_meter_status(request):
+    """
+    GET /api/v1/meter/ami-status/?meter_no=...
+
+    Returns connectivity and balance sync status for an AMI meter owned by the user.
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    if meter.architecture != Meter.ARCH_AMI:
+        return Response(
+            {"error": "This endpoint is only for AMI meters."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from utils.ami_gateway import get_ami_gateway
+
+    gateway_status = get_ami_gateway().get_status(meter)
+    unit_wallet = UnitWallet.objects.filter(user=request.user).first()
+    wallet_balance = float(unit_wallet.balance) if unit_wallet else 0.0
+
+    if gateway_status is None:
+        return Response(
+            {
+                "success": False,
+                "is_online": False,
+                "meter_no": meter.meter_no,
+                "current_balance_kwh": float(meter.units),
+                "wallet_balance": wallet_balance,
+                "message": "Meter unreachable.",
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "is_online": gateway_status.is_online,
+            "last_seen": gateway_status.last_seen,
+            "meter_no": gateway_status.meter_no,
+            "current_balance_kwh": gateway_status.current_balance_kwh,
+            "wallet_balance": wallet_balance,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def meter_ledger_history(request):
+    """
+    GET /api/v1/meter/ledger-history/?meter_no=...
+
+    Credits that contribute to the meter ledger balance (``meter.units``).
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    from meter.ledger import get_meter_ledger_history
+
+    payload = get_meter_ledger_history(meter)
+    return Response({"success": True, **payload}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def thingsboard_health(request):
+    """
+    GET /api/v1/meter/thingsboard-health/
+
+    Diagnostic: which ThingsBoard URL Django uses and whether it can connect.
+    """
+    from meter.services import (
+        _thingsboard_base_url,
+        _thingsboard_public_base_url,
+        _thingsboard_request_kwargs,
+    )
+
+    base = _thingsboard_base_url()
+    public = _thingsboard_public_base_url()
+    internal = (getattr(settings, "THINGSBOARD_INTERNAL_BASE_URL", "") or "").strip()
+
+    try:
+        response = requests.get(f"{base}/", **_thingsboard_request_kwargs())
+        return Response(
+            {
+                "success": True,
+                "thingsboard_url_in_use": base,
+                "thingsboard_base_url": public,
+                "thingsboard_internal_base_url": internal or None,
+                "http_status": response.status_code,
+            },
+            status=status.HTTP_200_OK,
+        )
+    except requests.RequestException as exc:
+        return Response(
+            {
+                "success": False,
+                "thingsboard_url_in_use": base,
+                "thingsboard_base_url": public,
+                "thingsboard_internal_base_url": internal or None,
+                "error": f"{exc.__class__.__name__}: {exc}",
+                "hint": (
+                    "Set THINGSBOARD_BASE_URL=http://127.0.0.1:9090 (or THINGSBOARD_INTERNAL_BASE_URL) "
+                    "in backend/.env and restart gunicorn."
+                ),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
+def check_meter_units(request):
+    """
+    GET /api/v1/meter/check-units/?meter_no=...
+
+    On-demand read of live remaining kWh from ThingsBoard (shared attribute remaining_units).
+    """
+    meter_no = request.query_params.get("meter_no")
+    if not meter_no:
+        return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found or not owned by you."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    if meter.architecture != Meter.ARCH_AMI:
+        return Response(
+            {"error": "Check units is only available for AMI meters."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    from meter.ami_delivery import retry_pending_for_meter
+
+    retry_result = retry_pending_for_meter(meter)
+    meter.refresh_from_db(fields=["units", "pending_units"])
+
+    ok, msg, data = query_latest_units_from_thingsboard(meter)
+    if not ok and meter.units > 0 and meter.pending_units <= 0:
+        from meter.services import set_shared_remaining_units
+
+        bootstrap_ok, _bootstrap_msg = set_shared_remaining_units(meter, meter.units)
+        if bootstrap_ok:
+            ok, msg, data = query_latest_units_from_thingsboard(meter)
+    if not ok or not data:
+        return Response(
+            {
+                "success": False,
+                "meter_no": meter.meter_no,
+                "message": msg,
+                "units_balance_kwh": float(meter.units),
+                "thingsboard_host": _thingsboard_base_url(),
+            },
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    record_balance_snapshot(
+        meter,
+        data["units_kwh"],
+        source=data.get("source", "thingsboard"),
+    )
+
+    return Response(
+        {
+            "success": True,
+            "meter_no": meter.meter_no,
+            "units_kwh": data["units_kwh"],
+            "queried_at": data["queried_at"],
+            "units_balance_kwh": float(meter.units),
+            "pending_delivery_kwh": float(meter.pending_units),
+            "pending_retry": retry_result,
+            "source": data.get("source", "thingsboard"),
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
+@api_view(['GET', 'PATCH'])
+@permission_classes([IsAuthenticated])
+def meter_notifications(request):
+    """
+    GET  /api/v1/meter/notifications/ — list meter alerts (e.g. low-units from ThingsBoard).
+    PATCH /api/v1/meter/notifications/ — mark notifications read: {"ids": [1,2]} or {"all": true}
+    """
+    from meter.models import MeterNotification
+
+    if request.method == "GET":
+        unread_only = request.query_params.get("unread", "").lower() in ("1", "true", "yes")
+        qs = MeterNotification.objects.filter(user=request.user)
+        if unread_only:
+            qs = qs.filter(is_read=False)
+        qs = qs.select_related("meter")[:50]
+        items = [
+            {
+                "id": n.id,
+                "notification_type": n.notification_type,
+                "units_kwh": float(n.units_kwh),
+                "occurred_at": n.occurred_at.isoformat(),
+                "is_read": n.is_read,
+                "message": n.message,
+                "meter_no": n.meter.meter_no if n.meter else None,
+                "meter_label": n.meter.label if n.meter else None,
+            }
+            for n in qs
+        ]
+        unread_count = MeterNotification.objects.filter(user=request.user, is_read=False).count()
+        return Response(
+            {"success": True, "notifications": items, "unread_count": unread_count},
+            status=status.HTTP_200_OK,
+        )
+
+    ids = request.data.get("ids")
+    mark_all = request.data.get("all") is True
+    qs = MeterNotification.objects.filter(user=request.user, is_read=False)
+    if mark_all:
+        updated = qs.update(is_read=True)
+    elif ids:
+        updated = qs.filter(id__in=ids).update(is_read=True)
+    else:
+        return Response(
+            {"error": "Provide 'ids' list or {'all': true}."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    return Response({"success": True, "marked_read": updated}, status=status.HTTP_200_OK)
+
+
+@api_view(["GET"])
+@permission_classes([IsAuthenticated])
+def power_usage(request):
+    """
+    GET /api/v1/meter/power-usage/
+
+    AMI-only energy consumption reports (daily series + summary).
+    Query params: meter_no, period=week|month|year, year, month
+    """
+    from meter.usage_service import get_power_usage_report
+
+    period = request.query_params.get("period", "week")
+    meter_no = request.query_params.get("meter_no")
+    year_raw = request.query_params.get("year")
+    month_raw = request.query_params.get("month")
+
+    year = int(year_raw) if year_raw and year_raw.isdigit() else None
+    month = int(month_raw) if month_raw and month_raw.isdigit() else None
+
+    report = get_power_usage_report(
+        request.user,
+        meter_no=meter_no,
+        period=period,
+        year=year,
+        month=month,
+    )
+    status_code = status.HTTP_200_OK if report.get("eligible", True) else status.HTTP_200_OK
+    return Response({"success": True, "data": report}, status=status_code)
+
+
+@api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def check_user_meter(request):
     try:
-        meter = Meter.objects.get(user=request.user)
+        meters = Meter.objects.filter(user=request.user).order_by('create_date')
+        if not meters.exists():
+            return Response({
+                'success': True,
+                'data': {
+                    'has_meter': False,
+                    'message': 'No meter registered for this account'
+                }
+            }, status=status.HTTP_200_OK)
+
+        meters_list = [
+            {
+                'meter_number': m.meter_no,
+                'static_ip': m.static_ip,
+                'units': float(m.units),
+                'architecture': m.architecture,
+                'pending_units': float(m.pending_units),
+                'status': m.status,
+                'label': m.label,
+                'has_iot_token': bool((m.iot_device_token or '').strip()),
+            }
+            for m in meters
+        ]
+        primary = meters_list[0]
         return Response({
             'success': True,
             'data': {
                 'has_meter': True,
-                'meter_number': meter.meter_no,
-                'static_ip': meter.static_ip,
-                'units': meter.units
+                'meters': meters_list,
+                # backward-compat single-meter fields (first registered meter)
+                'meter_number': primary['meter_number'],
+                'static_ip': primary['static_ip'],
+                'units': primary['units'],
+                'architecture': primary['architecture'],
+                'pending_units': primary['pending_units'],
             }
         })
-    except Meter.DoesNotExist:
-        return Response({
-            'success': True,
-            'data': {
-                'has_meter': False,
-                'message': 'No meter registered for this account'
-            }
-        }, status=status.HTTP_200_OK)
     except Exception as e:
         logger.error(f"Error checking user meter: {str(e)}")
         return Response({
@@ -88,13 +399,28 @@ def update_meter(request):
         user = request.user
         data = request.data
         
-        # Get user's meter
-        try:
-            meter = Meter.objects.get(user=user)
-        except Meter.DoesNotExist:
+        # Identify which meter to update (supports multiple meters per account)
+        current_meter_no = data.get('current_meter_no') or data.get('original_meter_no')
+        user_meters = Meter.objects.filter(user=user)
+
+        if current_meter_no:
+            try:
+                meter = user_meters.get(meter_no=current_meter_no)
+            except Meter.DoesNotExist:
+                return Response(
+                    {"error": "Meter not found on your account"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+        elif user_meters.count() == 1:
+            meter = user_meters.first()
+        else:
             return Response(
-                {"error": "No meter found to update"},
-                status=status.HTTP_404_NOT_FOUND
+                {
+                    "success": False,
+                    "error": "Meter Required",
+                    "message": "Specify which meter to update using current_meter_no.",
+                },
+                status=status.HTTP_400_BAD_REQUEST
             )
         
         # Validate meter number uniqueness (excluding current meter)
@@ -135,35 +461,75 @@ def update_meter(request):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@api_view(['POST', 'DELETE'])
+@permission_classes([IsAuthenticated])
+def delete_user_meter(request):
+    """
+    POST/DELETE /api/v1/meter/delete/
+
+    Remove a meter from the authenticated user's account. Writes DeletedMeterRecord
+    and soft-deletes the meter so the number can be registered again later.
+    """
+    from meter.lifecycle import MeterDeleteError, release_meter_from_account
+    from meter.models import DeletedMeterRecord
+
+    meter_no = request.data.get("meter_no") or request.query_params.get("meter_no")
+    reason = (request.data.get("reason") or "").strip()
+
+    if not meter_no:
+        return Response(
+            {"error": "meter_no is required."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    try:
+        meter = Meter.objects.get(user=request.user, meter_no=meter_no)
+    except Meter.DoesNotExist:
+        return Response(
+            {"error": "Meter not found on your account."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        record = release_meter_from_account(
+            meter,
+            deleted_by=request.user,
+            deleted_by_role=DeletedMeterRecord.ROLE_USER,
+            reason=reason,
+            metadata={"channel": "WEB_PORTAL"},
+        )
+    except MeterDeleteError as exc:
+        return Response({"error": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    except Exception as exc:
+        logger.error("delete_user_meter error: %s", exc, exc_info=True)
+        return Response(
+            {"error": "Failed to remove meter."},
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
+
+    return Response(
+        {
+            "success": True,
+            "message": (
+                f"Meter {record.original_meter_no} removed from your account. "
+                "You can register it again later if needed."
+            ),
+            "deleted_meter_no": record.original_meter_no,
+            "deletion_record_id": record.id,
+        },
+        status=status.HTTP_200_OK,
+    )
+
+
 class MeterRegisterView(generics.CreateAPIView):
     serializer_class = MeterSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def create(self, request, *args, **kwargs):
         try:
-            # Check if user already has a meter
-            if Meter.objects.filter(user=request.user).exists():
-                return Response(
-                    {
-                        "success": False,
-                        "error": "Meter Already Registered",
-                        "message": "You already have a registered meter. Each account can only have one meter."
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
             serializer = self.get_serializer(data=request.data)
             serializer.is_valid(raise_exception=True)
-            
-            # Validate IP address format
-            static_ip = request.data.get('static_ip')
-            if not self._validate_ip_address(static_ip):
-                return Response({
-                    "success": False,
-                    "error": "Invalid IP Address",
-                    "message": "Please provide a valid IP address (e.g., 192.168.1.100)"
-                }, status=status.HTTP_400_BAD_REQUEST)
-            
+
             # Check if meter number already exists
             meter_no = request.data.get('meter_no')
             if Meter.objects.filter(meter_no=meter_no).exists():
@@ -482,13 +848,18 @@ class TokenView(GenericAPIView):
     serializer_class = TokenSerializer
     def get(self, request, *args, **kwargs):
         user = request.user
-        
+        meter_no = request.query_params.get("meter_no")
 
         try:
-            # Filter tokens by user's meter
-            user_meter = Meter.objects.get(user=user)
-            token_data = MeterToken.objects.filter(meter=user_meter).order_by('-id')[:10]
-            
+            if meter_no:
+                user_meters = Meter.objects.filter(user=user, meter_no=meter_no)
+            else:
+                user_meters = Meter.objects.filter(user=user)
+
+            if not user_meters.exists():
+                return Response({"data": []}, status=status.HTTP_200_OK)
+
+            token_data = MeterToken.objects.filter(meter__in=user_meters).order_by('-id')[:20]
             serializer = self.serializer_class(token_data, many=True)
             
             response_data = {
@@ -508,11 +879,710 @@ class TokenView(GenericAPIView):
                 "error": "Failed to fetch tokens"
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
    
-  
+
    
+class ActivateReceivedUnitsView(APIView):
+    """
+    POST /api/v1/meter/activate-received-units/
+
+    For STS meters: converts pending_units into a MeterToken the user can enter
+    on the physical keypad to load the units. Clears pending_units on success.
+
+    For AMI meters: units are already applied — returns 409 with a clear message.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response({"error": "Meter not found or not owned by you."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            user_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS)
+            if not user_meters.exists():
+                return Response({"error": "No STS meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+            if user_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple STS meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = user_meters.first()
+
+        if meter.architecture == Meter.ARCH_AMI:
+            return Response(
+                {"error": "AMI meter — units are applied automatically; no token needed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        if meter.pending_units <= 0:
+            return Response(
+                {"error": "No pending units to activate. Buy or receive units first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                units = meter.pending_units
+                # Lock the row to prevent double-activation
+                locked_meter = Meter.objects.select_for_update().get(pk=meter.pk)
+                if locked_meter.pending_units <= 0:
+                    return Response(
+                        {"error": "Pending units already activated."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                token_value = generate_numeric_token(10)
+                MeterToken.objects.create(
+                    user=user,
+                    token=token_value,
+                    units=units,
+                    meter=locked_meter,
+                    source='SHARE',
+                )
+                locked_meter.pending_units = 0
+                locked_meter.save(update_fields=['pending_units'])
+
+            return Response(
+                {
+                    "success": True,
+                    "token": token_value,
+                    "units": float(units),
+                    "message": f"Enter this token on your meter keypad to load {float(units):.2f} kWh.",
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.error("ActivateReceivedUnitsView error: %s", exc, exc_info=True)
+            return Response({"error": "Failed to generate token."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# class GenerateTokenFromWalletView(APIView):
+#     """
+#     POST /api/v1/meter/generate-token/
+
+#     STS meters: draws `amount` kWh from the user's unit wallet and returns
+#     a 10-digit token the user enters on the physical meter keypad.
+#     AMI meters receive balance updates over the network — no token needed.
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         user = request.user
+#         meter_no = request.data.get("meter_no")
+
+#         if meter_no:
+#             try:
+#                 meter = Meter.objects.get(user=user, meter_no=meter_no)
+#             except Meter.DoesNotExist:
+#                 return Response({"error": "Meter not found or not owned by you."}, status=status.HTTP_400_BAD_REQUEST)
+#         else:
+#             sts_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS)
+#             if not sts_meters.exists():
+#                 if Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI).exists():
+#                     return Response(
+#                         {
+#                             "error": (
+#                                 "AMI meter — units are applied automatically over the network. "
+#                                 "No token needed."
+#                             )
+#                         },
+#                         status=status.HTTP_409_CONFLICT,
+#                     )
+#                 return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+#             if sts_meters.count() > 1:
+#                 return Response(
+#                     {"error": "You have multiple STS meters. Please specify meter_no."},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#             meter = sts_meters.first()
+
+#         if meter.architecture == Meter.ARCH_AMI:
+#             return Response(
+#                 {"error": "AMI meter — units are applied automatically over the network. No token needed."},
+#                 status=status.HTTP_409_CONFLICT,
+#             )
+
+#         raw = request.data.get("amount")
+#         try:
+#             amount = Decimal(str(raw))
+#             if amount <= 0:
+#                 raise ValueError
+#         except (InvalidOperation, ValueError, TypeError):
+#             return Response(
+#                 {"error": "Provide a positive numeric kWh amount."},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         unit_wallet = UnitWallet.objects.filter(user=user).first()
+#         if not unit_wallet:
+#             return Response(
+#                 {"error": "No unit wallet found. Buy units first."},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         if unit_wallet.balance < amount:
+#             return Response(
+#                 {
+#                     "error": f"Insufficient wallet balance. Available: {float(unit_wallet.balance):.2f} kWh.",
+#                     "available": float(unit_wallet.balance),
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         try:
+#             with db_transaction.atomic():
+#                 locked_wallet = UnitWallet.objects.select_for_update().get(user=user)
+#                 if locked_wallet.balance < amount:
+#                     return Response(
+#                         {"error": "Insufficient wallet balance."},
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+#                 locked_wallet.balance -= amount
+#                 locked_wallet.save(update_fields=["balance"])
+
+#                 token_value = generate_numeric_token(10)
+#                 MeterToken.objects.create(
+#                     user=user,
+#                     token=token_value,
+#                     units=amount,
+#                     meter=meter,
+#                     source="PURCHASE",
+#                 )
+#                 MeterLedgerTransaction.objects.create(
+#                     user=user,
+#                     meter=meter,
+#                     transaction_type=MeterLedgerTransaction.TYPE_GENERATE_TOKEN,
+#                     amount_kwh=amount,
+#                     status=MeterLedgerTransaction.STATUS_COMPLETED,
+#                     channel=MeterLedgerTransaction.CHANNEL_WEB,
+#                     sts_token=token_value,
+#                     source="wallet",
+#                     destination=meter.meter_no,
+#                     payment_reference=f"TOKEN-{token_value}",
+#                 )
+#                 record_transaction_log(
+#                     user,
+#                     TransactionType.TOKEN_GENERATE,
+#                     units=amount,
+#                     status="COMPLETED",
+#                     reference_id=f"TOKEN-{token_value}",
+#                     details={
+#                         "channel": MeterLedgerTransaction.CHANNEL_WEB,
+#                         "meter_no": meter.meter_no,
+#                         "token": token_value,
+#                     },
+#                 )
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "token": token_value,
+#                     "units": float(amount),
+#                     "remaining_balance": float(locked_wallet.balance),
+#                     "message": (
+#                         f"Enter this token on your meter keypad to load {float(amount):.2f} kWh."
+#                     ),
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except Exception as exc:
+#             logger.error("GenerateTokenFromWalletView error: %s", exc, exc_info=True)
+#             return Response(
+#                 {"error": "Failed to generate token."},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+
+class GenerateTokenFromWalletView(APIView):
+    """
+    POST /api/v1/meter/generate-token/
+
+    STS meters: draws `amount` kWh from the user's unit balance and returns
+    a 10-digit token the user enters on the physical meter keypad.
+    AMI meters receive balance updates over the network — no token needed.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response({"error": "Meter not found or not owned by you."}, status=status.HTTP_400_BAD_REQUEST)
+        else:
+            sts_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_STS)
+            if not sts_meters.exists():
+                if Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI).exists():
+                    return Response(
+                        {
+                            "error": (
+                                "AMI meter — units are applied automatically over the network. "
+                                "No token needed."
+                            )
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+                return Response({"error": "No meter registered."}, status=status.HTTP_400_BAD_REQUEST)
+            if sts_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple STS meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = sts_meters.first()
+
+        if meter.architecture == Meter.ARCH_AMI:
+            return Response(
+                {"error": "AMI meter — units are applied automatically over the network. No token needed."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        raw = request.data.get("amount")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "Provide a positive numeric kWh amount."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # FIX: Use UnitBalance instead of UnitWallet
+        unit_balance = UnitBalance.objects.filter(user=user).first()
+        if not unit_balance:
+            return Response(
+                {"error": "No unit balance found. Buy units first."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if unit_balance.balance < amount:
+            return Response(
+                {
+                    "error": f"Insufficient unit balance. Available: {float(unit_balance.balance):.2f} kWh.",
+                    "available": float(unit_balance.balance),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                # FIX: Lock UnitBalance instead of UnitWallet
+                locked_balance = UnitBalance.objects.select_for_update().get(user=user)
+                if locked_balance.balance < amount:
+                    return Response(
+                        {"error": "Insufficient unit balance."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                locked_balance.balance -= amount
+                locked_balance.save(update_fields=["balance"])
+
+                token_value = generate_numeric_token(10)
+                MeterToken.objects.create(
+                    user=user,
+                    token=token_value,
+                    units=amount,
+                    meter=meter,
+                    source="PURCHASE",
+                )
+                MeterLedgerTransaction.objects.create(
+                    user=user,
+                    meter=meter,
+                    transaction_type=MeterLedgerTransaction.TYPE_GENERATE_TOKEN,
+                    amount_kwh=amount,
+                    status=MeterLedgerTransaction.STATUS_COMPLETED,
+                    channel=MeterLedgerTransaction.CHANNEL_WEB,
+                    sts_token=token_value,
+                    source="wallet",
+                    destination=meter.meter_no,
+                    payment_reference=f"TOKEN-{token_value}",
+                )
+                record_transaction_log(
+                    user,
+                    TransactionType.TOKEN_GENERATE,
+                    units=amount,
+                    status="COMPLETED",
+                    reference_id=f"TOKEN-{token_value}",
+                    details={
+                        "channel": MeterLedgerTransaction.CHANNEL_WEB,
+                        "meter_no": meter.meter_no,
+                        "token": token_value,
+                    },
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "token": token_value,
+                    "units": float(amount),
+                    "remaining_balance": float(locked_balance.balance),
+                    "message": (
+                        f"Enter this token on your meter keypad to load {float(amount):.2f} kWh."
+                    ),
+                },
+                status=status.HTTP_200_OK,
+            )
+        except Exception as exc:
+            logger.error("GenerateTokenFromWalletView error: %s", exc, exc_info=True)
+            return Response(
+                {"error": "Failed to generate token."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+# class ApplyWalletToMeterView(APIView):
+#     """
+#     POST /api/v1/meter/apply-wallet-units/
+
+#     AMI meters: debit the user's unit wallet and push kWh to the meter over the network.
+#     STS meters: use /meter/generate-token/ to obtain a keypad token instead.
+#     """
+#     permission_classes = [IsAuthenticated]
+
+#     def post(self, request):
+#         user = request.user
+#         meter_no = request.data.get("meter_no")
+
+#         if meter_no:
+#             try:
+#                 meter = Meter.objects.get(user=user, meter_no=meter_no)
+#             except Meter.DoesNotExist:
+#                 return Response(
+#                     {"error": "Meter not found or not owned by you."},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#         else:
+#             ami_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI)
+#             if not ami_meters.exists():
+#                 return Response(
+#                     {
+#                         "error": (
+#                             "No AMI meter found. STS meters require a token — "
+#                             "use Generate STS Token on the dashboard."
+#                         )
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#             if ami_meters.count() > 1:
+#                 return Response(
+#                     {"error": "You have multiple AMI meters. Please specify meter_no."},
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#             meter = ami_meters.first()
+
+#         if meter.architecture != Meter.ARCH_AMI:
+#             return Response(
+#                 {
+#                     "error": (
+#                         "This action is for AMI meters only. "
+#                         "STS meters need a token — use Generate STS Token."
+#                     ),
+#                     "architecture": meter.architecture,
+#                 },
+#                 status=status.HTTP_409_CONFLICT,
+#             )
+
+#         raw = request.data.get("amount")
+#         try:
+#             amount = Decimal(str(raw))
+#             if amount <= 0:
+#                 raise ValueError
+#         except (InvalidOperation, ValueError, TypeError):
+#             return Response(
+#                 {"error": "Provide a positive numeric kWh amount."},
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         unit_wallet = UnitWallet.objects.filter(user=user).first()
+#         if not unit_wallet or unit_wallet.balance < amount:
+#             available = float(unit_wallet.balance) if unit_wallet else 0.0
+#             return Response(
+#                 {
+#                     "error": f"Insufficient wallet balance. Available: {available:.2f} kWh.",
+#                     "available": available,
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+
+#         try:
+#             with db_transaction.atomic():
+#                 locked_wallet = UnitWallet.objects.select_for_update().get(user=user)
+#                 if locked_wallet.balance < amount:
+#                     return Response(
+#                         {"error": "Insufficient wallet balance."},
+#                         status=status.HTTP_400_BAD_REQUEST,
+#                     )
+#                 locked_wallet.balance -= amount
+#                 locked_wallet.save(update_fields=["balance"])
+
+#                 if not apply_units_to_meter(meter, amount):
+#                     raise ValueError("AMI gateway could not apply units to the meter.")
+
+#                 meter.refresh_from_db(fields=["units", "pending_units"])
+
+#                 ref = generate_random_string(12)
+#                 record_transaction_log(
+#                     user,
+#                     TransactionType.WALLET_LOAD_AMI,
+#                     units=amount,
+#                     status="COMPLETED",
+#                     reference_id=ref,
+#                     details={
+#                         "channel": MeterLedgerTransaction.CHANNEL_WEB,
+#                         "meter_no": meter.meter_no,
+#                     },
+#                 )
+
+#             delivered = meter.pending_units <= 0
+#             live_units_kwh = None
+#             live_queried_at = None
+#             live_read_message = None
+#             ok, live_msg, live_data = query_latest_units_from_thingsboard(meter)
+#             if ok and live_data:
+#                 live_units_kwh = float(live_data["units_kwh"])
+#                 live_queried_at = live_data.get("queried_at")
+#                 record_balance_snapshot(
+#                     meter,
+#                     live_data["units_kwh"],
+#                     source=live_data.get("source", "thingsboard"),
+#                 )
+#             else:
+#                 live_read_message = live_msg
+
+#             wallet_remaining = float(locked_wallet.balance)
+#             meter_ledger = float(meter.units)
+#             units_applied = float(amount)
+#             pending_kwh = float(meter.pending_units)
+
+#             if not delivered:
+#                 load_message = (
+#                     f"{units_applied:.2f} kWh queued for delivery to your meter. "
+#                     f"Wallet remaining: {wallet_remaining:.2f} kWh. "
+#                     "Units will be sent automatically when the meter is reachable."
+#                 )
+#             elif live_units_kwh is not None:
+#                 load_message = (
+#                     f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+#                     f"Live meter reading: {live_units_kwh:.2f} kWh. "
+#                     f"Meter ledger: {meter_ledger:.2f} kWh. "
+#                     f"Wallet remaining: {wallet_remaining:.2f} kWh."
+#                 )
+#             else:
+#                 load_message = (
+#                     f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+#                     f"Meter ledger: {meter_ledger:.2f} kWh. "
+#                     f"Wallet remaining: {wallet_remaining:.2f} kWh."
+#                 )
+#                 if live_read_message:
+#                     load_message += f" Live reading unavailable: {live_read_message}"
+
+#             return Response(
+#                 {
+#                     "success": True,
+#                     "units_applied": units_applied,
+#                     "meter_balance": meter_ledger,
+#                     "pending_delivery_kwh": pending_kwh,
+#                     "remaining_wallet_balance": wallet_remaining,
+#                     "live_units_kwh": live_units_kwh,
+#                     "live_queried_at": live_queried_at,
+#                     "delivery_status": "delivered" if delivered else "pending",
+#                     "message": load_message,
+#                 },
+#                 status=status.HTTP_200_OK,
+#             )
+#         except ValueError as exc:
+#             return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+#         except Exception as exc:
+#             logger.error("ApplyWalletToMeterView error: %s", exc, exc_info=True)
+#             return Response(
+#                 {"error": "Failed to apply units to meter."},
+#                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+#             )
+
+class ApplyWalletToMeterView(APIView):
+    """
+    POST /api/v1/meter/apply-wallet-units/
+
+    AMI meters: debit the user's unit balance and push kWh to the meter over the network.
+    STS meters: use /meter/generate-token/ to obtain a keypad token instead.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        user = request.user
+        meter_no = request.data.get("meter_no")
+
+        if meter_no:
+            try:
+                meter = Meter.objects.get(user=user, meter_no=meter_no)
+            except Meter.DoesNotExist:
+                return Response(
+                    {"error": "Meter not found or not owned by you."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            ami_meters = Meter.objects.filter(user=user, architecture=Meter.ARCH_AMI)
+            if not ami_meters.exists():
+                return Response(
+                    {
+                        "error": (
+                            "No AMI meter found. STS meters require a token — "
+                            "use Generate STS Token on the dashboard."
+                        )
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            if ami_meters.count() > 1:
+                return Response(
+                    {"error": "You have multiple AMI meters. Please specify meter_no."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            meter = ami_meters.first()
+
+        if meter.architecture != Meter.ARCH_AMI:
+            return Response(
+                {
+                    "error": (
+                        "This action is for AMI meters only. "
+                        "STS meters need a token — use Generate STS Token."
+                    ),
+                    "architecture": meter.architecture,
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        raw = request.data.get("amount")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError, TypeError):
+            return Response(
+                {"error": "Provide a positive numeric kWh amount."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # FIX: Use UnitBalance instead of UnitWallet
+        unit_balance = UnitBalance.objects.filter(user=user).first()
+        if not unit_balance or unit_balance.balance < amount:
+            available = float(unit_balance.balance) if unit_balance else 0.0
+            return Response(
+                {
+                    "error": f"Insufficient unit balance. Available: {available:.2f} kWh.",
+                    "available": available,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with db_transaction.atomic():
+                # FIX: Lock UnitBalance instead of UnitWallet
+                locked_balance = UnitBalance.objects.select_for_update().get(user=user)
+                if locked_balance.balance < amount:
+                    return Response(
+                        {"error": "Insufficient unit balance."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                locked_balance.balance -= amount
+                locked_balance.save(update_fields=["balance"])
+
+                if not apply_units_to_meter(meter, amount):
+                    raise ValueError("AMI gateway could not apply units to the meter.")
+
+                meter.refresh_from_db(fields=["units", "pending_units"])
+
+                ref = generate_random_string(12)
+                record_transaction_log(
+                    user,
+                    TransactionType.WALLET_LOAD_AMI,
+                    units=amount,
+                    status="COMPLETED",
+                    reference_id=ref,
+                    details={
+                        "channel": MeterLedgerTransaction.CHANNEL_WEB,
+                        "meter_no": meter.meter_no,
+                    },
+                )
+
+            delivered = meter.pending_units <= 0
+            live_units_kwh = None
+            live_queried_at = None
+            live_read_message = None
+            ok, live_msg, live_data = query_latest_units_from_thingsboard(meter)
+            if ok and live_data:
+                live_units_kwh = float(live_data["units_kwh"])
+                live_queried_at = live_data.get("queried_at")
+                record_balance_snapshot(
+                    meter,
+                    live_data["units_kwh"],
+                    source=live_data.get("source", "thingsboard"),
+                )
+            else:
+                live_read_message = live_msg
+
+            wallet_remaining = float(locked_balance.balance)
+            meter_ledger = float(meter.units)
+            units_applied = float(amount)
+            pending_kwh = float(meter.pending_units)
+
+            if not delivered:
+                load_message = (
+                    f"{units_applied:.2f} kWh queued for delivery to your meter. "
+                    f"Unit balance remaining: {wallet_remaining:.2f} kWh. "
+                    "Units will be sent automatically when the meter is reachable."
+                )
+            elif live_units_kwh is not None:
+                load_message = (
+                    f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+                    f"Live meter reading: {live_units_kwh:.2f} kWh. "
+                    f"Meter ledger: {meter_ledger:.2f} kWh. "
+                    f"Unit balance remaining: {wallet_remaining:.2f} kWh."
+                )
+            else:
+                load_message = (
+                    f"Successfully loaded {units_applied:.2f} kWh to your AMI meter. "
+                    f"Meter ledger: {meter_ledger:.2f} kWh. "
+                    f"Unit balance remaining: {wallet_remaining:.2f} kWh."
+                )
+                if live_read_message:
+                    load_message += f" Live reading unavailable: {live_read_message}"
+
+            return Response(
+                {
+                    "success": True,
+                    "units_applied": units_applied,
+                    "meter_balance": meter_ledger,
+                    "pending_delivery_kwh": pending_kwh,
+                    "remaining_wallet_balance": wallet_remaining,
+                    "live_units_kwh": live_units_kwh,
+                    "live_queried_at": live_queried_at,
+                    "delivery_status": "delivered" if delivered else "pending",
+                    "message": load_message,
+                },
+                status=status.HTTP_200_OK,
+            )
+        except ValueError as exc:
+            return Response({"error": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
+        except Exception as exc:
+            logger.error("ApplyWalletToMeterView error: %s", exc, exc_info=True)
+            return Response(
+                {"error": "Failed to apply units to meter."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
 class BuyUnitsView(GenericAPIView):
     permission_classes = (IsAuthenticated,)
-    
+
+    def _get_active_tariff(self):
+        from utils.billing import get_active_domestic_tariff
+        return get_active_domestic_tariff()
+
+
     def _create_purchase_and_update_balances(self, user, meter, units_purchased, reference_id):
         """
         When user buys units:
@@ -572,14 +1642,26 @@ class BuyUnitsView(GenericAPIView):
         return token, unit_balance.balance
     
 
-    def _get_active_tariff(self):
-        tariff = ElectricityTariff.objects.filter(
-            tariff_code="CODE10.1",
-            is_active=True
-        ).first()
-        if tariff:
-            return tariff
-        return ElectricityTariff.objects.filter(is_active=True).order_by('-effective_date').first()
+
+#   def _calculate_units_from_tariff(self, amount, user=None):
+#         """
+#         Calculate purchasable kWh from a UGX payment using ERA domestic billing
+#         (tiered blocks + service charge + 18% VAT).
+#         """
+#         from utils.billing import calculate_units_from_payment, get_active_domestic_tariff
+
+#         if user is None:
+#             fallback_rate = Decimal("756.2")
+#             return (Decimal(str(amount)) / fallback_rate).quantize(Decimal("0.01")), None
+
+#         tariff = get_active_domestic_tariff()
+#         units, breakdown = calculate_units_from_payment(
+#             Decimal(str(amount)),
+#             user,
+#             tariff=tariff,
+#             apply_deductions=False,
+#         )
+#         return units, tariff  
 
     def _calculate_units_from_tariff(self, amount):
         """
@@ -625,15 +1707,11 @@ class BuyUnitsView(GenericAPIView):
 
         return total_units.quantize(Decimal("0.01")), tariff
 
+
     def _get_active_loan_balances(self, user):
-        loans_with_balance = []
-        total_outstanding = Decimal("0")
-        for loan in LoanApplication.objects.filter(user=user, status='DISBURSED').order_by('created_at'):
-            balance = Decimal(str(loan.outstanding_balance))
-            if balance > 0:
-                loans_with_balance.append((loan, balance))
-                total_outstanding += balance
-        return loans_with_balance, total_outstanding
+        from loan.services import get_disbursed_loan_balances
+
+        return get_disbursed_loan_balances(user)
 
     def _apply_auto_loan_repayment(self, user, payment_amount):
         """
@@ -712,6 +1790,9 @@ class BuyUnitsView(GenericAPIView):
         payment_source = str(request.data.get("payment_source", "PHONE")).upper()
         
         if not amount:
+            phone_number = request.data.get("phone_number")
+
+        if not amount or not phone_number:
             return Response({
                 "error": "Amount is required"
             }, status=status.HTTP_400_BAD_REQUEST)
@@ -726,9 +1807,19 @@ class BuyUnitsView(GenericAPIView):
                 "error": "Phone number is required for phone payments"
             }, status=status.HTTP_400_BAD_REQUEST)
         
+               
         try:
             user = request.user
 
+            # Block purchases when there is any pending or incomplete loan (same as loans/stats)
+            from loan.services import user_can_purchase_units
+
+            can_buy, purchase_message = user_can_purchase_units(user)
+            if not can_buy:
+                return Response({
+                    "error": "Loan in progress",
+                    "message": purchase_message,
+                }, status=status.HTTP_400_BAD_REQUEST)
             try:
                 amount = Decimal(str(amount))
             except (InvalidOperation, TypeError, ValueError):
@@ -742,7 +1833,9 @@ class BuyUnitsView(GenericAPIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             try:
-                meter = Meter.objects.get(user=user)
+                meter = Meter.objects.filter(user=user).order_by("create_date").first()
+                if not meter:
+                    raise Meter.DoesNotExist
             except Meter.DoesNotExist:
                 return Response({
                     "error": "No meter found. Please register your meter before purchasing units."
@@ -826,16 +1919,77 @@ class BuyUnitsView(GenericAPIView):
                     "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500",
                 }
                 
+            _, total_outstanding = self._get_active_loan_balances(user)
+            estimated_buy_amount = max(Decimal("0"), amount - total_outstanding)
+            estimated_units, tariff = self._calculate_units_from_tariff(estimated_buy_amount)
+
+            momo_reference = str(uuid.uuid4())
+            from mtn_momo.config import should_simulate_payments
+
+            use_simulated = should_simulate_payments()
+
+            try:
+                transaction = Transaction.objects.create(
+                    wallet=account_wallet,
+                    amount=amount,
+                    phone_number=phone_number,
+                    status='PENDING',
+                    transaction_reference=momo_reference,
+                    message=f"Buy units - {amount} UGX"
+                )
+            except Exception:
+                return Response({
+                    "error": "Invalid phone number. Use full format e.g. +2567XXXXXXXX."
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            response_data = {
+                "status": "PENDING",
+                "transaction_id": transaction.id,
+                "estimated_units": float(estimated_units),
+                "tariff_applied": tariff.tariff_code if tariff else "DEFAULT_500",
+                "loan_outstanding_deduction": float(total_outstanding) if total_outstanding > 0 else 0,
+                "payment_mode": "simulated" if use_simulated else "momo",
+            }
+
+            if use_simulated:
+                response_data.update({
+                    "message": "Simulating sandbox payment - Please wait...",
+                    "external_id": momo_reference,
+                    "user_prompt": "Dev mode: payment will auto-complete in 2 seconds (no PIN required).",
+                })
                 threading.Thread(
                     target=self._simulate_sandbox_payment,
                     args=(user.id, str(amount), transaction.id, meter.id),
                     daemon=True
                 ).start()
-                
                 return Response(response_data, status=status.HTTP_200_OK)
-            else:
-                # Production code with real MoMo integration
-                pass
+
+            momo_service = MTNMoMoService()
+            payment_result = momo_service.request_payment(
+                amount=amount,
+                phone_number=phone_number,
+                reference_id=momo_reference,
+                external_id=str(transaction.id),
+                payer_message=f"gPAWA wallet top-up {amount} UGX",
+            )
+
+            if payment_result.get("status") != "PENDING":
+                transaction.status = "FAILED"
+                transaction.message = payment_result.get("message", "MoMo request failed")
+                transaction.save(update_fields=["status", "message"])
+                return Response({
+                    "error": payment_result.get("message", "Failed to initiate mobile money payment"),
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            response_data.update({
+                "message": payment_result.get("message", "Payment request sent to your phone."),
+                "external_id": payment_result.get("reference_id", momo_reference),
+                "user_prompt": payment_result.get(
+                    "user_prompt",
+                    "Check your phone and enter your Mobile Money PIN to approve the payment.",
+                ),
+            })
+            return Response(response_data, status=status.HTTP_200_OK)
                 
         except Exception as e:
             logger.exception(f"Buy units error: {str(e)}")
@@ -844,8 +1998,9 @@ class BuyUnitsView(GenericAPIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def _simulate_sandbox_payment(self, user_id, amount, transaction_id, meter_id):
-        """Simulate successful payment in sandbox mode after 2 seconds"""
+        """Simulate successful payment in dev mode after 2 seconds."""
         logger.info(f"Sandbox: Starting payment simulation for user {user_id}")
+        time.sleep(2)
         time.sleep(2)
 
         try:
@@ -888,11 +2043,25 @@ class BuyUnitsView(GenericAPIView):
 
         except Meter.DoesNotExist:
             logger.error(f"No meter found with ID {meter_id} for user {user_id}")
+            from meter.buy_units_payment import complete_buy_units_payment
+
+            user = User.objects.get(id=user_id)
+            ok, units_purchased, err = complete_buy_units_payment(
+                user, Decimal(str(amount)), transaction_id, meter_id
+            )
+            if ok:
+                logger.info(
+                    f"Sandbox: Payment complete for user {user_id}. units_to_wallet={units_purchased}"
+                )
+            else:
+                logger.error(f"Sandbox payment simulation error: {err}")
+        except User.DoesNotExist:
+            logger.error(f"User {user_id} not found during sandbox simulation")
             try:
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'FAILED'
                 transaction.save()
-            except:
+            except Exception:
                 pass
         except Exception as e:
             logger.error(f"Sandbox payment simulation error: {str(e)}")
@@ -900,7 +2069,7 @@ class BuyUnitsView(GenericAPIView):
                 transaction = Transaction.objects.get(id=transaction_id)
                 transaction.status = 'FAILED'
                 transaction.save()
-            except:
+            except Exception:
                 pass
     
     
@@ -939,6 +2108,13 @@ class CheckPaymentStatusView(GenericAPIView):
                     "message": "Payment completed successfully",
                     "units_purchased": units_purchased,
                     "token": token,
+                    "wallet_balance": float(
+                        UnitWallet.objects.filter(user=request.user)
+                        .values_list("balance", flat=True)
+                        .first()
+                        or 0
+                    ),
+                    "token": None,
                     "transaction": {
                         "id": transaction.id,
                         "amount": float(transaction.amount),
@@ -953,11 +2129,71 @@ class CheckPaymentStatusView(GenericAPIView):
                     "status": "FAILED",
                     "message": "Payment failed"
                 }, status=status.HTTP_400_BAD_REQUEST)
-                
+
             else:
+                from mtn_momo.config import should_simulate_payments
+                from meter.buy_units_payment import complete_buy_units_payment
+
+                if not should_simulate_payments() and transaction.transaction_reference:
+                    momo_service = MTNMoMoService()
+                    momo_status = momo_service.get_payment_status(transaction.transaction_reference)
+
+                    if momo_status.get("status") == "SUCCESS":
+                        meter = Meter.objects.filter(user=request.user).order_by("create_date").first()
+                        if meter:
+                            complete_buy_units_payment(
+                                request.user,
+                                transaction.amount,
+                                transaction.id,
+                                meter.id,
+                            )
+                        transaction.refresh_from_db()
+                    elif momo_status.get("status") == "FAILED":
+                        # Only mark as definitively failed when MoMo itself says so,
+                        # not when we couldn't reach the API (UNKNOWN).
+                        transaction.status = "FAILED"
+                        transaction.message = momo_status.get("message", "Payment failed")
+                        transaction.save(update_fields=["status", "message"])
+                        return Response({
+                            "status": "FAILED",
+                            "message": momo_status.get("message", "Payment failed"),
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                    # UNKNOWN means we couldn't reach MoMo — fall through so the
+                    # client keeps polling rather than seeing a false failure.
+
+                if transaction.status == 'COMPLETED':
+                    unit_tx = UnitTransaction.objects.filter(
+                        sender=request.user,
+                        receiver=request.user,
+                        direction="IN",
+                        status="COMPLETED",
+                        create_date__gte=transaction.create_date
+                    ).order_by('-create_date').first()
+
+                    units_purchased = float(unit_tx.units) if unit_tx else 0
+
+                    return Response({
+                        "status": "SUCCESS",
+                        "message": "Payment completed successfully",
+                        "units_purchased": units_purchased,
+                        "wallet_balance": float(
+                            UnitWallet.objects.filter(user=request.user)
+                            .values_list("balance", flat=True)
+                            .first()
+                            or 0
+                        ),
+                        "token": None,
+                        "transaction": {
+                            "id": transaction.id,
+                            "amount": float(transaction.amount),
+                            "units": units_purchased,
+                            "timestamp": transaction.create_date.isoformat()
+                        }
+                    }, status=status.HTTP_200_OK)
+
                 return Response({
                     "status": "PENDING",
-                    "message": "Payment still processing"
+                    "message": "Payment still processing. Approve the MoMo prompt on your phone if you have not yet.",
                 }, status=status.HTTP_200_OK)
                 
         except Transaction.DoesNotExist:
@@ -1068,3 +2304,145 @@ class LoadTokenToMeterView(APIView):
                 "token_used": token.token,
                 "source": token.source
             }, status=status.HTTP_200_OK)
+
+
+class MeterPushTestView(APIView):
+    """
+    Manual utility endpoint to test ThingsBoard unit push.
+    This does not change wallet balances; it only pushes telemetry.
+    """
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request, *args, **kwargs):
+        amount_raw = request.data.get("amount")
+        reference_id = str(request.data.get("reference_id", "")).strip() or f"TEST-{uuid.uuid4().hex[:8].upper()}"
+
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"error": "Invalid amount. Provide a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meter = Meter.objects.get(user=request.user)
+        except Meter.DoesNotExist:
+            return Response({"error": "No meter found for this user."}, status=status.HTTP_404_NOT_FOUND)
+
+        ok, msg = push_units_to_thingsboard(meter=meter, units=amount, reference_id=reference_id)
+        status_code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST
+
+        return Response(
+            {
+                "success": ok,
+                "meter_no": meter.meter_no,
+                "amount": float(amount),
+                "reference_id": reference_id,
+                "message": msg,
+            },
+            status=status_code,
+        )
+
+
+class AdminMeterPushTestView(APIView):
+    """
+    Admin-only ThingsBoard push utility that targets any meter by meter_no.
+    This does not change wallet balances; it only sends telemetry.
+    """
+    permission_classes = (permissions.IsAdminUser,)
+
+    def post(self, request, *args, **kwargs):
+        meter_no = str(request.data.get("meter_no", "")).strip()
+        amount_raw = request.data.get("amount")
+        reference_id = str(request.data.get("reference_id", "")).strip() or f"ADMIN-TEST-{uuid.uuid4().hex[:8].upper()}"
+
+        if not meter_no:
+            return Response({"error": "meter_no is required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            amount = Decimal(str(amount_raw))
+        except (InvalidOperation, TypeError, ValueError):
+            return Response({"error": "Invalid amount. Provide a numeric value."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if amount <= 0:
+            return Response({"error": "Amount must be greater than zero."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            meter = Meter.objects.get(meter_no=meter_no)
+        except Meter.DoesNotExist:
+            return Response({"error": "Meter not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        ok, msg = push_units_to_thingsboard(meter=meter, units=amount, reference_id=reference_id)
+        status_code = status.HTTP_200_OK if ok else status.HTTP_400_BAD_REQUEST
+
+        return Response(
+            {
+                "success": ok,
+                "meter_no": meter.meter_no,
+                "amount": float(amount),
+                "reference_id": reference_id,
+                "message": msg,
+            },
+            status=status_code,
+        )
+
+
+class EstimateUnitsView(APIView):
+    """
+    GET /api/v1/meter/estimate-units/?amount=5000
+
+    Returns estimated kWh for a UGX payment using ERA domestic billing
+    (tiered blocks + service charge + 18% VAT). No side effects.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        raw = request.query_params.get("amount", "")
+        try:
+            amount = Decimal(str(raw))
+            if amount <= 0:
+                raise ValueError
+        except (InvalidOperation, ValueError):
+            return Response({"error": "Provide a positive numeric amount."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from utils.billing import (
+            calculate_units_from_payment,
+            get_active_domestic_tariff,
+            get_minimum_payment_for_units,
+            get_monthly_tier_context,
+            get_outstanding_deductions,
+            get_monthly_units_consumed,
+        )
+
+        deductions = get_outstanding_deductions(request.user)
+        net_amount = max(Decimal("0"), amount - deductions)
+        tariff = get_active_domestic_tariff()
+        units, breakdown = calculate_units_from_payment(
+            amount,
+            request.user,
+            tariff=tariff,
+            outstanding_bills=deductions,
+            apply_deductions=False,
+        )
+        minimum_payment = get_minimum_payment_for_units(request.user, tariff)
+        service_included = get_monthly_units_consumed(request.user) <= 0
+        tier_ctx = get_monthly_tier_context(request.user)
+
+        return Response({
+            "estimated_units": float(units),
+            "tariff": tariff.tariff_code if tariff else None,
+            "gross_amount": float(amount),
+            "deductions": float(deductions),
+            "net_amount": float(net_amount),
+            "service_charge": float(breakdown.service_charge),
+            "vat": float(breakdown.vat),
+            "energy_cost": float(breakdown.energy_cost),
+            "total_bill": float(breakdown.total),
+            "insufficient_amount": float(units) <= 0 and float(net_amount) > 0,
+            "minimum_payment": float(minimum_payment),
+            "service_charge_included": service_included,
+            "monthly_units_consumed": float(tier_ctx["monthly_units_consumed"]),
+            "lifeline_remaining_kwh": float(tier_ctx["lifeline_remaining_kwh"]),
+            "current_tier_band": tier_ctx["current_tier_band"],
+        })

@@ -1,7 +1,5 @@
 'use client';
 
-export const dynamic = "force-dynamic";
-
 import { useEffect, useState, useCallback } from 'react';
 import {
   Card,
@@ -53,7 +51,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get, post } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch-client';
 
 interface User {
   id: number;
@@ -103,11 +101,6 @@ export default function UsersManagementPage() {
       });
 
       const res = await get<any>(`admin/users/?${params}`);
-
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
-        return;
-      }
 
       if (res.error) throw new Error('Failed to fetch users');
 

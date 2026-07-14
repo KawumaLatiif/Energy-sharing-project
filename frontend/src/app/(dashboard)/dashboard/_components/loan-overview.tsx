@@ -13,13 +13,13 @@ import {
   FileTextIcon,
   CheckCircleIcon,
   ClockIcon,
-  TrendingUpIcon,
   DollarSignIcon,
   AlertCircleIcon,
   ZapIcon,
+  TrendingUpIcon,
 } from "lucide-react";
 import { get } from "@/lib/fetch";
-import { useEffect, useState } from "react"; // Import the LoadTokenForm
+import { useEffect, useState } from "react";
 
 interface LoanStats {
   active_loans: number;
@@ -32,7 +32,6 @@ interface LoanStats {
 }
 
 export default function LoanOverview() {
-  const [walletBalance, setWalletBalance] = useState<number>(0);
   const [stats, setStats] = useState<LoanStats>({
     active_loans: 0,
     pending_applications: 0,
@@ -58,9 +57,11 @@ export default function LoanOverview() {
         setMoneyBalance(Number(response.data.wallet?.balance || 0));
         
         // Units available for sharing (energy units from purchases/loans)
+        // FIX: Use unit_balance.balance
         setUnitBalance(Number(response.data.unit_balance?.balance || 0));
         
         // Units already loaded on meters
+        // FIX: Use total_meter_units
         setMeterUnits(Number(response.data.total_meter_units || 0));
       }
     } catch (error) {
@@ -85,9 +86,21 @@ export default function LoanOverview() {
 
         setStats(response.data);
 
+        // FIX: Don't overwrite meterUnits here if we already have the correct value
+        // Only set it if we don't have it yet or if the walletResponse has the correct data
         if (!walletResponse.error && walletResponse.data?.success) {
-          setWalletBalance(Number(walletResponse.data.wallet_balance || walletResponse.data.wallet?.balance || 0));
-          setMeterUnits(Number(walletResponse.data.total_meter_units || 0));
+          // Only set wallet balance if not already set
+          if (moneyBalance === 0) {
+            setMoneyBalance(Number(walletResponse.data.wallet?.balance || 0));
+          }
+          // FIX: Use unit_balance.balance for unitBalance
+          if (unitBalance === 0) {
+            setUnitBalance(Number(walletResponse.data.unit_balance?.balance || 0));
+          }
+          // FIX: Use total_meter_units for meterUnits
+          if (meterUnits === 0) {
+            setMeterUnits(Number(walletResponse.data.total_meter_units || 0));
+          }
         }
       } catch (error) {
         console.error("Error fetching loan stats:", error);
@@ -117,14 +130,14 @@ export default function LoanOverview() {
   if (loading) {
     return (
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        {[...Array(8)].map((_, i) => (
+        {[...Array(4)].map((_, i) => (
           <Card key={i}>
             <CardHeader className="pb-2">
-              <div className="h-4 bg-gray-200 rounded animate-pulse w-1/2"></div>
-              <div className="h-8 bg-gray-200 rounded animate-pulse mt-2"></div>
+              <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-1/2"></div>
+              <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded animate-pulse mt-2"></div>
             </CardHeader>
             <CardContent>
-              <div className="h-3 bg-gray-200 rounded animate-pulse w-3/4"></div>
+              <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded animate-pulse w-3/4"></div>
             </CardContent>
           </Card>
         ))}
@@ -291,11 +304,8 @@ export default function LoanOverview() {
         </Card>
       </div>
 
-      {/* Load Token Form Section */}
-      {/* <LoadTokenForm onSuccess={handleTokenLoadSuccess} /> */}
-
       {/* Quick Actions Card */}
-      <Card className="md:col-span-2 lg:col-span-4">
+      <Card className="border-slate-200/80 bg-white/90 shadow-sm dark:border-white/10 dark:bg-card/95 dark:shadow-black/20">
         <CardHeader className="pb-2">
           <CardDescription>Quick Actions</CardDescription>
         </CardHeader>

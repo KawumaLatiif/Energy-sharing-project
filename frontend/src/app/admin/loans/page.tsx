@@ -52,7 +52,8 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { authFetch } from '@/lib/auth';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get } from '@/lib/fetch';
+import { get, post } from '@/lib/fetch-client';
+import { getApiErrorMessage } from '@/lib/api-response';
 import Link from 'next/link';
 import {
   Dialog,
@@ -111,6 +112,59 @@ interface LoanRepayment {
   payment_reference: string;
 }
 
+interface LoansDashboard {
+  total_active_loans: number;
+  loans_due_this_week: number;
+  overdue_loans: number;
+  repayment_rate_30d: number;
+}
+
+function normalizeAdminLoan(raw: Record<string, unknown>): Loan {
+  const user = (raw.user ?? {}) as Loan["user"] & { phone?: string };
+
+  let id = 0;
+  if (typeof raw.id === "number" && Number.isFinite(raw.id)) {
+    id = raw.id;
+  } else if (typeof raw.id === "string" && /^\d+$/.test(raw.id)) {
+    id = Number(raw.id);
+  } else if (typeof raw.loan_id === "number" && Number.isFinite(raw.loan_id)) {
+    // Legacy admin list API used loan_id for the database primary key.
+    id = raw.loan_id;
+  }
+
+  const loanRef =
+    (typeof raw.loan_ref === "string" && raw.loan_ref) ||
+    (typeof raw.loan_id === "string" ? raw.loan_id : "") ||
+    (id > 0 ? String(id) : "");
+
+  return {
+    ...(raw as unknown as Loan),
+    id,
+    loan_id: loanRef,
+    user: {
+      ...user,
+      phone_number: user.phone_number ?? user.phone ?? "",
+    },
+  };
+}
+
+function formatUgx(amount: number) {
+  return `UGX ${Math.round(amount).toLocaleString()}`;
+}
+
+function getLoanRowKey(loan: Loan): string {
+  if (loan.id > 0) return `loan-${loan.id}`;
+  if (loan.loan_id) return `loan-ref-${loan.loan_id}`;
+  return `loan-${loan.created_at}-${loan.user?.email ?? "unknown"}`;
+}
+
+function getLoanPrimaryKey(loan: Loan | null): number | null {
+  if (!loan) return null;
+  if (Number.isFinite(loan.id) && loan.id > 0) return loan.id;
+  const fallback = Number(loan.loan_id);
+  return Number.isFinite(fallback) && fallback > 0 ? fallback : null;
+}
+
 export default function LoansManagementPage() {
   const router = useRouter();
   const { toast } = useToast();
@@ -124,6 +178,13 @@ export default function LoansManagementPage() {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [showLoanDetails, setShowLoanDetails] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
+  const [dashboard, setDashboard] = useState<LoansDashboard | null>(null);
+  // Penalty waiver state
+  const [waiverDialog, setWaiverDialog] = useState<Loan | null>(null);
+  const [waiverReason, setWaiverReason] = useState('');
+  const [waiverError, setWaiverError] = useState('');
+  const [disburseDialog, setDisburseDialog] = useState<Loan | null>(null);
+  const [disburseError, setDisburseError] = useState('');
   const limit = 10;
 
   const fetchLoans = async () => {
@@ -138,16 +199,10 @@ export default function LoansManagementPage() {
 
       const res = await get<any>(`admin/loans/?${params}`);
 
-      if (res.status === 403 || res.status === 401) {
-        router.push('/dashboard');
-        return;
-      }
-
       if (res.error) throw new Error('Failed to fetch loans');
 
       if (res.data && res.data.loans) {
-        console.log('Loans data:', res.data.loans);
-        setLoans(res.data.loans);
+        setLoans(res.data.loans.map((loan: Record<string, unknown>) => normalizeAdminLoan(loan)));
         setTotalPages(res.data.pagination?.pages || 1);
         setTotalLoans(res.data.pagination?.total || 0);
       }
@@ -279,8 +334,96 @@ export default function LoansManagementPage() {
     }
   };
 
+  const fetchDashboard = async () => {
+    try {
+      const res = await get<any>('admin/loans/dashboard/');
+      if (res.data?.success) setDashboard(res.data);
+    } catch {}
+  };
+
+  const disburseLoan = async () => {
+    if (!disburseDialog) return;
+    const loanPk = getLoanPrimaryKey(disburseDialog);
+    if (!loanPk) {
+      setDisburseError("Could not resolve loan ID. Refresh the page and try again.");
+      return;
+    }
+
+    setActionLoading(true);
+    setDisburseError("");
+    try {
+      const res = await post<{ success?: boolean; message?: string; units_disbursed?: number }>(
+        `admin/loans/${loanPk}/disburse/`,
+        {}
+      );
+      if (res.error || !res.data?.success) {
+        const message = getApiErrorMessage(res.error, "Failed to disburse loan");
+        setDisburseError(message);
+        toast({ title: "Error", description: message, variant: "destructive" });
+        return;
+      }
+      const units = res.data.units_disbursed;
+      toast({
+        title: "Success",
+        description:
+          res.data.message +
+          (units != null ? ` (${units} kWh credited to wallet)` : ""),
+      });
+      setDisburseDialog(null);
+      setDisburseError("");
+      fetchLoans();
+      fetchDashboard();
+    } catch {
+      const message = "Failed to disburse loan";
+      setDisburseError(message);
+      toast({ title: "Error", description: message, variant: "destructive" });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const waivePenalty = async () => {
+    if (!waiverDialog || !waiverReason.trim()) return;
+    const loanPk = getLoanPrimaryKey(waiverDialog);
+    if (!loanPk) {
+      setWaiverError("Could not resolve loan ID. Refresh the page and try again.");
+      return;
+    }
+
+    setActionLoading(true);
+    setWaiverError("");
+    try {
+      const res = await post<{ success?: boolean; message?: string }>(
+        `admin/loans/${loanPk}/waive-penalty/`,
+        { reason: waiverReason.trim() }
+      );
+      if (res.error || !res.data?.success) {
+        const message = getApiErrorMessage(res.error, "Failed to waive penalty");
+        setWaiverError(message);
+        toast({
+          title: "Error",
+          description: message,
+          variant: "destructive",
+        });
+        return;
+      }
+      toast({ title: "Success", description: res.data.message || "Late penalty waived" });
+      setWaiverDialog(null);
+      setWaiverReason("");
+      setWaiverError("");
+      fetchLoans();
+    } catch {
+      const message = "Failed to waive penalty";
+      setWaiverError(message);
+      toast({ title: "Error", description: message, variant: "destructive" });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   useEffect(() => {
     fetchLoans();
+    fetchDashboard();
   }, [currentPage, search, statusFilter]);
 
   // Calculate stats
@@ -307,6 +450,34 @@ export default function LoansManagementPage() {
 
   return (
     <div className="container mx-auto py-6 space-y-6">
+      {/* Spec Section 5 KPI widgets */}
+      {dashboard && (
+        <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Active Loans</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{dashboard.total_active_loans}</div></CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Due This Week</CardTitle></CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{dashboard.loans_due_this_week}</div>
+            </CardContent>
+          </Card>
+          <Card className={dashboard.overdue_loans > 0 ? "border-red-200" : ""}>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Overdue</CardTitle></CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${dashboard.overdue_loans > 0 ? "text-red-600" : ""}`}>
+                {dashboard.overdue_loans}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="pb-2"><CardTitle className="text-xs font-medium text-muted-foreground">Repayment Rate (30d)</CardTitle></CardHeader>
+            <CardContent><div className="text-2xl font-bold">{dashboard.repayment_rate_30d}%</div></CardContent>
+          </Card>
+        </div>
+      )}
+
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Loan Management</h1>
@@ -456,7 +627,7 @@ export default function LoansManagementPage() {
               </TableHeader>
               <TableBody>
                 {loans.map((loan) => (
-                  <TableRow key={loan.id}>
+                  <TableRow key={getLoanRowKey(loan)}>
                     <TableCell>
                       <div className="flex flex-col">
                         <span className="font-medium font-mono text-xs">{loan.loan_id}</span>
@@ -581,7 +752,10 @@ export default function LoansManagementPage() {
                           <Button
                             size="sm"
                             variant="outline"
-                            onClick={() => router.push(`/admin/loans/${loan.id}/disburse`)}
+                            onClick={() => {
+                              setDisburseError("");
+                              setDisburseDialog(loan);
+                            }}
                           >
                             <CreditCard className="h-4 w-4 mr-1" />
                             Disburse
@@ -595,6 +769,22 @@ export default function LoansManagementPage() {
                             onClick={() => router.push(`/admin/loans/${loan.id}`)}
                           >
                             View Details
+                          </Button>
+                        )}
+
+                        {/* Penalty waiver — Admin only, for overdue active loans */}
+                        {(loan.status === 'DISBURSED' || loan.status === 'APPROVED') && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-amber-600 text-xs"
+                            onClick={() => {
+                              setWaiverReason("");
+                              setWaiverError("");
+                              setWaiverDialog(loan);
+                            }}
+                          >
+                            Waive Penalty
                           </Button>
                         )}
                       </div>
@@ -864,6 +1054,106 @@ export default function LoansManagementPage() {
               </TabsContent>
             </Tabs>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Penalty waiver dialog (Admin only) */}
+      <Dialog
+        open={!!waiverDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setWaiverDialog(null);
+            setWaiverReason("");
+            setWaiverError("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Waive Late Penalty</DialogTitle>
+            <DialogDescription>
+              Waive late payment penalty for loan <strong>{waiverDialog?.loan_id}</strong> — {waiverDialog?.user.name}.
+              This action will be audit-logged.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void waivePenalty();
+            }}
+          >
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Reason for waiver *</label>
+              <Input
+                placeholder="e.g. Medical emergency, first-time offence"
+                value={waiverReason}
+                onChange={(e) => {
+                  setWaiverReason(e.target.value);
+                  if (waiverError) setWaiverError("");
+                }}
+              />
+            </div>
+            {waiverError && (
+              <p className="text-sm text-destructive">{waiverError}</p>
+            )}
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setWaiverDialog(null);
+                  setWaiverReason("");
+                  setWaiverError("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!waiverReason.trim() || actionLoading}>
+                {actionLoading ? "Processing…" : "Confirm Waiver"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Disburse loan dialog */}
+      <Dialog
+        open={!!disburseDialog}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDisburseDialog(null);
+            setDisburseError("");
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Disburse Loan</DialogTitle>
+            <DialogDescription>
+              Credit approved units to <strong>{disburseDialog?.user.name}</strong>&apos;s wallet for loan{" "}
+              <strong>{disburseDialog?.loan_id}</strong> ({formatUgx(disburseDialog?.amount_approved ?? disburseDialog?.amount_requested ?? 0)}).
+            </DialogDescription>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This credits electricity units to the customer&apos;s unit wallet and marks the loan as disbursed.
+          </p>
+          {disburseError && <p className="text-sm text-destructive">{disburseError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setDisburseDialog(null);
+                setDisburseError("");
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={() => void disburseLoan()} disabled={actionLoading}>
+              {actionLoading ? "Disbursing…" : "Confirm Disbursement"}
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -1,36 +1,114 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend (Next.js)
 
-## Getting Started
+Next.js web app for the Energy Sharing platform. Run all commands below from this folder:
 
-First, run the development server:
-
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+```powershell
+cd D:\Energy-sharing-project\frontend
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Full stack setup (backend, database, etc.) is in the repo root [`Readme.md`](../Readme.md).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Getting started
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Install dependencies (first time only, or after `package.json` changes):
 
-## Learn More
+```powershell
+npm install
+```
 
-To learn more about Next.js, take a look at the following resources:
+Start the development server:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```powershell
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open [http://localhost:3000](http://localhost:3000). The API must be running at `http://localhost:8000` (see `backend/`).
 
-## Deploy on Vercel
+### Dashboard features (ThingsBoard / AMI)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Notification bell** — header on dashboard pages; polls `GET /meter/notifications/` for low-units alerts
+- **AMI meter card** — on `/dashboard/tokens`; refresh reads live kWh via `GET /meter/check-units/`
+- **USSD simulator** — http://localhost:3000/ussd-simulator (Manage `6`, Alerts `7`)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See [`docs/THINGSBOARD_INTEGRATION_GUIDE.md`](../docs/THINGSBOARD_INTEGRATION_GUIDE.md).
+
+Production build:
+
+```powershell
+npm run build
+npm start
+```
+
+---
+
+## Troubleshooting: port in use / dev lock error
+
+If you see errors like:
+
+```text
+⚠ Port 3000 is in use by process XXXXX, using available port 3001 instead.
+⨯ Unable to acquire lock at ...\frontend\.next\dev\lock, is another instance of next dev running?
+```
+
+**Cause:** A previous `npm run dev` is still running (same terminal left open, background process, or a second terminal started). Only one dev server can run per project folder.
+
+### Fix (Windows PowerShell)
+
+Run these from `frontend/`:
+
+**1. Find what is using port 3000**
+
+```powershell
+netstat -ano | findstr ":3000"
+```
+
+The last column is the **PID** (process ID). Example: `31700`.
+
+**2. Stop that process**
+
+```powershell
+Stop-Process -Id 31700 -Force
+```
+
+Replace `31700` with the PID from step 1. If several `node` processes are left over from an old dev run, you can list them:
+
+```powershell
+Get-Process node -ErrorAction SilentlyContinue | Select-Object Id, ProcessName
+```
+
+Stop any that belong to this project’s dev server (often the one bound to port 3000, plus parent `npm` / `next dev` processes).
+
+**3. Remove the stale lock file (only if step 2 did not clear it)**
+
+```powershell
+Remove-Item .next\dev\lock -Force -ErrorAction SilentlyContinue
+```
+
+Do this only when no `next dev` is running. If you get “file is in use”, go back to step 2.
+
+**4. Start dev again (one terminal only)**
+
+```powershell
+npm run dev
+```
+
+### Prevention
+
+- Stop the server with **Ctrl+C** in the terminal where `npm run dev` is running before starting it elsewhere.
+- Do not run `npm run dev` in two terminals for the same `frontend/` folder.
+- If the site already loads at [http://localhost:3000](http://localhost:3000), you do not need to start it again.
+
+### Other warnings
+
+`baseline-browser-mapping` “data is over two months old” is harmless. Update when convenient:
+
+```powershell
+npm i baseline-browser-mapping@latest -D
+```
+
+---
+
+## Learn more
+
+- [Next.js documentation](https://nextjs.org/docs)
+- [Next.js deployment](https://nextjs.org/docs/app/building-your-application/deploying)

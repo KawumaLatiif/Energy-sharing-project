@@ -14,7 +14,6 @@ import {
   DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import {
-  ArrowUpRight,
   CheckCheck,
   Clock10Icon,
   EllipsisVertical,
@@ -32,10 +31,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import BuyUnitsSuggestion from "../../request-loan/_components/buy-units-suggestion";
-import TokenPopup from "../../request-loan/_components/token-popup";
 import RepaymentForm from "../../request-loan/_components/repayment-form";
-import { disburseLoan, repayLoan } from "../action";
-import { get } from "@/lib/fetch";
+import { repayLoan } from "../action";
+import { get } from "@/lib/fetch-client";
 
 const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000/api/v1';
 
@@ -84,9 +82,7 @@ export default function LoanList({ loans }: LoanListProps) {
   const [selectedLoan, setSelectedLoan] = useState<Loan | null>(null);
   const [detailLoan, setDetailLoan] = useState<Loan | null>(null);
   const [showRepaymentForm, setShowRepaymentForm] = useState(false);
-  const [showTokenPopup, setShowTokenPopup] = useState(false);
   const [showBuySuggestion, setShowBuySuggestion] = useState(false);
-  const [disbursementData, setDisbursementData] = useState<{ token: string, units: number } | null>(null);
   const [notificationMessage, setNotificationMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -140,37 +136,6 @@ export default function LoanList({ loans }: LoanListProps) {
     return status === 'DISBURSED' && balance > 0;
   };
 
-  // const canRepay = (loan: Loan): boolean => {
-  //   const status = getLoanStatus(loan);
-  //   const balance = calculateOutstandingBalance(loan);
-  //   return status === 'DISBURSED' && balance > 0;
-  // };
-
-  const canDisburse = (loan: Loan): boolean => {
-    const status = getLoanStatus(loan);
-    return status === 'APPROVED';
-  };
-
-  // const handleDisbursementSuccess = (data: { token: string; units_added: number } | any) => {
-  //   setDisbursementData({
-  //     token: data.token || '',
-  //     units: data.units_added || 0
-  //   });
-  //   setShowTokenPopup(true);
-  // };
-
-  // const handleRepaymentSuccess = () => {
-  //   setShowRepaymentForm(false);
-  //   setSelectedLoan(null);
-  //   setSuccessMessage("Payment processed successfully!");
-  //   // Clear success message after 3 seconds
-  //   setTimeout(() => {
-  //     setSuccessMessage(null);
-  //     window.location.reload();
-  //   }, 3000);
-  // };
-
-
   const handleRepaymentSuccess = () => {
     setShowRepaymentForm(false);
     setSelectedLoan(null);
@@ -205,7 +170,7 @@ export default function LoanList({ loans }: LoanListProps) {
       'PENDING': { text: 'Pending', className: 'bg-yellow-100 text-yellow-800' },
       'APPROVED': { text: 'Approved', className: 'bg-green-100 text-green-800' },
       'REJECTED': { text: 'Rejected', className: 'bg-red-100 text-red-800' },
-      'DISBURSED': { text: 'Accepted', className: 'bg-blue-100 text-blue-800' },
+      'DISBURSED': { text: 'Disbursed', className: 'bg-blue-100 text-blue-800' },
       'COMPLETED': { text: 'Completed', className: 'bg-gray-100 text-gray-800' },
       'DEFAULTED': { text: 'Defaulted', className: 'bg-red-200 text-red-900' },
     };
@@ -306,6 +271,8 @@ export default function LoanList({ loans }: LoanListProps) {
     return new Date() > new Date(loan.due_date);
   };
 
+  const repayableLoan = loans.find((loan) => canRepay(loan)) ?? null;
+
   return (
     <div className="w-full space-y-4">
       {/* Success/Error Messages */}
@@ -318,6 +285,25 @@ export default function LoanList({ loans }: LoanListProps) {
       {errorMessage && (
         <div className="bg-red-50 border border-red-200 text-red-800 rounded-md p-4">
           <p className="text-sm font-medium">{errorMessage}</p>
+        </div>
+      )}
+
+      {repayableLoan && (
+        <div className="flex flex-col gap-3 rounded-md border bg-muted/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-medium">Repay your active loan</p>
+            <p className="text-sm text-muted-foreground">
+              Outstanding: {calculateOutstandingBalance(repayableLoan).toLocaleString()} UGX
+            </p>
+          </div>
+          <Button
+            onClick={() => {
+              setSelectedLoan(repayableLoan);
+              setShowRepaymentForm(true);
+            }}
+          >
+            Repay loan
+          </Button>
         </div>
       )}
 
@@ -431,18 +417,6 @@ export default function LoanList({ loans }: LoanListProps) {
                             </span>
                           </DropdownMenuItem>
                         )}
-
-                        {canDisburse(loan) && (
-                          <DropdownMenuItem
-                            onClick={() => handleDisburseLoan(loan)}
-                            className="cursor-pointer"
-                          >
-                            <span className="flex items-center">
-                              <ArrowUpRight className="h-4 w-4 mr-2" />
-                              Accept Loan
-                            </span>
-                          </DropdownMenuItem>
-                        )}
                       </DropdownMenuContent>
                     </DropdownMenu>
                   </TableCell>
@@ -461,18 +435,6 @@ export default function LoanList({ loans }: LoanListProps) {
           onCancel={() => {
             setShowRepaymentForm(false);
             setSelectedLoan(null);
-          }}
-        />
-      )}
-
-      {/* Token Popup Modal */}
-      {showTokenPopup && disbursementData && (
-        <TokenPopup
-          token={disbursementData.token}
-          units={disbursementData.units}
-          onClose={() => {
-            setShowTokenPopup(false);
-            setDisbursementData(null);
           }}
         />
       )}

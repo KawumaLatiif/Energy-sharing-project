@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from django.db.utils import OperationalError, ProgrammingError
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment, TariffBlock, LoanTier
+from loan.tenure import validate_tenure_months
 
 # class TariffBlockSerializer(serializers.ModelSerializer):
 #     class Meta:
@@ -18,9 +19,20 @@ from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, Lo
 
 
 class TariffBlockSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+
     class Meta:
         model = TariffBlock
-        fields = '__all__'
+        fields = [
+            "id",
+            "block_name",
+            "min_units",
+            "max_units",
+            "rate_per_unit",
+            "block_order",
+            "is_lifeline_block",
+            "non_lifeline_rate",
+        ]
 
     def validate(self, data):
         if data['min_units'] < 0:
@@ -35,23 +47,52 @@ class ElectricityTariffSerializer(serializers.ModelSerializer):
     class Meta:
         model = ElectricityTariff
         fields = [
-            'id', 'tariff_code', 'tariff_name', 'tariff_type', 'voltage_level', 'voltage_value', 'service_charge', 'blocks', 'is_active', 'effective_date'
+            "id",
+            "tariff_code",
+            "tariff_name",
+            "tariff_type",
+            "voltage_level",
+            "voltage_value",
+            "service_charge",
+            "blocks",
+            "is_active",
+            "effective_date",
+            "effective_from",
+            "effective_to",
         ]
-        read_only_fields = ['id']
+        read_only_fields = ["id"]
+
+    def validate(self, data):
+        from loan.tariff_utils import TariffActivationError, validate_can_deactivate
+
+        instance = getattr(self, "instance", None)
+        will_be_active = data.get("is_active", instance.is_active if instance else False)
+        if instance and instance.is_active and will_be_active is False:
+            try:
+                validate_can_deactivate(instance)
+            except TariffActivationError as exc:
+                raise serializers.ValidationError({"is_active": str(exc)}) from exc
+        return data
 
     def create(self, validated_data):
-        blocks_data = validated_data.pop('blocks', [])
+        from loan.tariff_utils import ensure_single_active_on_save
+
+        blocks_data = validated_data.pop("blocks", [])
         tariff = ElectricityTariff.objects.create(**validated_data)
+        ensure_single_active_on_save(tariff, activating=True)
         for block_data in blocks_data:
             TariffBlock.objects.create(tariff=tariff, **block_data)
         return tariff
 
     def update(self, instance, validated_data):
-        blocks_data = validated_data.pop('blocks', None)  
+        from loan.tariff_utils import ensure_single_active_on_save
+
+        blocks_data = validated_data.pop("blocks", None)
 
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
         instance.save()
+        ensure_single_active_on_save(instance, activating=True)
 
         if blocks_data is not None:
             existing_blocks_map = {b.id: b for b in instance.blocks.all()}
@@ -215,6 +256,7 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True
     )
+    tenure_months = serializers.IntegerField(min_value=1, max_value=12)
 
     class Meta:
         model = LoanApplication
@@ -228,6 +270,12 @@ class LoanApplicationCreateSerializer(serializers.ModelSerializer):
         if value > 200000:
             raise serializers.ValidationError("Maximum loan amount is 200,000 UGX")
         return value
+
+    def validate_tenure_months(self, value):
+        try:
+            return validate_tenure_months(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
     
 class LoanTierSerializer(serializers.ModelSerializer):
     class Meta:

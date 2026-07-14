@@ -10,27 +10,33 @@ export default function Features() {
     {
       icon: CheckCircleIcon,
       title: "Secure Energy Sharing",
-      desc: "Blockchain-secured transactions ensure tamper-proof energy transfers between neighbors and communities, with zero risk of fraud or disputes.",
+      desc: "Every transaction is recorded in your history. Share kWh between meters with a clear summary and your account password to confirm.",
     },
     {
       icon: BoltIcon,
-      title: "Another one",
-      desc: "the description comes along.",
+      title: "Instant STS Token Delivery",
+      desc: "Purchase prepaid tokens via your mobile telecom service provider in seconds. Tokens conform to IEC 62055-41 and work on compatible Electricity Utility meters.",
     },
     {
       icon: ChartBarIcon,
-      title: "another one",
-      desc: "its description.",
+      title: "Peer-to-Peer Unit Transfer",
+      desc: "Send electricity units directly from your meter to a neighbor's. STS meters receive keypad tokens while AMI meters auto-update.",
+    },
+    {
+      icon: CheckCircleIcon,
+      title: "Micro-Electricity Loans",
+      desc: "gPawa credit engine offers instant micro-electricity loans capped at Uganda's statutory 2.8% per month, with no paperwork or branch visit.",
     },
   ];
 
   return (
     <motion.section
+      id="features"
       initial={{ opacity: 0 }}
       whileInView={{ opacity: 1 }}
       transition={{ duration: 0.6 }}
       viewport={{ once: true }}
-      className="relative py-20 md:py-28 bg-gradient-to-bl from-white via-slate-50 to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950"
+      className="scroll-mt-24 relative py-20 md:py-28 bg-gradient-to-bl from-white via-slate-50 to-emerald-50 dark:from-slate-950 dark:via-slate-900 dark:to-emerald-950"
     >
       <div className="container mx-auto px-4 md:px-8 max-w-7xl relative z-10">
         <motion.div
@@ -40,14 +46,13 @@ export default function Features() {
           className="text-center mb-16"
         >
           <h3 className="text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-white mb-4">
-            Why Choose EnergyShare?
+            Built for communities that share power
           </h3>
           <p className="text-xl text-gray-600 dark:text-gray-300 max-w-2xl mx-auto">
-            Join a network that's revolutionizing energy distribution - simple,
-            green, and rewarding for everyone involved.
+            From Soroti to every campus grid - gPawa makes peer-to-peer electricity sharing simple, transparent, and fair.
           </p>
         </motion.div>
-        <div className="grid gap-8 md:grid-cols-2 lg:grid-cols-3">
+        <div className="grid gap-8 md:grid-cols-2">
           {features.map((item, idx) => (
             <motion.div
               key={idx}

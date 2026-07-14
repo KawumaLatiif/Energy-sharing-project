@@ -1,53 +1,26 @@
 "use client";
-import {
-  ArrowRight,
-  ArrowRightCircle,
-  ArrowUpRight,
-  Bell,
-  FileTextIcon,
-  Forward,
-  Home,
-  LineChart,
-  Package,
-  Package2,
-  PlusCircleIcon,
-  ShoppingCart,
-  Smartphone,
-  Users,
-} from "lucide-react";
-import Link from "next/link";
-import Image from "next/image";
 
-import logo from "@/assets/images/logo.jpg";
+import Link from "next/link";
+import { ArrowUpRight, FileTextIcon, Forward, Home, PlusCircleIcon, Smartphone } from "lucide-react";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { User } from "@/interface/user.interface";
-import { Skeleton } from "@/components/ui/skeleton";
+import { GpawaLogo, LOGO_SIZES } from "@/components/common/gpawa-logo";
+import DashboardNavLinks from "@/components/dashboard/dashboard-nav-links";
 import { IconMoneybag } from "@tabler/icons-react";
 import { PersonIcon } from "@radix-ui/react-icons";
 
 export default function DesktopSidebar() {
   const pathname = usePathname();
-  // const {user, loading} = useAccount()
-
-  // if (loading){
-  //   return <Skeleton />
-  // }
 
   return (
     <div className="hidden border-r bg-muted/40 md:block">
       <div className="flex h-full max-h-screen flex-col gap-2">
         <div className="flex h-14 items-center border-b px-4 lg:h-[60px] lg:px-6">
-          <Link href="/" className="flex items-center gap-2 font-semibold">
-            <Image
-              src={logo}
-              width={40}
-              height={400}
-              className="w-18 auto"
-              alt="Reload Mobile"
-            />
-            <span className="">Energy Share</span>
-          </Link>
+          <GpawaLogo
+            href="/"
+            textSize={LOGO_SIZES.sidebar.textSize}
+            logoSize={LOGO_SIZES.sidebar.logoSize}
+          />
         </div>
         <div className="flex-1">
           <nav className="grid items-start px-2 text-sm font-medium lg:px-4">
@@ -174,7 +147,7 @@ export default function DesktopSidebar() {
             <Link
               href="/ussd-simulator"
               className={cn(
-                "flex items-center gap-3 rounded-lg px-3 py-2 text-muted-foreground transition-all hover:text-primary",
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:text-primary",
                 { "bg-muted text-primary": pathname === "/ussd-simulator" }
               )}
             >

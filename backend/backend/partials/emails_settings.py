@@ -6,9 +6,9 @@ EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.sendgrid.net")
 EMAIL_PORT = get_env_variable("EMAIL_PORT", 587)
 EMAIL_USE_TLS = False
 EMAIL_USE_SSL = True
-EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", allow_none=True)
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "gpawateam@gmail.com")
 EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASS", allow_none=True)
-DEFAULT_EMAIL_SENDER = get_env_variable("DEFAULT_EMAIL_SENDER")
+DEFAULT_EMAIL_SENDER = get_env_variable("DEFAULT_EMAIL_SENDER", "gpawateam@gmail.com")
 
 # print(EMAIL_HOST)
 # print(EMAIL_HOST_PASSWORD)

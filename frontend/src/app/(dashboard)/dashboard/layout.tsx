@@ -9,7 +9,7 @@ const fontSans = FontSans({
 })
 
 export const metadata: Metadata = {
-  title: "Energy Share | Dashboard",
+  title: "gPawa | Dashboard",
   description: "",
 };
 

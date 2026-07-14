@@ -5,6 +5,7 @@ import PublicHeader from "@/components/common/public-header";
 import authenticated from "@/lib/authenticated";
 import { get } from "@/lib/fetch";
 import { headers } from "next/headers";
+import { staffRedirectPath } from "@/lib/staff";
 import { redirect } from "next/navigation";
 
 export const metadata: Metadata = {
@@ -31,8 +32,13 @@ export default async function RootLayout({
 
   if (isAuth && !isVerificationRoute && !isVerifiedLoginRoute) {
     const config = await get<any>("auth/get-user-config/");
-    const isAdmin = !config.error && (config.data?.is_admin || config.data?.user_role === "ADMIN");
-    redirect(isAdmin ? "/admin/dashboard" : "/dashboard");
+    if (!config.error && config.data) {
+      if (config.data.must_change_password && !config.data.is_staff_member && !config.data.is_superuser) {
+        redirect("/change-password");
+      }
+      redirect(staffRedirectPath(config.data));
+    }
+    redirect("/dashboard");
   }
 
   return (

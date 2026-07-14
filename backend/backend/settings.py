@@ -47,32 +47,58 @@ load_dotenv(BASE_DIR / ".env")
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = 'django-insecure-6j))8vb%nflvwwb3-n4pp5k^==r6@8oy4*ruxtqmmqj3aj4ea7'
 DEBUG = get_env_variable("DEBUG", "True") == "True"
-ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1']
-ROOT_URLCONF = 'backend.urls'
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-AUTH_USER_MODEL = 'accounts.User'   
-CSRF_TRUSTED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:3030'
-]
-CORS_ALLOWED_ORIGINS = [
-    'http://localhost:3000',
-    'http://localhost:3030'
-]
-CORS_ALLOW_CREDENTIALS = True
-CORS_ALLOW_ALL_ORIGINS = DEBUG 
 
 # =============================
-MTN_MOMO_CONFIG = {
-    'BASE_URL': 'https://sandbox.momodeveloper.mtn.com',
-    'PRIMARY_KEY': 'efc825a16cd54e91b257495f3798fc73',
-    'SECONDARY_KEY': '82ab603816854e039508b274aec3dca4',
-    'CALLBACK_HOST': 'http://localhost:3030',
-    'ENVIRONMENT': 'sandbox',  
-}
+# Frontend URL (used in verification/reset email links)
+# Set FRONTEND_URL=https://energy-share.sun.ac.ug in production .env
+# =============================
+FRONTEND_URL = get_env_variable("FRONTEND_URL", "http://localhost:3000")
+
+# =============================
+# ALLOWED_HOSTS — read from env (comma-separated) or use dev defaults
+# =============================
+_extra_hosts = [h.strip() for h in get_env_variable("EXTRA_ALLOWED_HOSTS", "").split(',') if h.strip()]
+ALLOWED_HOSTS = ['0.0.0.0', 'nginx', 'localhost', '127.0.0.1'] + _extra_hosts
+
+AUTH_USER_MODEL = 'accounts.User'
+
+# =============================
+# CORS / CSRF — always allow localhost in dev; add production domain from env
+# =============================
+_prod_origin = get_env_variable("PRODUCTION_ORIGIN", "")  # e.g. https://energy-share.sun.ac.ug
+
+_base_origins = ['http://localhost:3000', 'http://localhost:3030']
+if _prod_origin:
+    _base_origins.append(_prod_origin)
+
+CSRF_TRUSTED_ORIGINS = _base_origins
+CORS_ALLOWED_ORIGINS = _base_origins
+CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
+# =============================
+from mtn_momo.config import MTN_MOMO_CONFIG, should_simulate_payments  # noqa: E402
+
+MTN_USE_SIMULATED_PAYMENTS = should_simulate_payments()
+
+THINGSBOARD_BASE_URL = get_env_variable("THINGSBOARD_BASE_URL", "https://iot.energy-share.sun.ac.ug")
+# Server-to-server URL when TB runs on the same production host (bypasses public DNS/firewall hairpin).
+_THINGSBOARD_INTERNAL_BASE_URL = get_env_variable("THINGSBOARD_INTERNAL_BASE_URL", "")
+THINGSBOARD_INTERNAL_BASE_URL = "" if DEBUG else _THINGSBOARD_INTERNAL_BASE_URL
+THINGSBOARD_TIMEOUT_SECONDS = get_env_variable("THINGSBOARD_TIMEOUT_SECONDS", 15, cast=int)
+THINGSBOARD_VERIFY_SSL = str(
+    get_env_variable("THINGSBOARD_VERIFY_SSL", "true")
+).strip().lower() in ("1", "true", "yes", "on")
+THINGSBOARD_WEBHOOK_SECRET = get_env_variable("THINGSBOARD_WEBHOOK_SECRET", "")
+THINGSBOARD_TENANT_USERNAME = get_env_variable("THINGSBOARD_TENANT_USERNAME", "")
+THINGSBOARD_TENANT_PASSWORD = get_env_variable("THINGSBOARD_TENANT_PASSWORD", "")
+THINGSBOARD_USAGE_TELEMETRY_KEY = get_env_variable("THINGSBOARD_USAGE_TELEMETRY_KEY", "daily_kwh")
+AMI_LOW_UNITS_THRESHOLD_KWH = get_env_variable("AMI_LOW_UNITS_THRESHOLD_KWH", 5, cast=float)
+AMI_LOW_UNITS_POLL_SECONDS = get_env_variable("AMI_LOW_UNITS_POLL_SECONDS", 1, cast=int)
+AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS = get_env_variable("AMI_LOW_UNITS_ALERT_COOLDOWN_HOURS", 6, cast=int)
+
+# USSD: inactivity timeout between user inputs (seconds). Industry default is 90s.
+USSD_SESSION_TIMEOUT_SECONDS = get_env_variable("USSD_SESSION_TIMEOUT_SECONDS", 90, cast=int)
 
 # Application definition
 
@@ -83,7 +109,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    # 'admin.apps.AdminConfig',
+    'admin.apps.AdminConfig',
     'accounts',
     'loan',
     'transactions',
@@ -107,7 +133,35 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'accounts.middleware.StaffInactivityMiddleware',
+    'admin.middleware.SystemErrorLoggingMiddleware',
 ]
+
+# Staff admin session: 30 minutes of inactivity expires access (spec Section 1.3)
+STAFF_SESSION_INACTIVITY_MINUTES = 30
+# 2FA settings
+TOTP_ISSUER_NAME = 'gPawa Admin'
+
+# =============================
+# AMI Gateway
+# MockAMIGateway = pilot simulation; ThingsBoardAMIGateway = real networked meters
+# =============================
+AMI_GATEWAY = get_env_variable("AMI_GATEWAY", "utils.ami_gateway.MockAMIGateway")
+# CRB integration (no-op for pilot; swap to a real provider class when integrating)
+CRB_PROVIDER = get_env_variable("CRB_PROVIDER", "loan.crb.NoOpCreditBureauProvider")
+
+# =============================
+# Lending compliance (Uganda Tier 4 MFI / Money Lenders Act)
+# Statutory cap: 2.8% per month (33.6% per annum).
+# These are the legal maximums — configuring ABOVE these values requires
+# an explicit regulatory change; the application enforces them as hard ceilings.
+# =============================
+from decimal import Decimal as _D
+MAX_MONTHLY_INTEREST_RATE_PCT = _D(get_env_variable("MAX_MONTHLY_INTEREST_RATE_PCT", "2.8"))
+MAX_ANNUAL_INTEREST_RATE_PCT = MAX_MONTHLY_INTEREST_RATE_PCT * 12   # 33.6
+# No cumulative interest+penalty+fees may exceed 100% of the principal.
+MAX_CUMULATIVE_CHARGES_MULTIPLIER = _D(get_env_variable("MAX_CUMULATIVE_CHARGES_MULTIPLIER", "1.0"))
+TOTP_CHALLENGE_MAX_AGE_SECONDS = 300
 
 ROOT_URLCONF = 'backend.urls'
 
@@ -167,6 +221,7 @@ AUTH_PASSWORD_VALIDATORS = [
     },
     {
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {'min_length': 12},
     },
     {
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
@@ -216,9 +271,9 @@ EMAIL_HOST = get_env_variable("EMAIL_HOST", "smtp.gmail.com")
 EMAIL_PORT = get_env_variable("EMAIL_PORT", 587, cast=int)
 EMAIL_USE_TLS = get_env_variable("EMAIL_USE_TLS", "True") == "True"
 EMAIL_USE_SSL = get_env_variable("EMAIL_USE_SSL", "False") == "True"
-EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "walusimbijoseph100@gmail.com")
-EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "zrvx zznl sagx zivq") 
-DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", "walusimbijoseph100@gmail.com")
+EMAIL_HOST_USER = get_env_variable("EMAIL_HOST_USER", "gpawateam@gmail.com")
+EMAIL_HOST_PASSWORD = get_env_variable("EMAIL_HOST_PASSWORD", "sfho agbj vknb pflm") 
+DEFAULT_FROM_EMAIL = get_env_variable("DEFAULT_EMAIL_SENDER", "gpawateam@gmail.com")
 DEFAULT_EMAIL_SENDER = DEFAULT_FROM_EMAIL
 
 # =============================
@@ -237,6 +292,36 @@ CELERY_RESULT_BACKEND = get_env_variable("CELERY_RESULT_BACKEND", "redis://127.0
 CELERY_TIMEZONE = get_env_variable("CELERY_TIMEZONE", "Africa/Nairobi")
 # Run tasks eagerly in local dev to avoid needing Redis/Celery worker
 CELERY_TASK_ALWAYS_EAGER = get_env_variable("CELERY_TASK_ALWAYS_EAGER", "True") == "True"
+CELERY_TASK_EAGER_PROPAGATES = True
+# In dev (ALWAYS_EAGER), don't store results — avoids any backend connection
+CELERY_TASK_IGNORE_RESULT = True
+
+from datetime import timedelta
+
+from celery.schedules import crontab
+
+CELERY_BEAT_SCHEDULE = {
+    "ami-meter-balance-snapshots": {
+        "task": "meter.tasks.snapshot_ami_meter_balances",
+        "schedule": crontab(minute=0, hour="*/6"),
+        "options": {"queue": "celery"},
+    },
+    "ami-daily-usage-aggregate": {
+        "task": "meter.tasks.aggregate_daily_ami_usage",
+        "schedule": crontab(minute=15, hour=1),
+        "options": {"queue": "celery"},
+    },
+    "ami-pending-unit-delivery": {
+        "task": "meter.tasks.retry_pending_ami_deliveries",
+        "schedule": crontab(minute="*/5"),
+        "options": {"queue": "celery"},
+    },
+    "ami-low-units-poll": {
+        "task": "meter.tasks.poll_ami_low_units",
+        "schedule": timedelta(seconds=AMI_LOW_UNITS_POLL_SECONDS),
+        "options": {"queue": "celery"},
+    },
+}
 
 # JWT settings
 REST_FRAMEWORK = {
@@ -257,8 +342,11 @@ SIMPLE_JWT = {
     'AUTH_COOKIE_HTTP_ONLY': True,
     'AUTH_COOKIE_SECURE': False, 
     'AUTH_COOKIE_SAMESITE': 'Lax',
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=240),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=30),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
 }
+
+# Extended refresh when user checks "Remember me" on login (days)
+REMEMBER_ME_REFRESH_DAYS = 30

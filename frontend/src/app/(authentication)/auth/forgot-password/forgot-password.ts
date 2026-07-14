@@ -2,7 +2,6 @@
 
 import { post } from "@/lib/fetch";
 import { ForgotPasswordSchema } from "@/lib/schema";
-import { redirect } from "next/navigation";
 import { z } from "zod";
 
 
@@ -11,10 +10,13 @@ export default async function forgotPassword(data: z.infer<typeof ForgotPassword
   if(error){
     console.log("Error: ", error)
     return { error }
-  } 
+  }
 
-  redirect("/auth/login")
-  return {success: true}
+  return {
+    success: true,
+    email: data.email,
+    message: `Password reset link has been sent to ${data.email}.`,
+  };
 
 }
 

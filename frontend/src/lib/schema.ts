@@ -63,15 +63,21 @@ export const PasswordRegistrationSchema = z
     path: ["password_confirm"],
   });
 
+const securePasswordField = z
+  .string()
+  .min(12, "Password must be at least 12 characters")
+  .regex(
+    /^(?=\S*[A-Z])(?=\S*[a-z])(?=\S*\d)\S+$/,
+    "Password must include uppercase, lowercase, and a number"
+  );
+
 export const ResetPasswordSchema = z
   .object({
-    password: z.string().min(8, "Password must be at least 8 characters"),
-    confirm_password: z
-      .string()
-      .min(8, "Confirm password must be at least 8 characters"),
+    password: securePasswordField,
+    confirm_password: z.string().min(1, "Please confirm your password"),
   })
   .refine((data) => data.password === data.confirm_password, {
-    message: "Passwords mismatch",
+    message: "Passwords do not match",
     path: ["confirm_password"],
   });
 

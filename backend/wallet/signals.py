@@ -10,51 +10,47 @@ logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
-# @receiver(post_save, sender=User)
-# def create_user_wallet(sender, instance, created, **kwargs):
-#     """Create wallet when a new user is created"""
-#     if created:
-#         Wallet.objects.create(user=instance)
-#         logger.info(f"Wallet created for user {instance.username}")
-
-@receiver(post_save, sender='meter.Meter')
-def create_meter_balance(sender, instance, created, **kwargs):
-    """Create meter balance record when a meter is created"""
-    if created and instance.user:
-        try:
-            # Idempotent creation in case a stale balance exists for the meter number
-            MeterBalance.objects.update_or_create(
-                meter_number=instance.meter_no,
-                defaults={
-                    "user": instance.user,
-                    "meter": instance,
-                    "balance": Decimal("0.00"),
-                    "is_active": getattr(instance, "is_active", True),
-                },
-            )
-        except IntegrityError:
-            # Log and continue so the API can return a clean duplicate-meter message
-            logger.exception("MeterBalance unique constraint hit for meter %s", instance.meter_no)
 
 @receiver(post_save, sender=User)
 def create_user_wallet(sender, instance, created, **kwargs):
     if created:
         Wallet.objects.get_or_create(user=instance)
-        logger.info(f"Wallet created for user {instance.username}")
+        logger.info("Unit wallet created for user %s", instance.username)
 
-@receiver(post_save, sender='meter.Meter')
+
+@receiver(post_save, sender="meter.Meter")
 def sync_meter_balance(sender, instance, created, **kwargs):
-    """Sync or create MeterBalance when Meter is saved"""
-    balance_value = instance.units  
-    MeterBalance.objects.update_or_create(
-        user=instance.user,
-        meter_number=instance.meter_no,
-        defaults={
-            'balance': balance_value,
-            'is_active': True, 
-            'meter': instance  
-        }
-    )
+    """Sync MeterBalance when a meter is created or updated (including renames)."""
+    if not instance.user_id:
+        return
+    try:
+        MeterBalance.objects.update_or_create(
+            meter=instance,
+            defaults={
+                "user": instance.user,
+                "meter_number": instance.meter_no,
+                "balance": Decimal(str(instance.units or 0)),
+                "is_active": True,
+            },
+        )
+    except IntegrityError:
+        logger.warning(
+            "MeterBalance OneToOne conflict for meter %s; retrying by meter_number",
+            instance.meter_no,
+            exc_info=True,
+        )
+        try:
+            MeterBalance.objects.update_or_create(
+                meter_number=instance.meter_no,
+                defaults={
+                    "user": instance.user,
+                    "meter": instance,
+                    "balance": Decimal(str(instance.units or 0)),
+                    "is_active": True,
+                },
+            )
+        except Exception:
+            logger.exception("MeterBalance sync failed for meter %s", instance.meter_no)
 
 
 @receiver(post_save, sender=User)

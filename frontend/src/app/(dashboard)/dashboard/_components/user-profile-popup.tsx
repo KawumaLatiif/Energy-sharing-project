@@ -11,7 +11,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { post } from "@/lib/fetch";
+import { post, get } from "@/lib/fetch-client";
 import { getApiErrorMessage } from "@/lib/api-response";
 
 // Schema for user profile/loan assessment
@@ -112,21 +112,22 @@ export default function UserProfilePopup({
         if (isOpen) {
             const checkAuthAndRole = async () => {
                 try {
-                    const response = await fetch('/api/v1/auth/get-user-config/');
-                    if (response.status === 401) {
-                        setIsAuthValid(false);
-                        // Clear and redirect
-                        document.cookie = 'Authentication=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                        document.cookie = 'RefreshToken=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/;';
-                        window.location.href = '/auth/login';
+                    const response = await get<{
+                        is_admin?: boolean;
+                        user_role?: string;
+                    }>('auth/get-user-config/');
+                    if (response.error) {
+                        if (response.status === 401) {
+                            setIsAuthValid(false);
+                            window.location.href = '/auth/login?session=expired';
+                        }
                         return;
                     }
 
-                    const userData = await response.json();
+                    const userData = response.data;
                     setIsAuthValid(true);
 
-                    // Check if admin and skip popup (only in setup mode)
-                    if (mode === 'setup' && (userData.is_admin || userData.user_role === 'ADMIN')) {
+                    if (mode === 'setup' && (userData?.is_admin || userData?.user_role === 'ADMIN')) {
                         onSuccess();
                     }
                 } catch (error) {
@@ -134,8 +135,32 @@ export default function UserProfilePopup({
                 }
             };
             checkAuthAndRole();
+
+            const loadProfile = async () => {
+                try {
+                    const profileRes = await get<{
+                        profile_data?: Partial<UserProfileFormValues>;
+                    }>('auth/user-profile/');
+                    const data = profileRes.data?.profile_data;
+                    if (data) {
+                        form.reset({
+                            monthly_expenditure: data.monthly_expenditure as UserProfileFormValues['monthly_expenditure'],
+                            purchase_frequency: data.purchase_frequency as UserProfileFormValues['purchase_frequency'],
+                            payment_consistency: data.payment_consistency as UserProfileFormValues['payment_consistency'],
+                            disconnection_history: data.disconnection_history as UserProfileFormValues['disconnection_history'],
+                            meter_sharing: data.meter_sharing as UserProfileFormValues['meter_sharing'],
+                            monthly_income: data.monthly_income as UserProfileFormValues['monthly_income'],
+                            income_stability: data.income_stability as UserProfileFormValues['income_stability'],
+                            consumption_level: data.consumption_level as UserProfileFormValues['consumption_level'],
+                        });
+                    }
+                } catch (error) {
+                    console.error('Failed to load profile assessment:', error);
+                }
+            };
+            loadProfile();
         }
-    }, [isOpen, onSuccess, mode]);
+    }, [isOpen, onSuccess, mode, form]);
 
     const onSubmit = async (values: UserProfileFormValues) => {
         setIsLoading(true);

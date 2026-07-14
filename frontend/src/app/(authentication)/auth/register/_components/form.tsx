@@ -1,9 +1,9 @@
 "use client"
 import type { z } from "zod"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useEffect, useState, useTransition } from "react";
-// import 'react-phone-number-input/style.css'
+import { useState, useTransition } from "react";
 import PhoneInput from 'react-phone-number-input'
+import 'react-phone-number-input/style.css'
 
 import {
   Form,
@@ -24,35 +24,29 @@ import {
 
 import { Input } from "@/components/anim/input";
 import { Input as ShadIput } from "@/components/ui/input";
-import { createAccountSchema, LoginSchema } from "@/lib/schema";
+import { createAccountSchema } from "@/lib/schema";
 import { useForm } from "react-hook-form";
 import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import createAccount from "../register";
-import { useSearchParams } from "next/navigation";
 import CardWrapper from "@/components/common/card-wrapper";
 import Link from "next/link";
-import CountrySelect from "@/components/common/country-select";
 import { cn } from "@/lib/utils";
 import { useRouter } from 'next/navigation';
 import { getApiErrorMessage } from "@/lib/api-response";
-
-
+import { Eye, EyeOff } from "lucide-react";
 
 
 export default function RegisterForm() {
 
   const [error, setError] = useState('');
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const router = useRouter();
-  const searchParams = useSearchParams();
-  // const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, startTransition] = useTransition();
-  const [countries, setCountries] = useState([]);
-  const [selectedCountry, setSelectedCountry] = useState<{ value: string, label: string } | null>(null);
-
+  const [redirectNote, setRedirectNote] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
 
   const form = useForm<z.infer<typeof createAccountSchema>>({
     resolver: zodResolver(createAccountSchema),
@@ -67,64 +61,42 @@ export default function RegisterForm() {
     },
   });
 
-
-  // 2. Define a submit handler.
   async function onSubmit(values: z.infer<typeof createAccountSchema>) {
-    setIsSubmitting(true);
     setError('');
-    console.log("posting form data: ", values)
+    setSuccess("");
+    setRedirectNote("");
     startTransition(async () => {
-      createAccount(values).then((data) => {
-        if (data?.error) {
-          setError(getApiErrorMessage(data.error, "Registration failed"));
-        }
-
-        // if (data?.success) {
-        //   form.reset();
-        //   setSuccess(data.success);
-        // }
-
-        // if (data?.twoFactor) {
-        //   setShowTwoFactor(true);
-        // }
-      }).catch(() => setError(""));
-
-    })
-    try {
-      const response = await fetch('/auth/register', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(values),
-      });
-
-      const result = await response.json();
-
-      if (response.ok) {
-        // Redirect to verification page on success
-        router.push('/auth/verify-email?email=' + encodeURIComponent(values.email));
-      } else {
-        setError(result.error || 'Registration failed');
+      const data = await createAccount(values);
+      if (data?.error) {
+        setError(getApiErrorMessage(data.error, "Registration failed"));
+        return;
       }
-    } catch (error) {
-      setError("User registered Successfully");
-    } finally {
-      setIsSubmitting(false);
-    }
+
+      form.reset();
+      const email = (data as any)?.email || values.email;
+      setSuccess("Account created successfully.");
+      setRedirectNote(`Verification link sent to ${email}. Redirecting to login…`);
+      setTimeout(() => {
+        router.push("/auth/login");
+      }, 2500);
+    });
   }
-
-
 
   return (
     <>
       <CardWrapper title="Create an account" variant="auth">
+        <p className="mb-4 text-sm text-muted-foreground">
+          Register yourself here. If your utility admin already created your meter account, use{" "}
+          <Link href="/auth/login" className="font-medium text-indigo-600 hover:text-indigo-500">
+            sign in
+          </Link>{" "}
+          with the email they registered and temporary password <strong>1234</strong>.
+        </p>
 
         <Form {...form}>
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-3">
+          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
-            <div className="mt-1">
-
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <FormField
                 control={form.control}
                 name="first_name"
@@ -133,18 +105,12 @@ export default function RegisterForm() {
                     <FormLabel>First name</FormLabel>
                     <FormControl>
                       <Input disabled={isPending}
-                        type="first_name" placeholder="John" {...field} />
+                        type="text" placeholder="John" {...field} />
                     </FormControl>
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
-            </div>
-
-
-            <div className="mt-1">
 
               <FormField
                 control={form.control}
@@ -154,150 +120,148 @@ export default function RegisterForm() {
                     <FormLabel>Last name</FormLabel>
                     <FormControl>
                       <Input disabled={isPending}
-                        type="last_name" placeholder="Doe" {...field} />
+                        type="text" placeholder="Doe" {...field} />
                     </FormControl>
-
                     <FormMessage />
                   </FormItem>
                 )}
               />
-
             </div>
 
+            <FormField
+              control={form.control}
+              name="email"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl>
+                    <Input disabled={isPending}
+                      type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-            <div className="mt-1">
+            <FormField
+              control={form.control}
+              name="phone_number"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Phone number</FormLabel>
+                  <FormControl>
+                    <PhoneInput
+                      className="phone-input w-full"
+                      international
+                      defaultCountry="UG"
+                      {...field}
+                      inputComponent={ShadIput}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
+            <FormField
+              control={form.control}
+              name="gender"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Gender</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value}>
                     <FormControl>
-                      <Input disabled={isPending}
-                        type="email" autoComplete="email" placeholder="johndoe@example.com" {...field} />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select gender" />
+                      </SelectTrigger>
                     </FormControl>
+                    <SelectContent>
+                      <SelectItem value="MALE">Male</SelectItem>
+                      <SelectItem value="FEMALE">Female</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-            </div>
-
-            <div className="mt-1">
-
-
-
-
-
-            </div>
-
-
-
-
-            <div className="flex flex-col space-y-1.5">
-
-              <FormField
-                control={form.control}
-                name="phone_number"
-                render={({ field }) => (
-                  <FormItem >
-                    <FormLabel className="font-semibold">Phone number</FormLabel>
-                    <FormControl>
-                      <PhoneInput
-                        className="phone-input w-full"
+            <FormField
+              control={form.control}
+              name="password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <ShadIput
+                        disabled={isPending}
+                        type={showPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="Password"
+                        className="pr-10"
                         {...field}
-
-                        inputComponent={ShadIput}
-                      // inputComponent={React.forwardRef((ref) => <Input  type="tel" placeholder="Enter phone number"  {...field} />)}
                       />
-                    </FormControl>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        tabIndex={-1}
+                        aria-label={showPassword ? "Hide password" : "Show password"}
+                      >
+                        {showPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
+            <FormField
+              control={form.control}
+              name="confirm_password"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Confirm password</FormLabel>
+                  <FormControl>
+                    <div className="relative">
+                      <ShadIput
+                        disabled={isPending}
+                        type={showConfirmPassword ? "text" : "password"}
+                        autoComplete="new-password"
+                        placeholder="Confirm password"
+                        className="pr-10"
+                        {...field}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className="absolute right-0 top-0 h-full px-3 hover:bg-transparent"
+                        onClick={() => setShowConfirmPassword((prev) => !prev)}
+                        tabIndex={-1}
+                        aria-label={showConfirmPassword ? "Hide password" : "Show password"}
+                      >
+                        {showConfirmPassword ? (
+                          <EyeOff className="h-4 w-4 text-muted-foreground" />
+                        ) : (
+                          <Eye className="h-4 w-4 text-muted-foreground" />
+                        )}
+                      </Button>
+                    </div>
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
 
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-
-            </div>
-
-            <div className="flex flex-col space-y-1.5">
-              <FormField
-                control={form.control}
-                name="gender"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Gender</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select gender" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="MALE">
-                          <div className="flex items-center gap-4 justify-between">
-                            <span>Male</span>
-                          </div>
-
-                        </SelectItem>
-                        <SelectItem value="FEMALE">
-                          <div className="flex items-center gap-4 justify-between">
-                            <span>Female</span>
-                          </div>
-                        </SelectItem>
-
-                      </SelectContent>
-                    </Select>
-
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-            </div>
-
-            <div className="mt-1">
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input disabled={isPending} type="password" autoComplete="password" placeholder="Password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-            </div>
-
-
-
-            <div className="mt-1">
-              <FormField
-                control={form.control}
-                name="confirm_password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Confirm Password</FormLabel>
-                    <FormControl>
-                      <Input disabled={isPending} type="password" autoComplete="password" placeholder="Confirm password" {...field} />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-            </div>
-
-
-
-
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-3 pt-1 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex items-center">
                 <input
                   id="remember-me"
@@ -317,10 +281,9 @@ export default function RegisterForm() {
               </div>
             </div>
 
-
             <FormError message={error} />
-
             <FormSuccess message={success} />
+            <FormSuccess message={redirectNote} />
 
             <div>
               <Button
@@ -332,16 +295,9 @@ export default function RegisterForm() {
               </Button>
             </div>
           </form>
-          {/* {error && <div className="error-message">{error}</div>} */}
-          {/* <button type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Registering...' : 'Register'}
-          </button> */}
         </Form>
 
-
-
       </CardWrapper>
-      {/* <SignIn /> */}
     </>
   )
 }

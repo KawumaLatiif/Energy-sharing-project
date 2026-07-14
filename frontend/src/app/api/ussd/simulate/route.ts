@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { API_URL } from "@/common/constants/api";
+import { requireUssdAuthHeaders } from "@/lib/ussd-api-auth";
 
 type UssdPayload = {
   sessionId: string;
@@ -9,13 +10,21 @@ type UssdPayload = {
 };
 
 export async function POST(request: NextRequest) {
+  const authHeaders = await requireUssdAuthHeaders();
+  if (!authHeaders) {
+    return NextResponse.json(
+      { ok: false, error: "Sign in to use the USSD simulator." },
+      { status: 401 },
+    );
+  }
+
   try {
     const body = (await request.json()) as UssdPayload;
     const endpoint = `${API_URL}/ussd/entry/`;
 
     const backendResponse = await fetch(endpoint, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...authHeaders },
       body: JSON.stringify(body),
       cache: "no-store",
     });
@@ -23,7 +32,6 @@ export async function POST(request: NextRequest) {
     const raw = await backendResponse.text();
     let normalized = raw.trim();
 
-    // DRF may return a JSON-encoded string like: "CON menu..."
     if (normalized.startsWith('"') && normalized.endsWith('"')) {
       try {
         normalized = JSON.parse(normalized);

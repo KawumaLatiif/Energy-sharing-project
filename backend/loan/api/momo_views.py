@@ -9,6 +9,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from django.conf import settings  # Add this import
 
 from loan.models import LoanApplication, LoanRepayment
+from meter.models import Meter
+from meter.services import push_units_to_thingsboard
 from mtn_momo.services import MTNMoMoService
 from transactions.models import TransactionLog, TransactionType
 
@@ -63,16 +65,12 @@ class MoMoPaymentView(APIView):
             external_id = str(uuid.uuid4())
             payment_ref = f"LOAN{loan.loan_id}{uuid.uuid4().hex[:6].upper()}"
             
-            # FIXED: Check if we're in sandbox mode - use getattr with default
-            momo_config = getattr(settings, 'MTN_MOMO_CONFIG', {})
-            environment = momo_config.get('ENVIRONMENT', 'sandbox')
-            
-            if environment == 'sandbox':
-                # SIMULATE SANDBOX PAYMENT
+            # Use real MoMo when credentials are configured; otherwise simulate locally.
+            from mtn_momo.config import should_simulate_payments
+
+            if should_simulate_payments():
                 return self.simulate_sandbox_payment(loan, amount, phone_number, external_id, payment_ref)
-            else:
-                # PRODUCTION: Use real MoMo service
-                return self.process_real_momo_payment(loan, amount, phone_number, external_id, payment_ref)
+            return self.process_real_momo_payment(loan, amount, phone_number, external_id, payment_ref)
                 
         except LoanApplication.DoesNotExist:
             return Response(
@@ -85,10 +83,9 @@ class MoMoPaymentView(APIView):
                 {"error": f"Failed to process payment: {str(e)}"}, 
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
-    
+
     def simulate_sandbox_payment(self, loan, amount, phone_number, external_id, payment_ref):
         """Simulate successful payment in sandbox mode"""
-        # Create pending repayment record first
         with transaction.atomic():
             repayment = LoanRepayment.objects.create(
                 loan=loan,
@@ -101,15 +98,14 @@ class MoMoPaymentView(APIView):
                 payment_status='PENDING',
                 is_on_time=True
             )
-        
-        # Start background thread to simulate payment completion after 5 seconds
+
         import threading
         threading.Thread(
             target=self._complete_sandbox_payment,
             args=(loan.id, amount, external_id, repayment.id),
             daemon=True
         ).start()
-        
+
         return Response({
             "message": "Sandbox: Payment simulation started! Status will update in 5 seconds.",
             "payment_reference": payment_ref,
@@ -119,22 +115,21 @@ class MoMoPaymentView(APIView):
             "note": "Check payment status in 5 seconds using the payment-status endpoint.",
             "poll_interval": 5000
         })
-    
+
     def _complete_sandbox_payment(self, loan_id, amount, external_id, repayment_id):
         """Background task to complete sandbox payment after 5 seconds"""
         import time
-        time.sleep(5)  # Wait 5 seconds
-        
+        time.sleep(5)
+
         try:
             from loan.models import LoanApplication, LoanRepayment
             from django.db import transaction as db_transaction
-            
+
             with db_transaction.atomic():
-                # Get the repayment record
                 repayment = LoanRepayment.objects.get(id=repayment_id)
                 loan = LoanApplication.objects.get(id=loan_id)
                 
-                # Update repayment record
+
                 repayment.payment_status = 'SUCCESS'
                 repayment.units_paid = 0
                 repayment.momo_transaction_id = f"SANDBOX_{external_id}"
@@ -158,63 +153,89 @@ class MoMoPaymentView(APIView):
                 logger.info(f"Sandbox: Loan payment completed. Loan: {loan.loan_id}, Amount: {amount}")
                 
                 # Check if loan is fully paid
+
+                meter = Meter.objects.get(user=loan.user)
+                meter.units += repayment.units_paid
+                meter.save()
+                push_ok, push_msg = push_units_to_thingsboard(
+                    meter=meter,
+                    units=repayment.units_paid,
+                    reference_id=repayment.payment_reference,
+                )
+                if not push_ok:
+                    logger.warning("ThingsBoard push failed for sandbox repayment %s: %s", repayment.payment_reference, push_msg)
+
+                logger.info(f"Sandbox: Loan payment completed. Loan: {loan.loan_id}, Amount: {amount}, Units: {repayment.units_paid}")
+
                 if loan.outstanding_balance <= 0:
                     loan.status = 'COMPLETED'
                     loan.save()
                     logger.info(f"Sandbox: Loan {loan.loan_id} marked as COMPLETED")
-                    
+
         except Exception as e:
             logger.error(f"Sandbox payment completion error: {str(e)}")
-    
+
     def process_real_momo_payment(self, loan, amount, phone_number, external_id, payment_ref):
-        """Process real MoMo payment (for production)"""
-        # Initialize MoMo service
+        """Process real MoMo payment via MTN request-to-pay."""
+        momo_reference = str(uuid.uuid4())
         momo_service = MTNMoMoService()
-        
-        # Request payment from MoMo
         payment_result = momo_service.request_payment(
             amount=amount,
             phone_number=phone_number,
+            reference_id=momo_reference,
             external_id=external_id,
-            payment_reference=payment_ref
+            payer_message=f"Loan repayment - {payment_ref}",
         )
-        
+
         if payment_result['status'] == 'PENDING':
-            # Create pending repayment record
+            momo_reference = payment_result.get("reference_id", momo_reference)
             return self.create_pending_payment(
-                loan, amount, phone_number, external_id, payment_ref, payment_result
+                loan, amount, phone_number, momo_reference, payment_ref, payment_result
             )
-        else:
-            # Payment failed
-            return Response(
-                {"error": f"Payment failed: {payment_result.get('message', 'Unknown error')}"},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-    
+        return Response(
+            {"error": f"Payment failed: {payment_result.get('message', 'Unknown error')}"},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
     def create_pending_payment(self, loan, amount, phone_number, external_id, payment_ref, payment_result):
         """Create pending payment record for later verification"""
         with transaction.atomic():
-            repayment = LoanRepayment.objects.create(
+            LoanRepayment.objects.create(
                 loan=loan,
                 amount_paid=amount,
-                units_paid=0, 
+                units_paid=0,
                 payment_reference=payment_ref,
-                payment_method='MOBILE_MONEY',  
-                momo_external_id=external_id,   
-                momo_phone_number=phone_number, 
-                payment_status='PENDING',       
+                payment_method='MOBILE_MONEY',
+                momo_external_id=external_id,
+                momo_phone_number=phone_number,
+                payment_status='PENDING',
                 is_on_time=True
             )
 
-            return Response({
-                "message": "Payment initiated successfully! Please check your phone to complete the transaction.",
-                "payment_reference": payment_ref,
-                "external_id": external_id,
-                "status": "PENDING",
-                "user_prompt": payment_result.get('user_prompt', 'check your phone and enter the pin to complete the payment'),
-                "note": "Payment is being processed. Check status in a few moments. Poll /payment-status/<external_id>/ endpoint.",
-                "poll_interval": 5000  # in milliseconds
-            })
+        return Response({
+            "message": "Payment initiated successfully! Please check your phone to complete the transaction.",
+            "payment_reference": payment_ref,
+            "external_id": external_id,
+            "status": "PENDING",
+            "user_prompt": payment_result.get('user_prompt', 'check your phone and enter the pin to complete the payment'),
+            "note": "Payment is being processed. Check status in a few moments. Poll /payment-status/<external_id>/ endpoint.",
+            "poll_interval": 5000
+        })
+
+
+class ActiveMoMoPaymentView(MoMoPaymentView):
+    """Repay the account's active loan via MoMo without passing a loan ID."""
+
+    def post(self, request):
+        from loan.services import get_repayable_loan
+
+        loan = get_repayable_loan(request.user)
+        if not loan:
+            return Response(
+                {"error": "No active loan to repay."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        return super().post(request, loan.id)
 
 
 # class PaymentStatusView(APIView):
@@ -330,22 +351,17 @@ class PaymentStatusView(APIView):
             if repayment.payment_status == 'SUCCESS':
                 return self._build_success_response(repayment)
 
-            # Check if we're in sandbox mode - use getattr with default
-            momo_config = getattr(settings, 'MTN_MOMO_CONFIG', {})
-            environment = momo_config.get('ENVIRONMENT', 'sandbox')
-            
-            if environment == 'sandbox':
-                # For sandbox, just return current status
-                # The background thread will update it after 5 seconds
+            # Poll MoMo when not in simulated dev mode
+            from mtn_momo.config import should_simulate_payments
+
+            if should_simulate_payments():
                 return Response({
                     "payment_status": repayment.payment_status,
                     "amount": float(repayment.amount_paid),
                     "transaction_id": repayment.momo_transaction_id,
-                    "note": "Sandbox mode: Status updates automatically after 5 seconds"
+                    "note": "Simulated mode: status updates automatically after a few seconds",
                 })
-            else:
-                # PRODUCTION: Check status from MoMo
-                return self._check_real_payment_status(repayment, external_id)
+            return self._check_real_payment_status(repayment, external_id)
 
         except LoanRepayment.DoesNotExist:
             logger.error(f"No repayment found for external_id {external_id} and user {request.user.id}")
@@ -387,6 +403,17 @@ class PaymentStatusView(APIView):
                         'momo_external_id': external_id,
                     }
                 )
+                # Add units to meter
+                meter = Meter.objects.get(user=repayment.loan.user)
+                meter.units += units_equivalent
+                meter.save()
+                push_ok, push_msg = push_units_to_thingsboard(
+                    meter=meter,
+                    units=units_equivalent,
+                    reference_id=repayment.payment_reference,
+                )
+                if not push_ok:
+                    logger.warning("ThingsBoard push failed for repayment %s: %s", repayment.payment_reference, push_msg)
 
                 # Check loan completion
                 if repayment.loan.outstanding_balance <= 0:

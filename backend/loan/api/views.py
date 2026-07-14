@@ -12,14 +12,17 @@ from accounts.models import generate_random_string
 from wallet.models import UnitBalance
 from meter.models import generate_numeric_token
 from meter.models import Meter, MeterToken
+from meter.services import push_units_to_thingsboard
 from meter.api.serializers import MeterSerializer
 from loan.models import ElectricityTariff, LoanApplication, LoanDisbursement, LoanRepayment
 from transactions.models import UnitTransaction, TransactionLog, TransactionType
 from loan.api.serializers import ElectricityTariffSerializer, LoanApplicationCreateSerializer, LoanApplicationSerializer
 from loan.models import get_tier_by_score
+from meter.models import MeterNotification
+from meter.notifications import create_system_notification
 from loan.scoring import (
     calculate_weighted_credit_score,
-    get_or_create_dummy_credit_signal,
+    get_or_create_credit_signal,
     get_factor_breakdown,
     FACTOR_WEIGHTS,
 )
@@ -29,6 +32,9 @@ from datetime import datetime
 from loan.models import CreditScoreHistory, CreditScoreFactors
 from loan.scoring import calculate_weighted_credit_score, get_or_create_dummy_credit_signal
 
+from wallet.models import Wallet as UnitWallet
+from utils.general import dispatch_task
+from accounts.tasks import handle_send_loan_application_email
 
 logger = logging.getLogger(__name__)
 
@@ -53,16 +59,14 @@ class LoanApplicationView(generics.ListCreateAPIView):
     def create(self, request, *args, **kwargs):
         try:
             data = request.data
-            
+
             # Prevent multiple active loans
-            existing_active_loans = LoanApplication.objects.filter(
-                user=request.user,
-                status__in=['PENDING', 'APPROVED', 'DISBURSED']
-            ).exists()
-            
-            if existing_active_loans:
+            from loan.services import user_can_apply_for_loan
+
+            can_apply, apply_message = user_can_apply_for_loan(request.user)
+            if not can_apply:
                 return Response(
-                    {"error": "You already have an active loan. Please complete repayment before applying for a new one."},
+                    {"error": apply_message},
                     status=status.HTTP_400_BAD_REQUEST
                 )
             
@@ -78,30 +82,27 @@ class LoanApplicationView(generics.ListCreateAPIView):
             serializer = self.get_serializer(data=data)
             serializer.is_valid(raise_exception=True)
 
-            try:
-                tariff = ElectricityTariff.objects.get(tariff_code="CODE10.1", is_active=True)
-            except ElectricityTariff.DoesNotExist:
-                # Fallback to first active tariff or None
-                tariff = ElectricityTariff.objects.filter(is_active=True).first()
+            from utils.billing import get_active_domestic_tariff
 
-            # Collect third-party credit signals (dummy for now) and score user
-            credit_signal = get_or_create_dummy_credit_signal(request.user)
-            credit_score = self.calculate_credit_score(credit_signal)
+            tariff = get_active_domestic_tariff()
+
+            from loan.services import resolve_user_loan_access
+
+            access = resolve_user_loan_access(request.user)
+            credit_signal = get_or_create_credit_signal(request.user)
+            credit_score = access["credit_score"]
             credit_breakdown = get_factor_breakdown(credit_signal)
 
-            # Determine approved amount and tier
             amount_requested = float(data.get("amount_requested", 0))
-            tier_info = self.determine_loan_tier(credit_score)
-            
-            if tier_info:
-                tier_name, max_amount, interest_rate = tier_info
-                amount_approved = min(max_amount, amount_requested)
-            else:
-                amount_approved = 0
-                tier_name = None
-                interest_rate = 10.0
+            max_eligible = access["max_eligible_amount"]
+            tier_name = access["loan_tier"]
+            interest_rate = access["interest_rate"] or 12.0
 
-            # Save loan - DON'T disburse automatically
+            if not access["is_loan_eligible"]:
+                amount_approved = 0
+            else:
+                amount_approved = min(max_eligible, amount_requested)
+
             loan = serializer.save(
                 user=request.user,
                 credit_score=credit_score,
@@ -110,7 +111,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 interest_rate=interest_rate,
                 tariff = tariff,
                 status="APPROVED" if amount_approved > 0 else "REJECTED",
-                rejection_reason="" if amount_approved > 0 else "Credit score below 75%"
+                rejection_reason="" if amount_approved > 0 else "Loan limit exceeded or account at risk"
             )
 
             # Log application
@@ -128,6 +129,38 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     'amount_approved': float(amount_approved) if amount_approved else 0
                 }
             )
+            create_system_notification(
+                user=request.user,
+                notification_type=MeterNotification.TYPE_LOAN_APPLICATION,
+                message=(
+                    f"Loan application {loan.loan_id}: {loan.status}. "
+                    f"Requested UGX {amount_requested:,.2f}, "
+                    f"approved UGX {float(amount_approved):,.2f}."
+                ),
+                units_kwh=Decimal("0"),
+            )
+            dispatch_task(
+                handle_send_loan_application_email,
+                request.user.id,
+                loan.loan_id,
+                loan.status,
+                amount_requested,
+                float(amount_approved or 0),
+            )
+
+            # Loans within the client's credit limit are disbursed immediately;
+            # disburse_loan() raises its own notification + email for the disbursement.
+            disbursement_result = None
+            if loan.status == "APPROVED":
+                from loan.services import disburse_loan
+
+                try:
+                    disbursement_result = disburse_loan(request.user, loan.id, channel="WEB")
+                    loan.refresh_from_db()
+                except Exception:
+                    # Leave the loan APPROVED rather than failing the application -
+                    # it can be disbursed later (e.g. via the admin panel).
+                    logger.exception("Auto-disbursement failed for loan %s", loan.loan_id)
 
             # Calculate units based on tariff (for response)
             if tariff and amount_approved:
@@ -144,7 +177,7 @@ class LoanApplicationView(generics.ListCreateAPIView):
                 "amount_requested": amount_requested,
                 "amount_approved": float(amount_approved) if amount_approved > 0 else 0,
                 "loan_tier": tier_name,
-                "max_eligible_amount": tier_info[1] if tier_info else 0,
+                "max_eligible_amount": max_eligible,
                 "interest_rate": interest_rate,
                 "tariff_applied": tariff.tariff_code if tariff else None,
                 "units_calculated": units_calculated,
@@ -158,12 +191,27 @@ class LoanApplicationView(generics.ListCreateAPIView):
                     "subfactor_scores": credit_breakdown["subfactor_scores"],
                     "threshold": 75,
                     "source": credit_signal.source,
+                    "trust_level": access.get("trust_level"),
+                    "trust_cap": access.get("trust_cap"),
+                    "starter_max_loan": access.get("starter_max_loan"),
                 },
             }
 
-            if loan.status == "APPROVED":
+            if loan.status == "DISBURSED":
                 response_data.update({
-                    "message": f"Loan approved! You qualified for {tier_name} tier. Go to 'My Loans' to disburse and receive your electricity units."
+                    "message": (
+                        f"Loan approved and disbursed! You qualified for {tier_name} tier. "
+                        f"{disbursement_result['units_disbursed']} units have been added to your wallet."
+                    ),
+                    "units_disbursed": disbursement_result["units_disbursed"],
+                    "meter_push_ok": disbursement_result["meter_push_ok"],
+                })
+            elif loan.status == "APPROVED":
+                response_data.update({
+                    "message": (
+                        f"Loan approved! You qualified for {tier_name} tier. "
+                        "We're crediting your units now - if they don't arrive shortly, contact support."
+                    )
                 })
             else:
                 response_data.update({
@@ -258,6 +306,9 @@ class LoanApplicationView(generics.ListCreateAPIView):
     def get_queryset(self):
         # For GET requests, return user's loans
         if self.request.method == "GET":
+            from loan.services import reconcile_user_loan_statuses
+
+            reconcile_user_loan_statuses(self.request.user)
             return LoanApplication.objects.filter(user=self.request.user)
         return LoanApplication.objects.none()
 
@@ -266,6 +317,9 @@ class UserLoansView(generics.ListAPIView):
     serializer_class = LoanApplicationSerializer
     
     def get_queryset(self):
+        from loan.services import reconcile_user_loan_statuses
+
+        reconcile_user_loan_statuses(self.request.user)
         return LoanApplication.objects.filter(user=self.request.user)
 
 class LoanDetailView(generics.RetrieveAPIView):
@@ -273,6 +327,9 @@ class LoanDetailView(generics.RetrieveAPIView):
     serializer_class = LoanApplicationSerializer
     
     def get_queryset(self):
+        from loan.services import reconcile_user_loan_statuses
+
+        reconcile_user_loan_statuses(self.request.user)
         return LoanApplication.objects.filter(user=self.request.user)
 
 
@@ -636,6 +693,91 @@ class LoanStatsView(APIView):
 
 class LoanDisbursementView(APIView):
     permission_classes = (IsAuthenticated,)
+    def post(self, request, loan_id):
+        try:
+            from loan.services import LoanOperationError, repay_loan
+
+            result = repay_loan(
+                request.user,
+                loan_id,
+                request.data.get("amount", 0),
+                channel="WEB",
+                payment_method="CASH",
+            )
+            return Response(
+                {
+                    "message": result["message"],
+                    "units_added": result["units_added"],
+                    "payment_reference": result["payment_reference"],
+                    "outstanding_balance": result["outstanding_balance"],
+                    "loan_status": result["loan_status"],
+                }
+            )
+
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Repayment error: {str(e)}")
+            return Response(
+                {"error": f"Failed to process repayment: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+    
+    def get_repayment_breakdown(self, loan, amount):
+        """Calculate breakdown for repayment amount"""
+        if not loan.tariff:
+            return None
+        return loan.calculate_cost_for_units(loan.calculate_units_from_amount(amount))
+    
+    def check_payment_timeliness(self, loan):
+        """Check if payment is on time"""
+        if not loan.due_date:
+            return True
+        return timezone.now() <= loan.due_date
+
+
+class LoanDisbursementView(APIView):
+    permission_classes = (IsAuthenticated,)
+    
+    def get_cost_breakdown(self, loan, amount):
+        """Calculate detailed cost breakdown for block tariff"""
+        if not loan.tariff:
+            return None
+        
+        blocks = loan.tariff.blocks.all().order_by('block_order')
+        breakdown = []
+        remaining_amount = amount
+        
+        for block in blocks:
+            if remaining_amount <= 0:
+                break
+                
+            if block.max_units:
+                block_units_available = block.max_units - block.min_units + 1
+                block_cost = block_units_available * float(block.rate_per_unit)
+                
+                if remaining_amount >= block_cost:
+                    units_from_block = block_units_available
+                    cost_from_block = block_cost
+                    remaining_amount -= block_cost
+                else:
+                    units_from_block = remaining_amount / float(block.rate_per_unit)
+                    cost_from_block = remaining_amount
+                    remaining_amount = 0
+            else:
+                units_from_block = remaining_amount / float(block.rate_per_unit)
+                cost_from_block = remaining_amount
+                remaining_amount = 0
+            
+            breakdown.append({
+                'block_name': block.block_name,
+                'units': round(units_from_block, 2),
+                'rate': float(block.rate_per_unit),
+                'cost': round(cost_from_block, 2),
+                'block_range': f"{block.min_units}-{block.max_units if block.max_units else 'inf'}"
+            })
+        
+        return breakdown
     
     def post(self, request, loan_id):
         try:
@@ -739,6 +881,23 @@ class LoanDisbursementView(APIView):
                     "note": "Use the token above to load units to your meter, or share units with others."
                 })
                 
+            from loan.services import LoanOperationError, disburse_loan
+
+            result = disburse_loan(request.user, loan_id, channel="WEB")
+            return Response(
+                {
+                    "message": "Loan disbursed successfully to your unit wallet!",
+                    "units_added_to_wallet": result["units_disbursed"],
+                    "units_disbursed": result["units_disbursed"],
+                    "meter_push": {
+                        "status": "OK" if result["meter_push_ok"] else "FAILED",
+                        "message": result["meter_push_message"],
+                    },
+                }
+            )
+
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
         except LoanApplication.DoesNotExist:
             return Response({"error": "Loan not found"}, status=status.HTTP_404_NOT_FOUND)
         except Meter.DoesNotExist:
@@ -980,6 +1139,11 @@ class CreditScoreView(APIView):
                 }
             })
             
+        # try:
+        #     from loan.services import get_user_loan_stats
+
+        #     return Response(get_user_loan_stats(request.user), status=200)
+
         except Exception as e:
             logger.error(f"Error in CreditScoreView: {str(e)}", exc_info=True)
             return Response({
@@ -998,3 +1162,154 @@ class CreditScoreView(APIView):
             }, status=status.HTTP_200_OK) 
 
             
+
+class RepayableLoanView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def get(self, request):
+        from loan.services import get_repayable_loan, serialize_repayable_loan
+
+        loan = get_repayable_loan(request.user)
+        return Response(
+            {"repayable_loan": serialize_repayable_loan(loan)},
+            status=status.HTTP_200_OK,
+        )
+
+
+class ActiveLoanRepaymentView(APIView):
+    permission_classes = (IsAuthenticated,)
+
+    def post(self, request):
+        try:
+            from loan.services import LoanOperationError, repay_loan
+
+            result = repay_loan(
+                request.user,
+                None,
+                request.data.get("amount", 0),
+                channel="WEB",
+                payment_method="CASH",
+            )
+            return Response(
+                {
+                    "message": result["message"],
+                    "units_added": result["units_added"],
+                    "payment_reference": result["payment_reference"],
+                    "outstanding_balance": result["outstanding_balance"],
+                    "loan_status": result["loan_status"],
+                    "loan_id": result["loan_id"],
+                }
+            )
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Active loan repayment error: {str(e)}")
+            return Response(
+                {"error": f"Failed to process repayment: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class LoanLookupByPhoneView(APIView):
+    """
+    GET /loans/lookup-by-phone/?phone=256XXXXXXXXX
+    Returns the outstanding loan for the user with that phone number.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        from accounts.models import User as UserModel
+        phone = request.query_params.get("phone", "").strip()
+        if not phone:
+            return Response({"error": "phone query parameter is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not phone.startswith("+"):
+            phone = "+" + phone
+
+        try:
+            owner = UserModel.objects.get(phone_number=phone)
+        except UserModel.DoesNotExist:
+            return Response({"error": "No registered user found with that phone number."}, status=status.HTTP_404_NOT_FOUND)
+
+        if owner == request.user:
+            return Response({"error": "Use the standard repayment flow for your own loans."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from loan.services import get_repayable_loan
+        loan = get_repayable_loan(owner)
+        if not loan:
+            return Response({"error": "This user has no outstanding loan balance."}, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "owner": {
+                "id": owner.id,
+                "name": f"{owner.first_name} {owner.last_name}".strip() or owner.email,
+                "phone": str(owner.phone_number),
+            },
+            "loan": {
+                "id": loan.id,
+                "loan_id": loan.loan_id,
+                "outstanding_balance": float(loan.outstanding_balance),
+                "total_amount_due": float(loan.total_amount_due) if hasattr(loan, 'total_amount_due') else float(loan.outstanding_balance),
+                "status": loan.status,
+            },
+        })
+
+
+class PayForSomeoneView(APIView):
+    """
+    POST /loans/pay-for-someone/
+    Body: { owner_phone, loan_id, amount, is_anonymous }
+    Pays off (fully or partially) another user's loan from the payer's wallet.
+    """
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from accounts.models import User as UserModel
+        from loan.services import repay_loan, LoanOperationError
+
+        owner_phone = request.data.get("owner_phone", "").strip()
+        loan_id = request.data.get("loan_id")
+        amount = request.data.get("amount")
+        is_anonymous = bool(request.data.get("is_anonymous", False))
+
+        if not owner_phone or not loan_id or not amount:
+            return Response({"error": "owner_phone, loan_id, and amount are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        if not owner_phone.startswith("+"):
+            owner_phone = "+" + owner_phone
+
+        try:
+            owner = UserModel.objects.get(phone_number=owner_phone)
+        except UserModel.DoesNotExist:
+            return Response({"error": "No registered user found with that phone number."}, status=status.HTTP_404_NOT_FOUND)
+
+        if owner == request.user:
+            return Response({"error": "Use the standard repayment flow for your own loans."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            result = repay_loan(
+                user=owner,
+                loan_id=loan_id,
+                amount=amount,
+                channel="WEB",
+                payment_method="CASH",
+                paid_by_user=request.user,
+                is_anonymous=is_anonymous,
+            )
+            owner_name = f"{owner.first_name} {owner.last_name}".strip() or owner.email
+            return Response({
+                "message": result["message"],
+                "owner_name": owner_name,
+                "loan_id": result["loan_id"],
+                "units_added": result["units_added"],
+                "outstanding_balance": result["outstanding_balance"],
+                "loan_status": result["loan_status"],
+                "payment_reference": result["payment_reference"],
+                "is_anonymous": is_anonymous,
+            })
+        except LoanOperationError as exc:
+            return Response({"error": exc.message}, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as exc:
+            logger.error("PayForSomeone error: %s", exc)
+            return Response({"error": "Payment failed. Please try again."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

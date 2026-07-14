@@ -42,9 +42,10 @@ type ShareFormValues = z.infer<typeof ShareSchema>;
 interface ShareFormProps {
   onSuccess?: () => void;
   onCancel?: () => void;
+  onBack: () => void;
 }
 
-export default function ShareForm({ onSuccess, onCancel }: ShareFormProps) {
+export default function ShareForm({ onSuccess, onCancel, onBack }: ShareFormProps) {
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [isPending, setIsPending] = useState(false);
