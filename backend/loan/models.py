@@ -490,6 +490,7 @@ class CreditScoreFactors(models.Model):
     last_activity_date = models.DateTimeField(auto_now=True)
     
     updated_at = models.DateTimeField(auto_now=True)
+    created_at = models.DateTimeField(auto_now=True)
     
     def __str__(self):
         return f"Factors for {self.user.email}"
