@@ -78,6 +78,7 @@ class AuditLog(models.Model):
 
     # Action type categories (Section 9.1)
     ACTION_USER_EDIT = "User Edit"
+    ACTION_USER_DELETE = "User Delete"
     ACTION_ACCOUNT_SUSPENSION = "Account Suspension"
     ACTION_ACCOUNT_REACTIVATION = "Account Reactivation"
     ACTION_CREDENTIAL_RESET = "Credential Reset"
@@ -102,6 +103,7 @@ class AuditLog(models.Model):
 
     ACTION_TYPE_CHOICES = [
         (ACTION_USER_EDIT, "User Edit"),
+        (ACTION_USER_DELETE, "User Delete"),
         (ACTION_ACCOUNT_SUSPENSION, "Account Suspension"),
         (ACTION_ACCOUNT_REACTIVATION, "Account Reactivation"),
         (ACTION_CREDENTIAL_RESET, "Credential Reset"),

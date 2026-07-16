@@ -89,6 +89,8 @@ export async function resetPassword(
     };
   }
 
+  // Clear the auth cookie so any existing session doesn't conflict with
+  // the new password. User must log in fresh after a reset.
   const cookieStore = await cookies();
   cookieStore.delete(AUTHENTICATION_COOKIE);
 

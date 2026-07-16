@@ -735,6 +735,59 @@ class UserDetailView(APIView, RBACMixin):
 
         return Response({"success": True, "message": "User profile updated"})
 
+    def delete(self, request, user_id):
+        """Delete a user account (Admin only).
+
+        Financial records (transactions, loans, wallet) are preserved for audit
+        purposes, so this is a permanent deactivation rather than a hard delete —
+        cascading a real delete would wipe the user's transaction/loan history.
+        """
+        ok, err = self._require_admin(request)
+        if not ok:
+            return err
+
+        try:
+            u = User.objects.get(id=user_id, user_role=User.CLIENT)
+        except User.DoesNotExist:
+            return Response({"error": "User not found"}, status=status.HTTP_404_NOT_FOUND)
+
+        wallet = u.wallet_set.first()
+        wallet_balance = wallet.balance if wallet else 0
+        outstanding = LoanApplication.objects.filter(
+            user=u, status__in=['ACTIVE', 'APPROVED']
+        ).aggregate(total=Sum('outstanding_balance'))['total'] or 0
+
+        if wallet_balance > 0 or outstanding > 0:
+            return Response(
+                {
+                    "error": (
+                        "Cannot delete a user with a wallet balance or an outstanding "
+                        "loan. Settle the balance first, or suspend the account instead."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        reason = request.data.get('reason', '')
+        u.is_suspended = True
+        u.account_is_active = False
+        u.suspension_reason = 'Deleted by admin'
+        u.suspension_note = reason
+        u.suspended_at = timezone.now()
+        u.save()
+
+        _write_audit(
+            request,
+            action_type=AuditLog.ACTION_USER_DELETE,
+            target_type=AuditLog.TARGET_USER,
+            target_id=u.id,
+            target_repr=u.email,
+            details={"reason": reason},
+            notes=reason,
+        )
+
+        return Response({"success": True, "message": "User account deleted"})
+
 
 class UserSuspendView(APIView, RBACMixin):
     """Suspend or reactivate a user account (Admin only — Section 3.4–3.5)."""

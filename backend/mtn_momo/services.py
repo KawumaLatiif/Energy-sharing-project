@@ -19,6 +19,10 @@ class MTNMoMoService:
     self.api_key = cfg.get("API_KEY", "")
     self.callback_host = cfg.get("CALLBACK_HOST", "")
     self.environment = cfg.get("ENVIRONMENT", "sandbox")
+    # Short connect timeout + longer read timeout. If the MoMo backend hangs
+    # (e.g. suspended sandbox account), we fail fast rather than blocking a
+    # Django thread for 15 seconds.
+    self._timeout = (6, 10)
 
   def _normalize_phone(self, phone_number):
     phone = str(phone_number or "").replace(" ", "").replace("-", "").replace("+", "")
@@ -46,7 +50,7 @@ class MTNMoMoService:
     }
 
     try:
-      response = requests.post(url, headers=headers, timeout=15)
+      response = requests.post(url, headers=headers, timeout=self._timeout)
       if response.status_code == 200:
         token = response.json().get("access_token")
         if token:
@@ -99,7 +103,7 @@ class MTNMoMoService:
     logger.info("MoMo requesttopay ref=%s external=%s payload=%s", reference_id, external_id, payload)
 
     try:
-      response = requests.post(url, headers=headers, json=payload, timeout=20)
+      response = requests.post(url, headers=headers, json=payload, timeout=self._timeout)
       if response.status_code == 202:
         sandbox_hint = ""
         if self.environment == "sandbox":
@@ -142,7 +146,7 @@ class MTNMoMoService:
     }
 
     try:
-      response = requests.get(url, headers=headers, timeout=15)
+      response = requests.get(url, headers=headers, timeout=self._timeout)
       if response.status_code == 200:
         data = response.json()
         raw_status = data.get("status", "FAILED")
@@ -166,4 +170,4 @@ class MTNMoMoService:
       }
     except requests.RequestException as exc:
       logger.error("Status check error: %s", exc)
-      return {"status": "FAILED", "message": str(exc)}
+      return {"status": "UNKNOWN", "message": str(exc)}
