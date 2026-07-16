@@ -51,7 +51,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from '@/components/ui/use-toast';
 import { useRouter } from 'next/navigation';
-import { get, post } from '@/lib/fetch-client';
+import { get, post, del } from '@/lib/fetch-client';
 
 interface User {
   id: number;
@@ -152,6 +152,42 @@ export default function UsersManagementPage() {
       toast({
         title: 'Error',
         description: 'Failed to update user status',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  const deleteUser = async (userId: number, email: string) => {
+    const confirmed = window.confirm(
+      `Delete ${email}? This deactivates the account and blocks login. Users with a wallet balance or an outstanding loan cannot be deleted.`
+    );
+    if (!confirmed) return;
+
+    try {
+      const res = await del<{ success: boolean; message?: string; error?: string }>(
+        `admin/users/${userId}/`
+      );
+
+      if (res.data?.success) {
+        setUsers(prev => prev.filter(user => user.id !== userId));
+        setTotalUsers(prev => Math.max(0, prev - 1));
+        toast({
+          title: 'User deleted',
+          description: res.data.message ?? `${email} has been deleted`,
+        });
+        return;
+      }
+
+      toast({
+        title: 'Error',
+        description: res.data?.error ?? 'Failed to delete user',
+        variant: 'destructive',
+      });
+    } catch (error) {
+      console.error('Error deleting user:', error);
+      toast({
+        title: 'Error',
+        description: 'Failed to delete user',
         variant: 'destructive',
       });
     }
@@ -398,7 +434,10 @@ export default function UsersManagementPage() {
                                 </>
                               )}
                             </DropdownMenuItem>
-                            <DropdownMenuItem className="text-destructive">
+                            <DropdownMenuItem
+                              className="text-destructive"
+                              onClick={() => deleteUser(user.id, user.email)}
+                            >
                               <Trash2 className="mr-2 h-4 w-4" />
                               Delete User
                             </DropdownMenuItem>

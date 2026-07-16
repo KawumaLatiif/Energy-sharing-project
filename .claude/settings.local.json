@@ -28,7 +28,15 @@
       "Bash(netstat -ano)",
       "Bash(xargs grep -l \"ussd_entry\")",
       "Bash(python -m py_compile loan/services.py)",
-      "Bash(python -m py_compile loan/services.py loan/api/views.py ussd/views.py)"
+      "Bash(python -m py_compile loan/services.py loan/api/views.py ussd/views.py)",
+      "Bash(python manage.py makemigrations portal_admin --dry-run -v 2)",
+      "Bash(cd \"/d/My projects/New Nyola/Energy-sharing-project/backend\" && ls .. | grep -i venv; ls . | grep -i venv; find / -maxdepth 3 -iname \"*venv*\" 2>/dev/null)",
+      "Read(//d//**)",
+      "Bash(pg_isready -h localhost -p 5432)",
+      "Bash(powershell.exe -Command \"Get-Service -Name 'postgresql*' | Select-Object Name, Status\")",
+      "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d postgres -c '\\\\l')",
+      "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d project -c 'SELECT current_database\\(\\);')",
+      "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d metering -c 'SELECT current_database\\(\\);')"
     ]
   }
 }

@@ -753,9 +753,12 @@ class UserDetailView(APIView, RBACMixin):
 
         wallet = u.wallet_set.first()
         wallet_balance = wallet.balance if wallet else 0
-        outstanding = LoanApplication.objects.filter(
-            user=u, status__in=['ACTIVE', 'APPROVED']
-        ).aggregate(total=Sum('outstanding_balance'))['total'] or 0
+        # outstanding_balance is a computed @property (interest/penalty math), not a DB
+        # column, so it must be summed in Python rather than via .aggregate(Sum(...)).
+        outstanding = sum(
+            loan.outstanding_balance
+            for loan in LoanApplication.objects.filter(user=u, status__in=['ACTIVE', 'APPROVED'])
+        )
 
         if wallet_balance > 0 or outstanding > 0:
             return Response(
