@@ -156,7 +156,7 @@ export default function RepaymentForm({
       }
 
       const formattedPhone = formatPhoneNumber(phoneNumber);
-      const result = await repayLoanWithMomo(loan.id, parseFloat(amount), formattedPhone);
+      const result = await repayLoanWithMomo(parseFloat(amount), formattedPhone, loan.id);
 
       if (result.status === "PENDING") {
         setExternalId(result.external_id);

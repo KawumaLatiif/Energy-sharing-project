@@ -26,7 +26,7 @@ export default function MeterUnitsPanel() {
       {selectedMeter.architecture === "STS" ? (
         <GenerateTokenCard
           architecture="STS"
-          walletBalance={walletBalance}
+          unitBalance={walletBalance}
           meterNo={selectedMeter.meter_number}
           stsMeters={meters.filter((m) => m.architecture === "STS")}
           onTokenGenerated={() => {
@@ -36,7 +36,7 @@ export default function MeterUnitsPanel() {
       ) : (
         <AmiStatusCard
           meter={selectedMeter}
-          walletBalance={walletBalance}
+          unitBalance={walletBalance}
           onApplied={refreshWallet}
         />
       )}

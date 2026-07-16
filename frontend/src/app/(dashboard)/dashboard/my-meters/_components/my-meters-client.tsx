@@ -400,8 +400,8 @@ export default function MyMetersClient() {
         meter={selected}
         open={loadOpen}
         onOpenChange={setLoadOpen}
-        walletBalance={walletBalance}
-        onWalletBalanceChange={setWalletBalance}
+        unitBalance={walletBalance}
+        onunitBalanceChange={setWalletBalance}
         onSuccess={handleLoadSuccess}
       />
 

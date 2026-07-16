@@ -64,7 +64,7 @@ export default function CreditScoreModal({ isOpen, onClose }: CreditScoreModalPr
   const fetchCreditScore = async () => {
     setLoading(true);
     try {
-      const response = await get("loans/credit-score/");
+      const response = await get<CreditScoreData>("loans/credit-score/");
       if (!response.error && response.data) {
         setData(response.data);
       }
