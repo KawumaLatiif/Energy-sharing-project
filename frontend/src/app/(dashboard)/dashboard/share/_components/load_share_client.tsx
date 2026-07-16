@@ -24,19 +24,55 @@ import { cn } from "@/lib/utils";
 import LoadUnitsForm from "./load_units_form";
 import ShareForm from "./share_form";
 import { useSelectedMeter } from "@/contexts/selected-meter-context";
+import { get } from "@/lib/fetch";
 
 type Mode = "choose" | "load" | "share";
 
 export default function LoadShareClient() {
   const [mode, setMode] = useState<Mode>("choose");
-  const { meters, walletBalance, refreshWallet } = useSelectedMeter();
+  const { meters, refreshWallet } = useSelectedMeter();
   const hasMeters = meters.length > 0;
+  const [unitBalance, setUnitBalance] = useState<number | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Function to fetch unit balance
+  const fetchUnitBalance = async () => {
+    setIsLoading(true);
+    try {
+      const response = await get<any>("wallet/balance/");
+      if (!response.error && response.data?.success) {
+        // Get the unit balance from the response
+        const balance = Number(response.data.unit_balance?.balance || 0);
+        setUnitBalance(balance);
+        return balance;
+      } else {
+        console.error("Failed to fetch unit balance:", response.error);
+        setUnitBalance(0);
+        return 0;
+      }
+    } catch (error) {
+      console.error("Error fetching unit balance:", error);
+      setUnitBalance(0);
+      return 0;
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (mode === "choose") {
+      void fetchUnitBalance();
+      // Also refresh wallet context in the background
       void refreshWallet();
     }
   }, [mode, refreshWallet]);
+
+  // Refresh balance when returning from load/share
+  useEffect(() => {
+    if (mode === "choose") {
+      void fetchUnitBalance();
+    }
+  }, [mode]);
 
   if (mode === "load") {
     return <LoadUnitsForm onBack={() => setMode("choose")} />;
@@ -62,7 +98,9 @@ export default function LoadShareClient() {
         <div className="mt-5 inline-flex items-center gap-2 rounded-full border bg-muted/40 px-4 py-2 text-sm">
           <Wallet className="h-4 w-4 text-primary" />
           <span className="text-muted-foreground">Available in wallet</span>
-          <span className="font-semibold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
+          <span className="font-semibold tabular-nums">
+            {isLoading ? "..." : (unitBalance !== null ? unitBalance.toFixed(2) : "0.00")} kWh
+          </span>
         </div>
       </div>
 

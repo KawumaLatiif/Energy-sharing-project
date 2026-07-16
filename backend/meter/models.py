@@ -9,6 +9,14 @@ from django.utils import timezone
 from accounts.models import User, TimestampMixin
 
 
+def generate_numeric_token(length=10):
+    """
+    Generate a token with ONLY numbers (digits 0-9)
+    """
+    return ''.join(random.choices(string.digits, k=length))
+from accounts.models import User, TimestampMixin
+
+
 class ActiveMeterQuerySet(models.QuerySet):
     def active(self):
         return self.filter(is_deleted=False)
@@ -20,27 +28,20 @@ class ActiveMeterManager(models.Manager.from_queryset(ActiveMeterQuerySet)):
 
 
 def generate_random_string(length):
-    # Define the character set excluding 'i' and '0'
+    # Keep original for backward compatibility
     characters = string.ascii_uppercase.replace('i', '').replace('O', '') + '123456789'
-
-    # Generate the random string
     random_string = ''.join(random.choice(characters) for _ in range(length))
     return random_string
 
 
 class Meter(TimestampMixin):
     """
-    Prepaid electricity meter linked to a user account.
-    Enhanced per spec Section 4.
-
-    Architecture choices:
-      STS  — Standard Transfer Specification (IEC 62055-41): no network link.
-             Units are delivered via a 20-digit encrypted token typed on the keypad.
-             Credit-increasing transactions (PURCHASE, TRANSFER_IN, CREDIT, REFUND)
-             land in pending_units until the user generates a token to activate them.
-      AMI  — Advanced Metering Infrastructure: networked meter that receives balance
-             updates directly from the server. No token required; units apply automatically.
+    Model for ESP32 Device to store static IP and other device-related information
     """
+    meter_no = models.CharField(max_length=100, unique=True)
+    static_ip = models.GenericIPAddressField()
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='devices')
+   
     STATUS_ACTIVE = "ACTIVE"
     STATUS_INACTIVE = "INACTIVE"
     STATUS_SUSPENDED = "SUSPENDED"
@@ -271,7 +272,7 @@ class MeterUsageDaily(TimestampMixin):
         return f"{self.meter.meter_no} {self.usage_date}: {self.kwh_used} kWh"
 
 
-    
+
 class MeterToken(TimestampMixin):
     TOKEN_SOURCE_CHOICES = [
         ('PURCHASE', 'Purchase'),
@@ -298,6 +299,12 @@ class MeterToken(TimestampMixin):
         blank=True,
         related_name='share_tokens_sent'
     )
+
+    def save(self, *args, **kwargs):
+        # Ensure token only contains numbers if not already set
+        if not self.token:
+            self.token = generate_numeric_token(10)
+        super().save(*args, **kwargs)
 
     def __str__(self):
         return f"Token: {self.token} | Units: {self.units}"

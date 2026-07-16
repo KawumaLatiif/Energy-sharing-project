@@ -130,7 +130,9 @@ class MTNMoMoService:
     """Poll MoMo using the X-Reference-Id from requesttopay."""
     token = self.get_api_token()
     if not token:
-      return {"status": "FAILED", "message": "Could not get API token"}
+      # Return UNKNOWN rather than FAILED — a token error doesn't mean the
+      # payment itself failed; the caller should keep polling or retry later.
+      return {"status": "UNKNOWN", "message": "Could not get API token"}
 
     url = f"{self.base_url}/collection/v1_0/requesttopay/{reference_id}"
     headers = {

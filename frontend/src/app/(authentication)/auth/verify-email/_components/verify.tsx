@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useParams, useSearchParams } from 'next/navigation';
+import { clearAuthSession, verifyEmail } from '../../../../ck/verify/email/verify';
 import { useParams, useSearchParams, useRouter } from 'next/navigation';
 import { CheckCircle2, XCircle, Loader2, Mail } from 'lucide-react';
 import { verifyEmail } from '../../../../ck/verify/email/verify';
@@ -41,9 +43,13 @@ export default function VerifyEmail({ uid: propUid, token: propToken }: { uid?: 
     try {
       const result = await verifyEmail(uid, token);
       if (result.success) {
+        await clearAuthSession();
         setStatus('success');
         setMessage(result.message || 'Email verified successfully');
-        setTimeout(() => router.push('/auth/login'), 2000);
+        // Redirect after a delay
+        setTimeout(() => {
+          window.location.href = '/auth/login?verified=1';
+        }, 3000);
       } else {
         setStatus('error');
         setMessage(result.error || 'Invalid or expired verification link.');

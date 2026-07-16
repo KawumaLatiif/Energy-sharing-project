@@ -8,9 +8,9 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { X, Smartphone, Loader2, CheckCircle2, XCircle } from "lucide-react";
+import { X, Smartphone, Loader2, CheckCircle2, XCircle, Wallet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { repayLoanWithMomo } from "../../myloans/action";
+import { repayLoan, repayLoanWithMomo } from "../../myloans/action";
 
 interface RepaymentFormProps {
   loan: {
@@ -46,6 +46,7 @@ export default function RepaymentForm({
   const [momoStatus, setMomoStatus] = useState<
     "idle" | "pending" | "success" | "failed"
   >("idle");
+  const [paymentSource, setPaymentSource] = useState<"WALLET" | "PHONE">("PHONE");
   const [externalId, setExternalId] = useState<string | null>(null);
   const [pollingCount, setPollingCount] = useState(0);
 
@@ -79,11 +80,11 @@ export default function RepaymentForm({
       return `Amount exceeds outstanding balance of ${outstandingBalance.toLocaleString()} UGX`;
     }
     // if (paymentAmount < 1000) return "Minimum payment amount is 1,000 UGX";
-    if (!phoneNumber.trim())
+    if (paymentSource === "PHONE" && !phoneNumber.trim())
       return "Phone number is required for Mobile Money payments";
 
     const formattedPhone = formatPhoneNumber(phoneNumber);
-    if (formattedPhone.length !== 12 || !formattedPhone.startsWith("256")) {
+    if (paymentSource === "PHONE" && (formattedPhone.length !== 12 || !formattedPhone.startsWith("256"))) {
       return "Please enter a valid Ugandan phone number (e.g., 07XXXXXXXX or 2567XXXXXXXX)";
     }
 
@@ -146,12 +147,16 @@ export default function RepaymentForm({
     setPollingCount(0);
 
     try {
+      if (paymentSource === "WALLET") {
+        await repayLoan(loan.id, parseFloat(amount), "WALLET");
+        setMomoStatus("success");
+        setSuccess("Payment successful from wallet.");
+        setIsProcessing(false);
+        return;
+      }
+
       const formattedPhone = formatPhoneNumber(phoneNumber);
-      const result = await repayLoanWithMomo(
-        parseFloat(amount),
-        formattedPhone,
-        loan.id
-      );
+      const result = await repayLoanWithMomo(loan.id, parseFloat(amount), formattedPhone);
 
       if (result.status === "PENDING") {
         setExternalId(result.external_id);
@@ -223,8 +228,8 @@ export default function RepaymentForm({
 
           <CardHeader className="pb-3">
             <CardTitle className="text-lg flex items-center gap-2">
-              <Smartphone className="h-5 w-5" />
-              Mobile Money Payment - Loan {loan.loan_id}
+              {paymentSource === "PHONE" ? <Smartphone className="h-5 w-5" /> : <Wallet className="h-5 w-5" />}
+              Loan Payment - {loan.loan_id}
             </CardTitle>
             <div className="space-y-2 text-sm text-muted-foreground">
               <div className="grid grid-cols-2 gap-2 text-sm">
@@ -241,42 +246,46 @@ export default function RepaymentForm({
           </CardHeader>
 
           <CardContent className="space-y-4">
-            <div className="grid grid-cols-2 gap-2">
-              <Button
-                type="button"
-                variant={paymentMode === "full" ? "default" : "outline"}
-                onClick={() => setPaymentMode("full")}
-                disabled={isProcessing && momoStatus === "pending"}
-              >
-                Pay full amount
-              </Button>
-              <Button
-                type="button"
-                variant={paymentMode === "partial" ? "default" : "outline"}
-                onClick={() => setPaymentMode("partial")}
-                disabled={isProcessing && momoStatus === "pending"}
-              >
-                Pay partial
-              </Button>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Pay From</label>
+              <div className="grid grid-cols-2 gap-2">
+                <Button
+                  type="button"
+                  variant={paymentSource === "PHONE" ? "default" : "outline"}
+                  onClick={() => setPaymentSource("PHONE")}
+                  disabled={isProcessing && momoStatus === "pending"}
+                >
+                  Phone
+                </Button>
+                <Button
+                  type="button"
+                  variant={paymentSource === "WALLET" ? "default" : "outline"}
+                  onClick={() => setPaymentSource("WALLET")}
+                  disabled={isProcessing && momoStatus === "pending"}
+                >
+                  Wallet
+                </Button>
+              </div>
             </div>
 
-            {/* Phone Input */}
-            <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Mobile payment number
-              </label>
-              <Input
-                type="tel"
-                placeholder="07XXXXXXXX or 2567XXXXXXXX"
-                value={phoneNumber}
-                onChange={(e) => handlePhoneChange(e.target.value)}
-                className="flex-1"
-                disabled={isProcessing && momoStatus === "pending"}
-              />
-              <p className="text-xs text-muted-foreground">
-                Enter your mobile telecom service provider number. You will receive a payment prompt.
-              </p>
-            </div>
+            {paymentSource === "PHONE" && (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">
+                  MTN Mobile Money Number
+                </label>
+                <Input
+                  type="tel"
+                  placeholder="07XXXXXXXX or 2567XXXXXXXX"
+                  value={phoneNumber}
+                  onChange={(e) => handlePhoneChange(e.target.value)}
+                  className="flex-1"
+                  disabled={isProcessing && momoStatus === "pending"}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Sandbox phone payment will auto-complete.
+                </p>
+              </div>
+            )}
 
             {/* Amount Input */}
             <div className="space-y-2">

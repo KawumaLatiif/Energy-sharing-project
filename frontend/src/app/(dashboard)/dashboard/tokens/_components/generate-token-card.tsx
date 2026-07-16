@@ -19,7 +19,7 @@ import type { UserMeter } from "@/interface/meter.interface";
 
 interface GenerateTokenCardProps {
   architecture: "STS" | "AMI";
-  walletBalance: number;
+  unitBalance: number;
   meterNo?: string;
   stsMeters?: UserMeter[];
   onTokenGenerated?: () => void;
@@ -27,7 +27,7 @@ interface GenerateTokenCardProps {
 
 export default function GenerateTokenCard({
   architecture,
-  walletBalance,
+  unitBalance,
   meterNo,
   stsMeters = [],
   onTokenGenerated,
@@ -61,7 +61,7 @@ export default function GenerateTokenCard({
         <CardContent>
           <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 px-4 py-3 flex items-center justify-between">
             <span className="text-sm text-muted-foreground">Wallet balance</span>
-            <span className="font-bold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
+            <span className="font-bold tabular-nums">{unitBalance.toFixed(2)} kWh</span>
           </div>
           <p className="mt-3 text-xs text-muted-foreground">
             Balance updates may take a few minutes to reflect on the physical meter after a purchase
@@ -78,8 +78,8 @@ export default function GenerateTokenCard({
       setError("Enter a valid kWh amount.");
       return;
     }
-    if (amt > walletBalance) {
-      setError(`You only have ${walletBalance.toFixed(2)} kWh available.`);
+    if (amt > unitBalance) {
+      setError(`You only have ${unitBalance.toFixed(2)} kWh available.`);
       return;
     }
     if (!effectiveMeterNo) {
@@ -161,10 +161,10 @@ export default function GenerateTokenCard({
 
         <div className="rounded-lg border border-border bg-muted/30 px-4 py-3 flex items-center justify-between">
           <span className="text-sm text-muted-foreground">Available in wallet</span>
-          <span className="font-bold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
+          <span className="font-bold tabular-nums">{unitBalance.toFixed(2)} kWh</span>
         </div>
 
-        {walletBalance > 0 ? (
+        {unitBalance > 0 ? (
           <div className="space-y-2">
             <Label htmlFor="token-amount">kWh to load onto meter</Label>
             <div className="flex gap-2">
@@ -172,7 +172,7 @@ export default function GenerateTokenCard({
                 id="token-amount"
                 type="number"
                 min="0.01"
-                max={walletBalance}
+                max={unitBalance}
                 step="0.01"
                 placeholder="e.g. 10"
                 value={amount}

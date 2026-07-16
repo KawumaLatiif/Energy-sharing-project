@@ -12,6 +12,7 @@ from loan.models import LoanApplication, LoanRepayment
 from meter.models import Meter
 from meter.services import push_units_to_thingsboard
 from mtn_momo.services import MTNMoMoService
+from transactions.models import TransactionLog, TransactionType
 
 logger = logging.getLogger(__name__)
 
@@ -122,22 +123,36 @@ class MoMoPaymentView(APIView):
 
         try:
             from loan.models import LoanApplication, LoanRepayment
-            from meter.models import Meter
             from django.db import transaction as db_transaction
 
             with db_transaction.atomic():
                 repayment = LoanRepayment.objects.get(id=repayment_id)
                 loan = LoanApplication.objects.get(id=loan_id)
-
-                if loan.tariff:
-                    units_equivalent = loan.calculate_units_from_amount(amount)
-                else:
-                    units_equivalent = amount / 500
+                
 
                 repayment.payment_status = 'SUCCESS'
-                repayment.units_paid = round(units_equivalent, 2)
+                repayment.units_paid = 0
                 repayment.momo_transaction_id = f"SANDBOX_{external_id}"
                 repayment.save()
+
+                TransactionLog.objects.create(
+                    user=loan.user,
+                    transaction_type=TransactionType.LOAN_REPAYMENT,
+                    amount=amount,
+                    units=0,
+                    status='COMPLETED',
+                    reference_id=loan.loan_id,
+                    details={
+                        'payment_reference': repayment.payment_reference,
+                        'payment_source': 'PHONE',
+                        'momo_external_id': external_id,
+                        'sandbox': True,
+                    }
+                )
+
+                logger.info(f"Sandbox: Loan payment completed. Loan: {loan.loan_id}, Amount: {amount}")
+                
+                # Check if loan is fully paid
 
                 meter = Meter.objects.get(user=loan.user)
                 meter.units += repayment.units_paid
@@ -343,7 +358,6 @@ class PaymentStatusView(APIView):
                 return Response({
                     "payment_status": repayment.payment_status,
                     "amount": float(repayment.amount_paid),
-                    "units_added": repayment.units_paid,
                     "transaction_id": repayment.momo_transaction_id,
                     "note": "Simulated mode: status updates automatically after a few seconds",
                 })
@@ -373,15 +387,22 @@ class PaymentStatusView(APIView):
                 repayment.payment_status = 'SUCCESS'
                 repayment.momo_transaction_id = status_result.get('transaction_id')
 
-                # Calculate units
-                if repayment.loan.tariff:
-                    units_equivalent = repayment.loan.calculate_units_from_amount(float(repayment.amount_paid))
-                else:
-                    units_equivalent = float(repayment.amount_paid) / 500
-
-                repayment.units_paid = round(units_equivalent, 2)
+                repayment.units_paid = 0
                 repayment.save()
 
+                TransactionLog.objects.create(
+                    user=repayment.loan.user,
+                    transaction_type=TransactionType.LOAN_REPAYMENT,
+                    amount=repayment.amount_paid,
+                    units=0,
+                    status='COMPLETED',
+                    reference_id=repayment.loan.loan_id,
+                    details={
+                        'payment_reference': repayment.payment_reference,
+                        'payment_source': 'PHONE',
+                        'momo_external_id': external_id,
+                    }
+                )
                 # Add units to meter
                 meter = Meter.objects.get(user=repayment.loan.user)
                 meter.units += units_equivalent
@@ -410,7 +431,6 @@ class PaymentStatusView(APIView):
         return Response({
             "payment_status": repayment.payment_status,
             "amount": float(repayment.amount_paid),
-            "units_added": repayment.units_paid,
             "transaction_id": repayment.momo_transaction_id,
             "outstanding_balance": repayment.loan.outstanding_balance,
             "loan_status": repayment.loan.status,

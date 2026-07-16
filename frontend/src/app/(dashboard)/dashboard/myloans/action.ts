@@ -4,11 +4,35 @@ import { getErrorMessage } from "@/lib/errors";
 import { post } from "@/lib/fetch";
 import { getApiErrorMessage } from "@/lib/api-response";
 
-export async function repayLoan(loanId: number, amount: number) {
+export async function disburseLoan(loanId: number) {
+  try {
+    console.log('Disbursing loan:', loanId);
+    
+    const response = await post<any>(`loans/disburse/${loanId}/`, {});
+    
+    if (response.error) {
+      console.error('Disbursement error response:', response.error);
+      
+      if (response.status === 401) {
+        throw new Error('Authentication expired. Please log in again.');
+      }
+      throw new Error(getApiErrorMessage(response.error, 'Failed to disburse loan'));
+    }
+
+    console.log('Disbursement success:', response.data);
+    return response.data;
+    
+  } catch (error) {
+    console.error('Disbursement error:', error);
+    throw new Error(getErrorMessage(error));
+  }
+}
+
+export async function repayLoan(loanId: number, amount: number, paymentSource: "WALLET" | "PHONE" = "WALLET") {
   try {
     console.log('Repaying loan:', loanId, 'Amount:', amount);
     
-    const response = await post<any>(`loans/repay/${loanId}/`, { amount });
+    const response = await post<any>(`loans/repay/${loanId}/`, { amount, payment_source: paymentSource });
     
     if (response.error) {
       console.error('Repayment error response:', response.error);

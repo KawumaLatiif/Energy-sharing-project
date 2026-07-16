@@ -1,3 +1,4 @@
+import random
 from types import SimpleNamespace
 
 from django.db.utils import OperationalError, ProgrammingError
@@ -148,6 +149,32 @@ def sync_credit_signal_from_profile(user) -> UserCreditSignal | SimpleNamespace 
         return SimpleNamespace(**values)
 
 
+# def get_or_create_credit_signal(user):
+#     """
+#     Build credit signals from profile data when available; otherwise use neutral defaults.
+#     Always re-syncs from the user record when the loan assessment is complete.
+#     """
+#     if profile_scoring_fields_complete(user):
+#         synced = sync_credit_signal_from_profile(user)
+#         if synced is not None:
+#             return synced
+
+#     values = derive_signal_values_from_user(user)
+#     try:
+#         signal, created = UserCreditSignal.objects.get_or_create(user=user, defaults=values)
+#         if not created and signal.source == "DUMMY_THIRD_PARTY":
+#             for key, value in values.items():
+#                 setattr(signal, key, value)
+#             signal.save(update_fields=list(values.keys()) + ["updated_at"])
+#     'financial_capacity': {
+#         'weights': {'income_stability': 0.4, 'expense_buffer': 0.35, 'repayment_capacity': 0.25},
+#         'scores': {
+#             'STRONG':  {'income_stability': 95, 'expense_buffer': 90, 'repayment_capacity': 90},
+#             'AVERAGE': {'income_stability': 75, 'expense_buffer': 70, 'repayment_capacity': 65},
+#             'WEAK':    {'income_stability': 45, 'expense_buffer': 40, 'repayment_capacity': 35},
+#         }
+#     }
+
 def get_or_create_credit_signal(user):
     """
     Build credit signals from profile data when available; otherwise use neutral defaults.
@@ -165,6 +192,33 @@ def get_or_create_credit_signal(user):
             for key, value in values.items():
                 setattr(signal, key, value)
             signal.save(update_fields=list(values.keys()) + ["updated_at"])
+        return signal
+    except (OperationalError, ProgrammingError):
+        return SimpleNamespace(**values)
+
+
+# Backwards-compatible alias
+get_or_create_dummy_credit_signal = get_or_create_credit_signal
+
+def get_or_create_dummy_credit_signal(user):
+    """
+    Simulate third-party enrichment.
+    Creates one persistent dummy signal record per user when missing.
+    Now uses more realistic values for new users (FAIR/MODERATE/AVERAGE)
+    """
+    defaults = {
+        'payment_history': random.choice(['GOOD', 'FAIR', 'FAIR', 'POOR']),  # Weighted towards FAIR
+        'energy_consumption': random.choice(['STABLE', 'MODERATE', 'MODERATE', 'ERRATIC']),  # Weighted towards MODERATE
+        'financial_capacity': random.choice(['STRONG', 'AVERAGE', 'AVERAGE', 'WEAK']),  # Weighted towards AVERAGE
+        'source': 'DUMMY_THIRD_PARTY',
+    }
+    
+    try:
+        signal, created = UserCreditSignal.objects.get_or_create(user=user, defaults=defaults)
+        if created:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.info(f"Created new credit signal for user {user.email}: {signal.payment_history}, {signal.energy_consumption}, {signal.financial_capacity}")
         return signal
     except (OperationalError, ProgrammingError):
         return SimpleNamespace(**values)
@@ -218,4 +272,7 @@ def calculate_weighted_credit_score(signal):
         factor_scores.get(factor, 0) * weight for factor, weight in FACTOR_WEIGHTS.items()
     )
     total_weight = sum(FACTOR_WEIGHTS.values()) or 1
-    return round(weighted_total / total_weight)
+    score = round(weighted_total / total_weight)
+    
+    # Ensure score is between 0 and 100
+    return max(0, min(100, score))

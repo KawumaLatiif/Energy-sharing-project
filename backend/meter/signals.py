@@ -4,14 +4,13 @@ from decimal import Decimal
 from django.db import transaction
 from .models import Meter
 from wallet.models import Wallet, MeterBalance
-from accounts.models import User
 
 @receiver(post_save, sender=Meter)
 def sync_meter_to_balance(sender, instance, **kwargs):
     """
     Keep MeterBalance in sync with Meter.units without mutating the user's
-    wallet balance. The wallet balance represents available units/credits
-    and is managed by wallet transactions (purchases, loans, sharing).
+    wallet balance. The wallet balance represents money and is managed by
+    deposit, withdrawal, purchase, and repayment transactions.
     Overwriting it here with the sum of meter balances caused double
     deductions when units were shared to a meter.
     """

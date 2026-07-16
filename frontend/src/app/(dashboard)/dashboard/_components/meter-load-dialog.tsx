@@ -36,9 +36,9 @@ interface MeterLoadDialogProps {
   meter: UserMeter | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  walletBalance: number;
+  unitBalance: number;
   initialAmount?: number;
-  onWalletBalanceChange?: (balance: number) => void;
+  onunitBalanceChange?: (balance: number) => void;
   onSuccess?: (result?: AmiLoadSuccessResult) => void;
 }
 
@@ -46,9 +46,9 @@ export default function MeterLoadDialog({
   meter,
   open,
   onOpenChange,
-  walletBalance,
+  unitBalance,
   initialAmount,
-  onWalletBalanceChange,
+  onunitBalanceChange,
   onSuccess,
 }: MeterLoadDialogProps) {
   const [amount, setAmount] = useState("1");
@@ -87,8 +87,8 @@ export default function MeterLoadDialog({
       setError("Enter a valid kWh amount.");
       return;
     }
-    if (parsedAmount > walletBalance) {
-      setError(`Insufficient wallet balance. Available: ${walletBalance.toFixed(2)} kWh.`);
+    if (parsedAmount > unitBalance) {
+      setError(`Insufficient wallet balance. Available: ${unitBalance.toFixed(2)} kWh.`);
       return;
     }
     setStep("confirm");
@@ -117,7 +117,7 @@ export default function MeterLoadDialog({
               res.data.delivery_status === "pending" ? "pending" : "delivered",
             message: res.data.message ?? "Units loaded successfully.",
           };
-          onWalletBalanceChange?.(result.remaining_wallet_balance);
+          onunitBalanceChange?.(result.remaining_wallet_balance);
           setAmiResult(result);
           setStep("ami-success");
           onSuccess?.(result);
@@ -144,7 +144,7 @@ export default function MeterLoadDialog({
             units: Number(res.data.units) || parsedAmount,
             remaining: Number(res.data.remaining_balance) || 0,
           });
-          onWalletBalanceChange?.(Number(res.data.remaining_balance) || 0);
+          onunitBalanceChange?.(Number(res.data.remaining_balance) || 0);
           setStep("token");
           onSuccess?.();
         } else {
@@ -278,7 +278,7 @@ export default function MeterLoadDialog({
               <DetailRow
                 icon={<Wallet className="h-4 w-4" />}
                 label="Wallet after"
-                value={`${Math.max(0, walletBalance - parsedAmount).toFixed(2)} kWh`}
+                value={`${Math.max(0, unitBalance - parsedAmount).toFixed(2)} kWh`}
               />
             </div>
             <FormError message={error} />
@@ -311,7 +311,7 @@ export default function MeterLoadDialog({
             </DialogHeader>
             <div className="flex items-center justify-between rounded-lg border bg-muted/30 px-4 py-3 text-sm">
               <span className="text-muted-foreground">Wallet balance</span>
-              <span className="font-semibold tabular-nums">{walletBalance.toFixed(2)} kWh</span>
+              <span className="font-semibold tabular-nums">{unitBalance.toFixed(2)} kWh</span>
             </div>
             <div className="space-y-2">
               <label htmlFor="load-amount" className="text-sm font-medium">
@@ -322,7 +322,7 @@ export default function MeterLoadDialog({
                 type="number"
                 min="0.01"
                 step="0.01"
-                max={walletBalance}
+                max={unitBalance}
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
               />
@@ -334,7 +334,7 @@ export default function MeterLoadDialog({
               </Button>
               <Button
                 onClick={handleReview}
-                disabled={walletBalance <= 0}
+                disabled={unitBalance <= 0}
                 className="gpawa-gradient text-white"
               >
                 Review

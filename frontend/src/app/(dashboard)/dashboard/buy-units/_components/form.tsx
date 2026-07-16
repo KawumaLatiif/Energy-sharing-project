@@ -101,7 +101,7 @@ function buildEstimateRows(estimate: UnitEstimate, grossAmount: number) {
 }
 
 export default function BuyUnitsForm() {
-  const formatter = formatCurrency("USD");
+  const formatter = formatCurrency("UGX");
   const [error, setError] = useState<string | undefined>("");
   const [success, setSuccess] = useState("");
   const [token, setToken] = useState("");
@@ -137,8 +137,9 @@ export default function BuyUnitsForm() {
 
   const form = useForm<z.infer<typeof BuyUnitSchema>>({
     resolver: zodResolver(BuyUnitSchema),
-    defaultValues: { amount: 0, phone_number: "" },
+    defaultValues: { amount: 0, phone_number: "", payment_source: "PHONE" },
   } as any);
+  const paymentSource = form.watch("payment_source");
 
   useEffect(() => {
     if (paymentStatus === "success") {
@@ -228,15 +229,27 @@ export default function BuyUnitsForm() {
     }
   }, []);
 
-  // Polling
+  // Polling — stops after 25 attempts (~75 s) and surfaces a timeout error
+  const MAX_POLL_ATTEMPTS = 25;
   useEffect(() => {
     if (paymentStatus === "pending" && transactionId) {
       let mounted = true;
       let timeoutId: NodeJS.Timeout;
+      let attempts = 0;
 
       const poll = async () => {
         if (!mounted) return;
+
+        if (attempts >= MAX_POLL_ATTEMPTS) {
+          setPaymentStatus("failed");
+          setError(
+            "Payment is taking longer than expected. If your phone received a MoMo prompt and you approved it, please contact support with your transaction reference."
+          );
+          return;
+        }
+
         const complete = await checkStatus(transactionId);
+        attempts += 1;
 
         if (!complete && mounted) {
           setPollingCount((prev) => prev + 1);
@@ -307,7 +320,7 @@ export default function BuyUnitsForm() {
           setToken(responseData.token || "");
           setTransactionDetails(responseData.transaction || responseData || null);
           setSuccess(
-            "Payment initiated successfully!, check your phone to complete the payment"
+            responseData.message || "Payment completed and token generated."
           );
         }
       } catch {
@@ -341,7 +354,7 @@ export default function BuyUnitsForm() {
                 Payment Successful!
               </DialogTitle>
               <DialogDescription className="text-muted-foreground">
-                Units have been successfully purchased
+                A meter token has been generated for your purchase
               </DialogDescription>
             </DialogHeader>
 
@@ -494,28 +507,42 @@ export default function BuyUnitsForm() {
           </div>
         )}
 
-        {loanBlocked && (
-          <Alert className="mb-4 border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20">
-            <XCircle className="h-4 w-4 text-red-600 dark:text-red-400" />
-            <AlertTitle className="text-red-800 dark:text-red-300">
-              Loan Payment Required
-            </AlertTitle>
-            <AlertDescription className="text-red-700 dark:text-red-400">
-              {loanBlockMessage}
-              <div className="mt-3">
-                <Button asChild size="sm" variant="outline">
-                  <Link href="/dashboard/myloans">Go to Loans</Link>
-                </Button>
-              </div>
-            </AlertDescription>
-          </Alert>
-        )}
-
         {/* --- FORM --- */}
-        <div className={loanBlocked ? "opacity-50 pointer-events-none" : ""}>
+        <div>
           <Form {...form}>
             <form className="space-y-6">
               <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="payment_source"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel className="text-foreground">Pay From</FormLabel>
+                      <FormControl>
+                        <div className="grid grid-cols-2 gap-2">
+                          <Button
+                            type="button"
+                            variant={field.value === "PHONE" ? "default" : "outline"}
+                            onClick={() => field.onChange("PHONE")}
+                            disabled={isPending || paymentStatus === "pending"}
+                          >
+                            Phone
+                          </Button>
+                          <Button
+                            type="button"
+                            variant={field.value === "WALLET" ? "default" : "outline"}
+                            onClick={() => field.onChange("WALLET")}
+                            disabled={isPending || paymentStatus === "pending"}
+                          >
+                            Wallet
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="amount"

@@ -15,7 +15,7 @@ interface TokensPageClientProps {
 
 export default function TokensPageClient({ initialTokens }: TokensPageClientProps) {
   const { selectedMeter, meters, isLoading } = useSelectedMeter();
-  const [walletBalance, setWalletBalance] = useState(0);
+  const [unitBalance, setUnitBalance] = useState(0);
   const [tokens, setTokens] = useState(initialTokens);
 
   useEffect(() => {
@@ -23,13 +23,14 @@ export default function TokensPageClient({ initialTokens }: TokensPageClientProp
       try {
         const res = await get<any>("wallet/balance");
         if (!res.error && res.data?.success) {
+          // Get unit_balance.balance for units (kWh)
           const bal = parseFloat(
-            res.data?.wallet?.balance ?? res.data?.wallet_balance ?? "0"
+            res.data?.unit_balance?.balance ?? res.data?.unit_balance ?? "0"
           );
-          setWalletBalance(Number.isFinite(bal) ? bal : 0);
+          setUnitBalance(Number.isFinite(bal) ? bal : 0);
         }
       } catch {
-        setWalletBalance(0);
+        setUnitBalance(0);
       }
     }
     loadWallet();
@@ -39,10 +40,11 @@ export default function TokensPageClient({ initialTokens }: TokensPageClientProp
     try {
       const res = await get<any>("wallet/balance");
       if (!res.error && res.data?.success) {
+        // Get unit_balance.balance for units (kWh)
         const bal = parseFloat(
-          res.data?.wallet?.balance ?? res.data?.wallet_balance ?? "0"
+          res.data?.unit_balance?.balance ?? res.data?.unit_balance ?? "0"
         );
-        setWalletBalance(Number.isFinite(bal) ? bal : 0);
+        setUnitBalance(Number.isFinite(bal) ? bal : 0);
       }
     } catch {
       /* keep current balance */
@@ -88,14 +90,15 @@ export default function TokensPageClient({ initialTokens }: TokensPageClientProp
           {selectedMeter.architecture === "STS" ? (
             <GenerateTokenCard
               architecture="STS"
-              walletBalance={walletBalance}
+              unitBalance={unitBalance}
               meterNo={selectedMeter.meter_number}
               stsMeters={meters.filter((m) => m.architecture === "STS")}
+              onTokenGenerated={refreshWallet}
             />
           ) : (
             <AmiStatusCard
               meter={selectedMeter}
-              walletBalance={walletBalance}
+              unitBalance={unitBalance}
               onApplied={refreshWallet}
             />
           )}

@@ -183,6 +183,54 @@ export default function LoanList({ loans }: LoanListProps) {
     };
   };
 
+  const handleDisburseLoan = async (loan: Loan) => {
+    if (!canDisburse(loan)) {
+      setErrorMessage('Loan cannot be accepted at this time');
+      return;
+    }
+
+    try {
+      console.log('Starting acceptance for loan:', loan.id);
+      setSuccessMessage('Accepting loan...');
+
+      const data = await disburseLoan(loan.id);
+      console.log('Acceptment response:', data);
+
+      handleDisbursementSuccess(data);
+      setSuccessMessage('Loan accepted successfully! A meter token has been generated.');
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 3000);
+
+    } catch (error: any) {
+      console.error('Disbursement error:', error);
+
+      if (error.message.includes('Authentication') || error.message.includes('login')) {
+        setErrorMessage('Your session has expired. Please log in again.');
+        setTimeout(() => {
+          window.location.href = '/auth/login';
+        }, 2000);
+      } else {
+        setErrorMessage(error.message || 'An error occurred while accepting the loan.');
+      }
+    }
+  };
+
+  const handleDisbursementSuccess = (data: { token?: string; units_added?: number } | any) => {
+    console.log('Disbursement success data:', data);
+    const token = data.token || data.disbursement_token || '';
+    const units = data.units_added || data.units_disbursed || 0;
+
+    if (token) {
+      setDisbursementData({ token, units });
+      setShowTokenPopup(true);
+    } else {
+      setDisbursementData(null);
+      setShowTokenPopup(false);
+    }
+  };
+
   // Clear messages after 5 seconds
   useEffect(() => {
     if (successMessage) {
@@ -209,8 +257,8 @@ export default function LoanList({ loans }: LoanListProps) {
     const status = getLoanStatus(loan);
     const explanations: Record<string, string> = {
       'PENDING': 'Your loan application is under review',
-      'APPROVED': "Loan approved! We're crediting your units now - if they don't arrive shortly, contact support.",
-      'DISBURSED': 'Electricity units have been added to your meter. You can now make repayments',
+      'APPROVED': 'Loan approved! Click "Accept Loan" to generate your meter token',
+      'DISBURSED': 'A meter token has been generated. You can now make repayments',
       'COMPLETED': 'Loan has been fully repaid - Thank you!',
       'REJECTED': 'Your loan application was not approved',
       'DEFAULTED': 'Loan repayment is overdue',

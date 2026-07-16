@@ -197,9 +197,9 @@ BASE_URL = get_env_variable("BASE_URL", "http://localhost:8000/api/v1")
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': get_env_variable('DB_NAME', 'metering'),
+        'NAME': get_env_variable('DB_NAME', 'project'),
         'USER': get_env_variable('DB_USER', 'postgres'),
-        'PASSWORD': get_env_variable('DB_PASSWORD', 'Phaneroo1'),
+        'PASSWORD': get_env_variable('DB_PASSWORD', 'postgres'),
         'HOST': get_env_variable('DB_HOST', 'localhost'),
         'PORT': get_env_variable('DB_PORT', 5432, cast=int),
         "ATOMIC_REQUESTS": True,

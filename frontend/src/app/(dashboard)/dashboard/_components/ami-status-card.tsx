@@ -15,7 +15,7 @@ import type { UserMeter } from "@/interface/meter.interface";
 
 interface AmiStatusCardProps {
   meter: UserMeter;
-  walletBalance: number;
+  unitBalance: number;  // Changed from walletBalance to unitBalance
   onApplied?: () => void;
 }
 
@@ -27,7 +27,7 @@ interface AmiStatus {
 
 export default function AmiStatusCard({
   meter,
-  walletBalance,
+  unitBalance,  // Changed from walletBalance to unitBalance
   onApplied,
 }: AmiStatusCardProps) {
   const [status, setStatus] = useState<AmiStatus | null>(null);
@@ -36,12 +36,12 @@ export default function AmiStatusCard({
   const [amount, setAmount] = useState("");
   const [isApplying, setIsApplying] = useState(false);
   const [applyMessage, setApplyMessage] = useState("");
-  const [localWalletBalance, setLocalWalletBalance] = useState(walletBalance);
+  const [localUnitBalance, setLocalUnitBalance] = useState(unitBalance);  // Changed from localWalletBalance
   const [localMeterBalance, setLocalMeterBalance] = useState(meter.units);
 
   useEffect(() => {
-    setLocalWalletBalance(walletBalance);
-  }, [walletBalance]);
+    setLocalUnitBalance(unitBalance);  // Changed from localWalletBalance
+  }, [unitBalance]);
 
   useEffect(() => {
     setLocalMeterBalance(meter.units);
@@ -85,8 +85,8 @@ export default function AmiStatusCard({
         );
       }
 
-      if (!statusRes.error && typeof statusRes.data?.wallet_balance === "number") {
-        setLocalWalletBalance(statusRes.data.wallet_balance);
+      if (!statusRes.error && typeof statusRes.data?.unit_balance === "number") {
+        setLocalUnitBalance(statusRes.data.unit_balance);  // Changed from wallet_balance
       }
     } catch {
       setStatus({
@@ -110,8 +110,8 @@ export default function AmiStatusCard({
       setError("Enter a valid kWh amount.");
       return;
     }
-    if (amt > localWalletBalance) {
-      setError(`You only have ${localWalletBalance.toFixed(2)} kWh in your wallet.`);
+    if (amt > localUnitBalance) {  // Changed from localWalletBalance
+      setError(`You only have ${localUnitBalance.toFixed(2)} kWh in your wallet.`);  // Changed from localWalletBalance
       return;
     }
 
@@ -143,7 +143,7 @@ export default function AmiStatusCard({
       const ledger = Number(data.meter_balance) || 0;
 
       setApplyMessage(data.message || "Units applied to your AMI meter.");
-      setLocalWalletBalance(walletRem);
+      setLocalUnitBalance(walletRem);  // Changed from localWalletBalance
       setLocalMeterBalance(ledger);
 
       if (live != null && Number.isFinite(live)) {
@@ -198,9 +198,9 @@ export default function AmiStatusCard({
             <p className="text-xl font-bold tabular-nums mt-1">{balance.toFixed(2)} kWh</p>
           </div>
           <div className="rounded-lg border border-blue-200 dark:border-blue-800 bg-white dark:bg-slate-900 px-4 py-3">
-            <span className="text-sm text-muted-foreground">Wallet balance</span>
+            <span className="text-sm text-muted-foreground">Unit balance (wallet)</span>
             <p className="text-xl font-bold tabular-nums mt-1">
-              {localWalletBalance.toFixed(2)} kWh
+              {localUnitBalance.toFixed(2)} kWh
             </p>
           </div>
         </div>
@@ -223,7 +223,7 @@ export default function AmiStatusCard({
           <p className="text-xs text-muted-foreground font-mono">IP: {meter.static_ip}</p>
         )}
 
-        {localWalletBalance > 0 ? (
+        {localUnitBalance > 0 ? (
           <div className="space-y-2">
             <Label htmlFor="ami-apply-amount">kWh to load from wallet</Label>
             <div className="flex gap-2">
@@ -231,7 +231,7 @@ export default function AmiStatusCard({
                 id="ami-apply-amount"
                 type="number"
                 min="0.01"
-                max={localWalletBalance}
+                max={localUnitBalance}
                 step="0.01"
                 placeholder="e.g. 10"
                 value={amount}

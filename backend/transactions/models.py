@@ -63,6 +63,8 @@ class Transaction(TimestampMixin):
         return f"{self.transaction_id} - {self.wallet}"
 
 class TransactionType(models.TextChoices):
+    WALLET_DEPOSIT = 'WALLET_DEPOSIT', _('Wallet Deposit')
+    WALLET_WITHDRAWAL = 'WALLET_WITHDRAWAL', _('Wallet Withdrawal')
     LOAN_APPLICATION = 'LOAN_APPLICATION', _('Loan Application')
     LOAN_APPROVAL = 'LOAN_APPROVAL', _('Loan Approval')
     LOAN_DISBURSEMENT = 'LOAN_DISBURSEMENT', _('Loan Disbursement')

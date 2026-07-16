@@ -214,10 +214,19 @@ export const TransferSchema = z.object({
 });
 
 export const BuyUnitSchema = z.object({
-  phone_number: z.string().refine(validator.isMobilePhone),
+  phone_number: z.string().optional().default(""),
   amount: z.coerce
     .number()
     .min(1, { message: "Minimum deposit amount is Ugx. 5000" }),
+  payment_source: z.enum(["WALLET", "PHONE"]).default("PHONE"),
+}).superRefine((data, ctx) => {
+  if (data.payment_source === "PHONE" && !validator.isMobilePhone(data.phone_number || "")) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["phone_number"],
+      message: "Please enter a valid phone number",
+    });
+  }
 });
 
 export const EditProfileSchema = z.object({

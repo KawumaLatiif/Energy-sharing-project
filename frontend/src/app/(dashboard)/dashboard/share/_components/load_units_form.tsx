@@ -43,10 +43,11 @@ interface LoadUnitsFormProps {
 }
 
 export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
-  const { meters, walletBalance, refreshWallet, isLoading } = useSelectedMeter();
+  const { meters, refreshWallet, isLoading } = useSelectedMeter();
   const [selectedMeter, setSelectedMeter] = useState<UserMeter | null>(meters[0] ?? null);
   const [loadOpen, setLoadOpen] = useState(false);
   const [reviewAmount, setReviewAmount] = useState<number | undefined>();
+  const [unitBalance, setUnitBalance] = useState<number | null>(null);
 
   const form = useForm<LoadFormValues>({
     resolver: zodResolver(LoadSchema),
@@ -58,7 +59,16 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
   }, [meters]);
 
   useEffect(() => {
-    void refreshWallet();
+    // Assuming refreshWallet updates the unit balance
+    const fetchBalance = async () => {
+      const result = await refreshWallet();
+      // If refreshWallet returns the balance, set it here
+      // Otherwise, you might need to fetch it separately
+      if (typeof result === 'number') {
+        setUnitBalance(result);
+      }
+    };
+    fetchBalance();
   }, [refreshWallet]);
 
   if (!meters.length) {
@@ -81,9 +91,17 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
   }
 
   const handleSubmit = (data: LoadFormValues) => {
-    if (data.units > walletBalance) {
+    // Fix: Check if unitBalance is null
+    if (unitBalance === null) {
       form.setError("units", {
-        message: `Insufficient wallet balance. Available: ${walletBalance.toFixed(2)} kWh.`,
+        message: "Unable to fetch wallet balance. Please try again.",
+      });
+      return;
+    }
+
+    if (data.units > unitBalance) {
+      form.setError("units", {
+        message: `Insufficient wallet balance. Available: ${unitBalance.toFixed(2)} kWh.`,
       });
       return;
     }
@@ -113,7 +131,8 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
             Wallet balance
           </span>
           <span className="font-bold tabular-nums">
-            {isLoading ? "…" : `${walletBalance.toFixed(2)} kWh`}
+            {/* Fix: Handle null case */}
+            {isLoading || unitBalance === null ? "…" : `${unitBalance.toFixed(2)} kWh`}
           </span>
         </div>
 
@@ -152,13 +171,14 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
                       type="number"
                       min="0.01"
                       step="0.01"
-                      max={walletBalance}
+                      max={unitBalance || undefined}
                       {...field}
                       onChange={(e) => field.onChange(parseFloat(e.target.value) || 0)}
                     />
                   </FormControl>
                   <p className="text-xs text-muted-foreground">
-                    Max: {walletBalance.toFixed(2)} kWh (wallet)
+                    {/* Fix: Handle null case */}
+                    Max: {unitBalance !== null ? unitBalance.toFixed(2) : "0.00"} kWh (wallet)
                   </p>
                   <FormMessage />
                 </FormItem>
@@ -167,7 +187,8 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
 
             <Button
               type="submit"
-              disabled={isLoading || walletBalance <= 0 || !selectedMeter}
+              // Fix: Check for null in disabled condition
+              disabled={isLoading || unitBalance === null || unitBalance <= 0 || !selectedMeter}
               className="w-full gpawa-gradient text-white"
             >
               Review & load
@@ -180,9 +201,9 @@ export default function LoadUnitsForm({ onBack }: LoadUnitsFormProps) {
         meter={selectedMeter}
         open={loadOpen}
         onOpenChange={setLoadOpen}
-        walletBalance={walletBalance}
+        unitBalance={unitBalance || 0} // Provide fallback value
         initialAmount={reviewAmount}
-        onWalletBalanceChange={() => {
+        onunitBalanceChange={() => {
           void refreshWallet();
         }}
         onSuccess={() => {

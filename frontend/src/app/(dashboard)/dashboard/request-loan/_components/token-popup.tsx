@@ -50,7 +50,7 @@ export default function TokenPopup({ token, units, onClose }: TokenPopupProps) {
               <Zap className="h-6 w-6 text-green-600" />
             </div>
             <div>
-              <h2 className="text-xl font-bold text-foreground">Units Loaded!</h2>
+              <h2 className="text-xl font-bold text-foreground">Token Generated</h2>
               <p className="text-sm text-muted-foreground">Your loan has been disbursed</p>
             </div>
           </div>
@@ -59,7 +59,7 @@ export default function TokenPopup({ token, units, onClose }: TokenPopupProps) {
           <div className="p-6 space-y-4">
             <div className="text-center">
               <div className="text-4xl font-bold text-green-600 mb-2">{units}</div>
-              <p className="text-sm text-muted-foreground">Units added to your meter</p>
+              <p className="text-sm text-muted-foreground">Units available through this token</p>
             </div>
 
             <div className="bg-muted/50 p-4 rounded-lg border">

@@ -1,4 +1,12 @@
+# meter/urls.py - Add the new endpoint
+
 from django.urls import path
+from .views import (
+    BuyUnitsView, 
+    CheckPaymentStatusView, 
+    MeterRegisterView,
+    LoadTokenToMeterView,
+)
 
 from .views import (
     ActivateReceivedUnitsView,
@@ -14,8 +22,10 @@ from .views import (
     SendUnitsView,
     TokenView,
     update_meter,
+    check_user_meter,
     delete_user_meter,
 )
+
 from meter.api import views
 
 
@@ -28,13 +38,14 @@ urlpatterns = [
     path('test-meter-push/', MeterPushTestView.as_view(), name="test-meter-push"),
     path('admin-test-meter-push/', AdminMeterPushTestView.as_view(), name="admin-test-meter-push"),
     path('register/', MeterRegisterView.as_view(), name='register-meter'),
-    path('my-meter/', views.check_user_meter, name='check-user-meter'),
+    path('my-meter/', check_user_meter, name='check-user-meter'),
     path('ami-status/', views.ami_meter_status, name='ami-meter-status'),
     path('thingsboard-health/', views.thingsboard_health, name='thingsboard-health'),
     path('check-units/', views.check_meter_units, name='check-meter-units'),
     path('ledger-history/', views.meter_ledger_history, name='meter-ledger-history'),
     path('notifications/', views.meter_notifications, name='meter-notifications'),
     path('update/', update_meter, name='update-meter'),
+    path('load-token/', LoadTokenToMeterView.as_view(), name='load-token'),  # New endpoint
     path('delete/', delete_user_meter, name='delete-meter'),
     # STS: generate token for pending (received/shared) units
     path('activate-received-units/', ActivateReceivedUnitsView.as_view(), name='activate-received-units'),
@@ -46,4 +57,3 @@ urlpatterns = [
     # Estimate kWh yield for a given UGX amount (no side effects)
     path('estimate-units/', EstimateUnitsView.as_view(), name='estimate-units'),
 ]
-
