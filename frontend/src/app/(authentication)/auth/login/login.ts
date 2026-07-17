@@ -22,6 +22,20 @@ export const login = async (
       }),
     });
 
+    const contentType = res.headers.get("content-type");
+    if (!contentType?.includes("application/json")) {
+      const text = await res.text();
+      console.error(
+        `Login Error: non-JSON response from ${API_URL}/auth/login/ (status ${res.status}):`,
+        text.slice(0, 500)
+      );
+      return {
+        error: "SERVER_ERROR",
+        message:
+          "The API server returned an unexpected response. It may be down, misconfigured, or unreachable through the reverse proxy.",
+      };
+    }
+
     const parsedRes = await res.json();
 
     if (res.status === 400) {
