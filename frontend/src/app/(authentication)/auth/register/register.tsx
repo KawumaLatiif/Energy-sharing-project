@@ -10,6 +10,17 @@ export default async function createUser(data: z.infer<typeof createAccountSchem
     const { error } = await post("auth/register/", data);
 
     if(error){
+      if (typeof error !== "string") {
+        const emailError = error.email;
+        const emailMsg = Array.isArray(emailError) ? emailError[0] : emailError;
+        if (typeof emailMsg === "string" && emailMsg.toLowerCase().includes("already registered")) {
+          return {
+            error: "EMAIL_ALREADY_REGISTERED",
+            message: emailMsg,
+            email: data.email,
+          };
+        }
+      }
       return { error: getApiErrorMessage(error, "Registration failed") }
     }
 

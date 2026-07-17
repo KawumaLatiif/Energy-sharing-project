@@ -30,6 +30,7 @@ import { Button } from "@/components/ui/button";
 import { FormError } from "@/components/common/form-error";
 import { FormSuccess } from "@/components/common/form-success";
 import createAccount from "../register";
+import { resendVerificationEmail } from "../../resend";
 import CardWrapper from "@/components/common/card-wrapper";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -47,6 +48,9 @@ export default function RegisterForm() {
   const [redirectNote, setRedirectNote] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [showResend, setShowResend] = useState(false);
+  const [emailForResend, setEmailForResend] = useState("");
+  const [isResending, setIsResending] = useState(false);
 
   const form = useForm<z.infer<typeof createAccountSchema>>({
     resolver: zodResolver(createAccountSchema),
@@ -65,9 +69,16 @@ export default function RegisterForm() {
     setError('');
     setSuccess("");
     setRedirectNote("");
+    setShowResend(false);
     startTransition(async () => {
       const data = await createAccount(values);
       if (data?.error) {
+        if (data.error === "EMAIL_ALREADY_REGISTERED") {
+          setError((data as any).message || "This email is already registered.");
+          setEmailForResend((data as any).email || values.email);
+          setShowResend(true);
+          return;
+        }
         setError(getApiErrorMessage(data.error, "Registration failed"));
         return;
       }
@@ -80,6 +91,23 @@ export default function RegisterForm() {
         router.push("/auth/login");
       }, 2500);
     });
+  }
+
+  async function handleResendVerification() {
+    if (!emailForResend) return;
+    setIsResending(true);
+    try {
+      const result = await resendVerificationEmail(emailForResend);
+      if (result.success) {
+        setError('');
+        setSuccess(result.message || 'Verification email sent. Please check your inbox.');
+        setShowResend(false);
+      } else {
+        setError(result.error || 'Failed to resend verification email');
+      }
+    } finally {
+      setIsResending(false);
+    }
   }
 
   return (
@@ -297,6 +325,18 @@ export default function RegisterForm() {
           </form>
         </Form>
 
+        {error && showResend && (
+          <div className="mt-3">
+            <Button
+              onClick={handleResendVerification}
+              disabled={isResending}
+              className="ml-2 text-blue-600"
+              variant="link"
+            >
+              {isResending ? 'Sending…' : 'Resend verification email'}
+            </Button>
+          </div>
+        )}
       </CardWrapper>
     </>
   )
