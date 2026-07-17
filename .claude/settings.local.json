@@ -36,7 +36,10 @@
       "Bash(powershell.exe -Command \"Get-Service -Name 'postgresql*' | Select-Object Name, Status\")",
       "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d postgres -c '\\\\l')",
       "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d project -c 'SELECT current_database\\(\\);')",
-      "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d metering -c 'SELECT current_database\\(\\);')"
+      "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d metering -c 'SELECT current_database\\(\\);')",
+      "Bash(rm -rf .next)",
+      "Bash(npm run *)",
+      "Bash(printf '%s\\\\n' 'systemctl list-units --type=service | grep -i energy' '# once you have the name:' 'sudo systemctl restart <service-name>' '# then re-test:' 'curl -i -X POST https://energy-share.sun.ac.ug/api/v1/auth/login/ -H '\\\\''Content-Type: application/json'\\\\'' -d '\\\\''{\"email\":\"test@example.com\",\"password\":\"x\"}'\\\\''')"
     ]
   }
 }
