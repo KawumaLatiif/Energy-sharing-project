@@ -14,7 +14,7 @@ def sync_meter_to_balance(sender, instance, **kwargs):
     Overwriting it here with the sum of meter balances caused double
     deductions when units were shared to a meter.
     """
-    if instance.pk:  # Skip on create if no units yet
+    if instance.pk and instance.user_id:  # Skip on create if no units yet, or if unlinked (e.g. soft-deleted)
         with transaction.atomic():
             user = instance.user
             Wallet.objects.select_for_update().get_or_create(user=user)

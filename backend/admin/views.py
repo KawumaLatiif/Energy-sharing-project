@@ -771,30 +771,65 @@ class UserDetailView(APIView, RBACMixin):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        from meter.lifecycle import MeterDeleteError, release_meter_from_account
+        from meter.models import DeletedMeterRecord
+
         reason = request.data.get('reason', '')
         original_email = u.email
         original_phone = str(u.phone_number) if u.phone_number else None
 
-        # Free up the email/phone for re-registration, same as meter soft-delete
-        # frees up meter_no — the original values are preserved in the audit log.
-        u.email = f"deleted+{u.pk}+{original_email}"
-        u.phone_number = None
-        u.is_suspended = True
-        u.account_is_active = False
-        u.suspension_reason = 'Deleted by admin'
-        u.suspension_note = reason
-        u.suspended_at = timezone.now()
-        u.save()
+        with transaction.atomic():
+            # Cascade: release every meter still linked to this account (frees the
+            # meter_no for reuse — same as MeterDeleteView) before disabling the user.
+            released_meters = []
+            for m in Meter.objects.filter(user=u):
+                try:
+                    record = release_meter_from_account(
+                        m,
+                        deleted_by=request.user,
+                        deleted_by_role=DeletedMeterRecord.ROLE_ADMIN,
+                        reason=f"Linked user account deleted by admin: {reason}".strip(': '),
+                        metadata={"channel": "ADMIN", "cascade_from": "user_delete"},
+                    )
+                except MeterDeleteError as exc:
+                    return Response({"error": f"Failed to release meter {m.meter_no}: {exc}"}, status=status.HTTP_400_BAD_REQUEST)
 
-        _write_audit(
-            request,
-            action_type=AuditLog.ACTION_USER_DELETE,
-            target_type=AuditLog.TARGET_USER,
-            target_id=u.id,
-            target_repr=original_email,
-            details={"reason": reason, "email": original_email, "phone_number": original_phone},
-            notes=reason,
-        )
+                released_meters.append(record.original_meter_no)
+                _write_audit(
+                    request,
+                    action_type=AuditLog.ACTION_METER_DELETE,
+                    target_type=AuditLog.TARGET_METER,
+                    target_id=m.id,
+                    target_repr=record.original_meter_no,
+                    details={"deletion_record_id": record.id, "cascade_from": "user_delete", "user_id": u.id},
+                    notes=reason,
+                )
+
+            # Free up the email/phone for re-registration, same as meter soft-delete
+            # frees up meter_no — the original values are preserved in the audit log.
+            u.email = f"deleted+{u.pk}+{original_email}"
+            u.phone_number = None
+            u.is_suspended = True
+            u.account_is_active = False
+            u.suspension_reason = 'Deleted by admin'
+            u.suspension_note = reason
+            u.suspended_at = timezone.now()
+            u.save()
+
+            _write_audit(
+                request,
+                action_type=AuditLog.ACTION_USER_DELETE,
+                target_type=AuditLog.TARGET_USER,
+                target_id=u.id,
+                target_repr=original_email,
+                details={
+                    "reason": reason,
+                    "email": original_email,
+                    "phone_number": original_phone,
+                    "released_meters": released_meters,
+                },
+                notes=reason,
+            )
 
         return Response({"success": True, "message": "User account deleted"})
 
