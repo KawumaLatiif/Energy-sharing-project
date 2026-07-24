@@ -39,7 +39,13 @@
       "Bash(PGPASSWORD=Phaneroo1 '/c/Program Files/PostgreSQL/17/bin/psql.exe' -h 127.0.0.1 -p 5432 -U postgres -d metering -c 'SELECT current_database\\(\\);')",
       "Bash(rm -rf .next)",
       "Bash(npm run *)",
-      "Bash(printf '%s\\\\n' 'systemctl list-units --type=service | grep -i energy' '# once you have the name:' 'sudo systemctl restart <service-name>' '# then re-test:' 'curl -i -X POST https://energy-share.sun.ac.ug/api/v1/auth/login/ -H '\\\\''Content-Type: application/json'\\\\'' -d '\\\\''{\"email\":\"test@example.com\",\"password\":\"x\"}'\\\\''')"
+      "Bash(printf '%s\\\\n' 'systemctl list-units --type=service | grep -i energy' '# once you have the name:' 'sudo systemctl restart <service-name>' '# then re-test:' 'curl -i -X POST https://energy-share.sun.ac.ug/api/v1/auth/login/ -H '\\\\''Content-Type: application/json'\\\\'' -d '\\\\''{\"email\":\"test@example.com\",\"password\":\"x\"}'\\\\''')",
+      "Bash(python3 -c \"import uuid; print\\(uuid.uuid4\\(\\)\\)\")",
+      "Bash(python -c \"import uuid; print\\(uuid.uuid4\\(\\)\\)\")",
+      "Bash(curl -sS -i -X POST https://sandbox.momodeveloper.mtn.com/v1_0/apiuser -H 'X-Reference-Id: 21f6fcb7-60a3-4be9-9229-a5686a9bf729' -H 'Ocp-Apim-Subscription-Key: 53f2480e7f044952913fb487b49858c1' -H 'Content-Type: application/json' -d '{\"providerCallbackHost\": \"https://energy-share.sun.ac.ug\"}')",
+      "Bash(curl -sS -i -X GET https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/21f6fcb7-60a3-4be9-9229-a5686a9bf729 -H 'Ocp-Apim-Subscription-Key: 53f2480e7f044952913fb487b49858c1')",
+      "Bash(curl -sS -i -X POST https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/21f6fcb7-60a3-4be9-9229-a5686a9bf729/apikey -H 'Ocp-Apim-Subscription-Key: 53f2480e7f044952913fb487b49858c1')",
+      "Bash(curl -sS -i -X POST https://sandbox.momodeveloper.mtn.com/v1_0/apiuser/21f6fcb7-60a3-4be9-9229-a5686a9bf729/apikey -H 'Ocp-Apim-Subscription-Key: 53f2480e7f044952913fb487b49858c1' -d '')"
     ]
   }
 }

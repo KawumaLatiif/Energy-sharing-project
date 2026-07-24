@@ -11,7 +11,7 @@ from meter.models import generate_random_string
 from transactions.models import Transaction, TransactionType, UnitTransaction
 from transactions.services import record_transaction_log
 from utils.billing import calculate_units_from_payment, get_active_domestic_tariff
-from wallet.models import Wallet as UnitWallet
+from wallet.models import UnitBalance
 
 logger = logging.getLogger(__name__)
 
@@ -109,9 +109,12 @@ def complete_buy_units_payment(user, amount_decimal, transaction_id, meter_id, c
       )
       units_purchased, tariff = _calculate_units_from_tariff(amount_for_units, user)
 
-      unit_wallet, _ = UnitWallet.objects.get_or_create(user=user)
-      unit_wallet.balance += units_purchased
-      unit_wallet.save()
+      unit_balance, _ = UnitBalance.objects.get_or_create(user=user)
+      unit_balance.add_units(
+        units_purchased,
+        description=f"Purchased {units_purchased} units via mobile money",
+        reference=transaction.transaction_reference or f"BUY-{transaction.id}",
+      )
 
       transaction.status = "COMPLETED"
       transaction.message = (

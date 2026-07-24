@@ -70,7 +70,36 @@ export default function DashboardClient({
     setIsCreditScoreOpen(true);
   };
 
-  if (currentStep === 'loading' || !userConfig) {
+  // userConfig failing to load is a fetch error, not a transient loading state —
+  // it never resolves on its own (nothing re-fetches it client-side), so it needs
+  // its own recoverable UI instead of sitting behind the same spinner forever.
+  if (!userConfig) {
+    return (
+      <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
+        <DesktopSidebar />
+        <div className="flex min-w-0 flex-col overflow-x-hidden">
+          <RightHeader />
+          <main className="flex min-w-0 flex-1 flex-col gap-4 p-4 lg:gap-6 lg:p-6">
+            <div className="flex justify-center items-center h-64">
+              <div className="text-center">
+                <p className="mb-4 text-muted-foreground">
+                  Couldn&apos;t load your dashboard. This is usually temporary.
+                </p>
+                <button
+                  onClick={() => router.refresh()}
+                  className="px-4 py-2 text-sm bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          </main>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentStep === 'loading') {
     return (
       <div className="grid min-h-screen w-full md:grid-cols-[220px_1fr] lg:grid-cols-[280px_1fr]">
         <DesktopSidebar />

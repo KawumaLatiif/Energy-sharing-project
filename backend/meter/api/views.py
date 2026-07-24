@@ -2109,7 +2109,7 @@ class CheckPaymentStatusView(GenericAPIView):
                     "units_purchased": units_purchased,
                     "token": token,
                     "wallet_balance": float(
-                        UnitWallet.objects.filter(user=request.user)
+                        UnitBalance.objects.filter(user=request.user)
                         .values_list("balance", flat=True)
                         .first()
                         or 0
@@ -2177,7 +2177,7 @@ class CheckPaymentStatusView(GenericAPIView):
                         "message": "Payment completed successfully",
                         "units_purchased": units_purchased,
                         "wallet_balance": float(
-                            UnitWallet.objects.filter(user=request.user)
+                            UnitBalance.objects.filter(user=request.user)
                             .values_list("balance", flat=True)
                             .first()
                             or 0
